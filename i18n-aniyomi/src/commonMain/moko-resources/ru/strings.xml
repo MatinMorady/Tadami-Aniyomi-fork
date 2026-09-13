@@ -1354,7 +1354,7 @@
     <string name="aurora_greeting_italic">Курсив для приветствия</string>
     <string name="aurora_recently_watched">Недавно просмотренные</string>
     <string name="aurora_open_source">Открыть источник</string>
-    <string name="aurora_episode_progress">Эпизод %d</string>
+    <string name="aurora_episode_progress">Эпизод %s</string>
     <string name="aurora_tap_to_change">Нажмите для изменения</string>
     <string name="aurora_nothing_to_continue">Нечего продолжать</string>
     <string name="aurora_add_anime_to_library">Добавьте аниме в библиотеку, чтобы увидеть их здесь</string>
@@ -1711,7 +1711,7 @@
     <string name="aurora_browse_sources">Включить репозиторий</string>
     <string name="aurora_add_extension">Добавить расширение</string>
     <string name="aurora_tap_to_change">Нажмите, чтобы изменить</string>
-    <string name="aurora_episode_progress">Эпизод %d</string>
+    <string name="aurora_episode_progress">Эпизод %s</string>
     
     <!-- Anime Detail Screen -->
     <string name="aurora_rating">РЕЙТИНГ</string>
@@ -1733,7 +1733,7 @@
     <string name="aurora_hero_cta_chapter">%d гл.</string>
     <string name="aurora_episode_progress_format">%1$d/%2$d Эпизодов</string>
     <string name="aurora_chapter_progress_format">%1$d/%2$d Глав</string>
-    <string name="aurora_chapter_progress">Глава %d</string>
+    <string name="aurora_chapter_progress">Глава %s</string>
     <string name="aurora_progress">ПРОГРЕСС</string>
     <string name="aurora_select_dubbing">Выбрать озвучку</string>
     <string name="aurora_no_description">Нет описания</string>

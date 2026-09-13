@@ -23,6 +23,8 @@ import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
+import eu.kanade.presentation.util.formatChapterNumber
+import eu.kanade.presentation.util.formatEpisodeNumber
 import eu.kanade.tachiyomi.ui.home.HomeHubSection
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -111,7 +113,7 @@ internal fun HistoryRow(
                         coverData = item.coverData,
                         subtitle = stringResource(
                             progressLabelRes,
-                            formatProgressNumber(item.progressNumber),
+                            formatProgressNumber(section, item.progressNumber),
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
@@ -138,7 +140,7 @@ internal fun HistoryRow(
                         coverData = item.coverData,
                         subtitle = stringResource(
                             progressLabelRes,
-                            formatProgressNumber(item.progressNumber),
+                            formatProgressNumber(section, item.progressNumber),
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
@@ -283,10 +285,9 @@ internal fun RecommendationsGrid(
     }
 }
 
-private fun formatProgressNumber(number: Double): String {
-    return if (number % 1.0 == 0.0) {
-        number.toInt().toString()
-    } else {
-        number.toString()
+internal fun formatProgressNumber(section: HomeHubSection, number: Double): String {
+    return when (section) {
+        HomeHubSection.Anime -> formatEpisodeNumber(number)
+        HomeHubSection.Manga, HomeHubSection.Novel -> formatChapterNumber(number)
     }
 }

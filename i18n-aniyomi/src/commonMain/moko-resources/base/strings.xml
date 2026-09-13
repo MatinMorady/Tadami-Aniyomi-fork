@@ -1703,7 +1703,7 @@
     <string name="aurora_greeting_italic">Italic greeting</string>
     <string name="aurora_recently_watched">Recently Watched</string>
     <string name="aurora_open_source">Open Source</string>
-    <string name="aurora_episode_progress">Episode %d</string>
+    <string name="aurora_episode_progress">Episode %s</string>
     <string name="aurora_tap_to_change">Tap to change</string>
     <string name="aurora_nothing_to_continue">Nothing to continue watching</string>
     <string name="aurora_add_anime_to_library">Add some anime to your library to see them here</string>
@@ -2060,7 +2060,7 @@
     <string name="aurora_browse_sources">Connect repository</string>
     <string name="aurora_add_extension">Add Extension</string>
     <string name="aurora_tap_to_change">Tap to change</string>
-    <string name="aurora_episode_progress">Episode %d</string>
+    <string name="aurora_episode_progress">Episode %s</string>
 
     <!-- Anime Detail Screen -->
     <string name="aurora_rating">RATING</string>
@@ -2083,7 +2083,7 @@
     <string name="aurora_hero_cta_chapter">%d Ch.</string>
     <string name="aurora_episode_progress_format">%1$d/%2$d Episode</string>
     <string name="aurora_chapter_progress_format">%1$d/%2$d Chapter</string>
-    <string name="aurora_chapter_progress">Chapter %d</string>
+    <string name="aurora_chapter_progress">Chapter %s</string>
     <string name="aurora_progress">PROGRESS</string>
     <string name="aurora_select_dubbing">Select Dubbing</string>
     <string name="aurora_no_description">No description</string>

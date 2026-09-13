@@ -43,6 +43,8 @@ import eu.kanade.presentation.theme.TachiyomiPreviewTheme
 import eu.kanade.presentation.track.components.TrackLogoIcon
 import eu.kanade.presentation.track.manga.TrackDetailsItem
 import eu.kanade.presentation.track.manga.TrackInfoItemMenu
+import eu.kanade.presentation.track.trackProgressText
+import eu.kanade.presentation.util.formatEpisodeNumber
 import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.Tracker
 import eu.kanade.tachiyomi.ui.entries.anime.track.AnimeTrackItem
@@ -85,15 +87,12 @@ fun AnimeTrackInfoDialogHome(
                     tracker = item.tracker,
                     status = (item.tracker as? AnimeTracker)?.getStatusForAnime(item.track.status),
                     onStatusClick = { onStatusClick(item) },
-                    episodes = "${item.track.lastEpisodeSeen.toInt()}".let {
-                        val totalEpisodes = item.track.totalEpisodes
-                        if (totalEpisodes > 0) {
-                            // Add known total episode count
-                            "$it / $totalEpisodes"
-                        } else {
-                            it
-                        }
-                    },
+                    episodes = trackProgressText(
+                        ordinal = item.lastReadOrdinal,
+                        lastRead = item.track.lastEpisodeSeen,
+                        total = item.track.totalEpisodes,
+                        format = ::formatEpisodeNumber,
+                    ),
                     onEpisodesClick = { onEpisodeClick(item) },
                     score = item.tracker.animeService.displayScore(item.track)
                         .takeIf { supportsScoring && item.track.score != 0.0 },

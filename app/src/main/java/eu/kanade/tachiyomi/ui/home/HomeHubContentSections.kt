@@ -311,7 +311,10 @@ internal fun HeroSection(
                 Spacer(Modifier.width(8.dp))
                 if (isEInkMode) {
                     OutlinedHeroText(
-                        text = stringResource(actionSpec.progressLabelRes, hero.progressNumber.toInt()),
+                        text = stringResource(
+                            actionSpec.progressLabelRes,
+                            formatProgressNumber(section, hero.progressNumber),
+                        ),
                         baseStyle = TextStyle(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
@@ -325,7 +328,7 @@ internal fun HeroSection(
                     )
                 } else {
                     Text(
-                        stringResource(actionSpec.progressLabelRes, hero.progressNumber.toInt()),
+                        stringResource(actionSpec.progressLabelRes, formatProgressNumber(section, hero.progressNumber)),
                         color = Color.White.copy(alpha = 0.92f),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,

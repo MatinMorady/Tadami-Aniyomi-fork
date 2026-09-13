@@ -49,6 +49,7 @@ import eu.kanade.presentation.track.TrackScoreSelector
 import eu.kanade.presentation.track.TrackStatusSelector
 import eu.kanade.presentation.track.manga.MangaTrackInfoDialogHome
 import eu.kanade.presentation.track.manga.MangaTrackerSearch
+import eu.kanade.presentation.track.resolveReadOrdinal
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.track.DeletableMangaTracker
 import eu.kanade.tachiyomi.data.track.EnhancedMangaTracker
@@ -61,10 +62,13 @@ import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -76,6 +80,8 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.manga.interactor.GetManga
+import tachiyomi.domain.items.chapter.interactor.GetChaptersByMangaId
+import tachiyomi.domain.items.novelchapter.interactor.GetNovelChapters
 import tachiyomi.domain.source.manga.service.MangaSourceManager
 import tachiyomi.domain.track.manga.interactor.DeleteMangaTrack
 import tachiyomi.domain.track.manga.interactor.GetMangaTracks
@@ -135,6 +141,7 @@ data class MangaTrackInfoDialogHomeScreen(
                         track = it.track!!,
                         serviceId = it.tracker.id,
                         isNovelEntry = isNovelEntry,
+                        initialOrdinal = it.lastReadOrdinal,
                     ),
                 )
             },
@@ -223,21 +230,40 @@ data class MangaTrackInfoDialogHomeScreen(
         private val getNovelTracks: GetNovelTracks = Injekt.get(),
     ) : ScreenModel {
 
-        val state: StateFlow<Model.State> = (
+        private val itemNumbersFlow: Flow<List<Double>> = flow {
+            emit(withIOContext { loadItemNumbers() })
+        }
+
+        val state: StateFlow<Model.State> = combine(
             if (isNovelEntry) {
                 getNovelTracks.subscribe(mangaId)
                     .map { it.mapNovelToTrackItem() }
             } else {
                 getTracks.subscribe(mangaId)
                     .map { it.mapToTrackItem() }
-            }
-            )
+            },
+            itemNumbersFlow,
+        ) { trackItems, numbers ->
+            State(trackItems = trackItems.withReadOrdinal(numbers))
+        }
             .catch { logcat(LogPriority.ERROR, it) }
             .distinctUntilChanged()
-            .map { trackItems ->
-                State(trackItems = trackItems)
-            }
             .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), State())
+
+        private suspend fun loadItemNumbers(): List<Double> {
+            return if (isNovelEntry) {
+                Injekt.get<GetNovelChapters>().await(mangaId).map { it.chapterNumber }
+            } else {
+                Injekt.get<GetChaptersByMangaId>().await(mangaId).map { it.chapterNumber }
+            }
+        }
+
+        private fun List<MangaTrackItem>.withReadOrdinal(numbers: List<Double>): List<MangaTrackItem> {
+            return map { item ->
+                val track = item.track ?: return@map item
+                item.copy(lastReadOrdinal = resolveReadOrdinal(numbers, track.lastChapterRead))
+            }
+        }
 
         init {
             screenModelScope.launch {
@@ -391,6 +417,7 @@ private data class TrackChapterSelectorScreen(
     private val track: DbMangaTrack,
     private val serviceId: Long,
     private val isNovelEntry: Boolean = false,
+    private val initialOrdinal: Int? = null,
 ) : Screen() {
 
     @Composable
@@ -401,6 +428,7 @@ private data class TrackChapterSelectorScreen(
                 track = track,
                 tracker = Injekt.get<TrackerManager>().get(serviceId)!!,
                 isNovelEntry = isNovelEntry,
+                initialOrdinal = initialOrdinal,
             )
         }
         val state by screenModel.state.collectAsStateWithLifecycle()
@@ -422,7 +450,8 @@ private data class TrackChapterSelectorScreen(
         private val track: DbMangaTrack,
         private val tracker: Tracker,
         private val isNovelEntry: Boolean,
-    ) : StateScreenModel<Model.State>(State(track.lastChapterRead.toInt())) {
+        private val initialOrdinal: Int? = null,
+    ) : StateScreenModel<Model.State>(State(initialOrdinal ?: track.lastChapterRead.toInt())) {
 
         fun getRange(): Iterable<Int> {
             val endRange = if (track.totalChapters > 0) {
