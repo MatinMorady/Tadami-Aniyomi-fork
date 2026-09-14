@@ -11,13 +11,13 @@ android {
         // Override to run macrobenchmarks:
         //   ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest -PbenchRules=Macrobenchmark
         testInstrumentationRunnerArguments["androidx.benchmark.enabledRules"] =
-            (properties["benchRules"] as String?) ?: "BaselineProfile"
+            providers.gradleProperty("benchRules").getOrElse("BaselineProfile")
         // Chapter under test for ReaderScrollBenchmark (it skips itself when absent):
         //   -PbenchMangaId=<id> -PbenchChapterId=<id>
-        (properties["benchMangaId"] as String?)?.let {
+        providers.gradleProperty("benchMangaId").orNull?.let {
             testInstrumentationRunnerArguments["benchMangaId"] = it
         }
-        (properties["benchChapterId"] as String?)?.let {
+        providers.gradleProperty("benchChapterId").orNull?.let {
             testInstrumentationRunnerArguments["benchChapterId"] = it
         }
     }
