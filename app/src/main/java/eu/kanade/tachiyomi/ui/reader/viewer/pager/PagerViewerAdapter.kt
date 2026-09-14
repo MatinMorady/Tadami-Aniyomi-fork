@@ -26,9 +26,18 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
         private set
 
     /**
-     * Holds preprocessed items so they don't get removed when changing chapter
+     * Holds preprocessed items so they don't get removed when changing chapter. Keyed by
+     * (chapter id, page index): an index-only key let an InsertPage detected in the embedded
+     * next-chapter pages be inserted into a DIFFERENT chapter after a jump, yanking the reader
+     * back through loadNewChapter.
      */
-    private var preprocessed: MutableMap<Int, InsertPage> = mutableMapOf()
+    private var preprocessed: MutableMap<Pair<Long?, Int>, InsertPage> = mutableMapOf()
+
+    /**
+     * When true, [getItemPosition] reports POSITION_NONE for every view so notifyDataSetChanged
+     * recreates all holders in place (config refresh) without re-assigning the adapter.
+     */
+    var forceRecreateAll = false
 
     var nextTransition: ChapterTransition.Next? = null
         private set
@@ -95,15 +104,17 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
 
             val lastPage = pages.last()
 
-            // Insert preprocessed pages into current page list
-            preprocessed.keys.sortedDescending()
-                .forEach { key ->
-                    if (lastPage.index == key) {
-                        insertPageLastPage = preprocessed[key]
+            // Insert preprocessed pages into current page list (same chapter only)
+            val currChapterId = chapters.currChapter.chapter.id
+            preprocessed.keys.sortedByDescending { it.second }
+                .forEach { (chapterId, index) ->
+                    if (chapterId != currChapterId) return@forEach
+                    if (lastPage.index == index) {
+                        insertPageLastPage = preprocessed[chapterId to index]
                     }
-                    preprocessed[key]?.let {
-                        if (key + 1 <= pages.size) {
-                            pages.add(key + 1, it)
+                    preprocessed[chapterId to index]?.let {
+                        if (index + 1 <= pages.size) {
+                            pages.add(index + 1, it)
                         }
                     }
                 }
@@ -151,9 +162,6 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
             }
         }
 
-        // Resets double-page splits, else insert pages get misplaced
-        items.filterIsInstance<InsertPage>().also { items.removeAll(it) }
-
         if (viewer is R2LPagerViewer) {
             newItems.reverse()
         }
@@ -191,6 +199,9 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
      * Returns the current position of the given [view] on the adapter.
      */
     override fun getItemPosition(view: Any): Int {
+        if (forceRecreateAll) {
+            return POSITION_NONE
+        }
         if (view is PositionableView) {
             val position = items.indexOf(view.item)
             if (position != -1) {
@@ -209,9 +220,14 @@ class PagerViewerAdapter(private val viewer: PagerViewer) : ViewPagerAdapter() {
 
         // Put aside preprocessed pages for next chapter so they don't get removed when changing chapter
         if (currentPage.chapter.chapter.id != currentChapter?.chapter?.id) {
-            preprocessed[newPage.index] = newPage
+            preprocessed[currentPage.chapter.chapter.id to newPage.index] = newPage
             return
         }
+
+        // The page is not a direct adapter item (e.g. a half of a JoinedReaderPage spread): the
+        // old code computed placeAtIndex from -1, inserting garbage at position 0 (L2R/Vertical)
+        // or crashing on items[-1] (R2L, swallowed into an error page).
+        if (currentIndex == -1) return
 
         val placeAtIndex = when (viewer) {
             is L2RPagerViewer,

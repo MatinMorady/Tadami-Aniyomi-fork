@@ -456,9 +456,13 @@ class EpubReader(private val reader: ArchiveReader) : Closeable by reader {
         val packagePath = getPackageHref()
         val packageBasePath = getParentDirectory(packagePath)
 
+        // The existence probe must close the stream it opens: ArchiveInputStream holds a native
+        // libarchive handle with no finalizer, so leaking one per call exhausted native memory.
+        val directEntryPath = pathPart.takeIf { it.isNotBlank() }
+            ?.let { part -> getInputStream(part)?.use { part } }
         val entryPath = when {
             pathPart.isBlank() -> packagePath
-            getInputStream(pathPart) != null -> pathPart
+            directEntryPath != null -> pathPart
             else -> resolveZipPath(packageBasePath, pathPart)
         }
 

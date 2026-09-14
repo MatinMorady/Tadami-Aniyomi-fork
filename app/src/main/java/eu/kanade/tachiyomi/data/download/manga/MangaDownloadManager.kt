@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.data.download.engine.DownloadTelemetryEmitter
 import eu.kanade.tachiyomi.data.download.manga.model.MangaDownload
 import eu.kanade.tachiyomi.source.MangaSource
 import eu.kanade.tachiyomi.source.model.Page
+import eu.kanade.tachiyomi.util.lang.compareToCaseInsensitiveNaturalOrder
 import eu.kanade.tachiyomi.util.size
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
@@ -220,7 +221,11 @@ class MangaDownloadManager(
         if (files.isEmpty()) {
             throw Exception(context.stringResource(MR.strings.page_list_empty_error))
         }
-        return files.sortedBy { it.name }
+        // Natural order, matching DirectoryPageLoader: a lexicographic sort opened downloaded
+        // chapters with unpadded file names ("10.jpg" before "2.jpg") in the wrong page order.
+        return files.sortedWith { f1, f2 ->
+            f1.name.orEmpty().compareToCaseInsensitiveNaturalOrder(f2.name.orEmpty())
+        }
             .mapIndexed { i, file ->
                 Page(i, uri = file.uri).apply { status = Page.State.READY }
             }

@@ -20,11 +20,14 @@ class WebtoonLayoutManager(context: Context, private val extraLayoutSpace: Int) 
     }
 
     /**
-     * Returns the custom extra layout space.
+     * Reserves the extra layout space on BOTH sides of the viewport. The deprecated
+     * [getExtraLayoutSpace] compat path in LinearLayoutManager assigns the returned space only to
+     * the current scroll direction, so on a direction change the opposite side had zero extra
+     * space and its holders were recycled immediately - scrolling back then paid a full re-decode.
      */
-    @Deprecated("Deprecated in Java")
-    override fun getExtraLayoutSpace(state: RecyclerView.State): Int {
-        return extraLayoutSpace
+    override fun calculateExtraLayoutSpace(state: RecyclerView.State, extraLayoutSpace: IntArray) {
+        extraLayoutSpace[0] = this.extraLayoutSpace
+        extraLayoutSpace[1] = this.extraLayoutSpace
     }
 
     /**

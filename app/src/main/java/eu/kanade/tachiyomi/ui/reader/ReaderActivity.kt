@@ -45,6 +45,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -175,6 +176,9 @@ class ReaderActivity : BaseActivity() {
     lateinit var binding: ReaderActivityBinding
 
     val viewModel by viewModels<ReaderViewModel>()
+
+    // Written from an IO coroutine (setChapters), read on the main thread (share/open actions).
+    @Volatile
     private var assistUrl: String? = null
     private var seriesId: Long? = null
 
@@ -553,6 +557,12 @@ class ReaderActivity : BaseActivity() {
                             ReadingMode.fromPreference(viewModel.getMangaReadingMode())
                         },
                     )
+                }
+                // The screen model is created outside Voyager's ScreenModelStore, so nothing else
+                // ever disposes it: its owned scope would keep collecting viewModel.state for the
+                // lifetime of the process, leaking this activity's whole graph.
+                DisposableEffect(settingsScreenModel) {
+                    onDispose { settingsScreenModel.onDispose() }
                 }
 
                 if (!ifMangaSourcesLoaded()) {
@@ -1013,8 +1023,6 @@ class ReaderActivity : BaseActivity() {
 
         loadingIndicator = ReaderProgressIndicator(this)
         binding.readerContainer.addView(loadingIndicator)
-
-        startPostponedEnterTransition()
     }
 
     private fun openMangaScreen() {
@@ -1443,14 +1451,20 @@ class ReaderActivity : BaseActivity() {
         /**
          * Sets the custom brightness overlay according to [enabled].
          */
+        private var customBrightnessJob: Job? = null
+
         private fun setCustomBrightness(enabled: Boolean) {
-            if (enabled) {
+            // Cancel the previous collector: every enable used to start a NEW sample(100)
+            // collector in lifecycleScope, and they accumulated for the activity's lifetime.
+            customBrightnessJob?.cancel()
+            customBrightnessJob = if (enabled) {
                 readerPreferences.customBrightnessValue().changes()
                     .sample(100)
                     .onEach(::setCustomBrightnessValue)
                     .launchIn(lifecycleScope)
             } else {
                 setCustomBrightnessValue(0)
+                null
             }
         }
 

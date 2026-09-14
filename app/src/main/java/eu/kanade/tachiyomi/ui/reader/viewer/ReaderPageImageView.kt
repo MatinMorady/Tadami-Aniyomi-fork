@@ -79,6 +79,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     private var scope: CoroutineScope? = null
     private var smartFitJob: Job? = null
+    private var landscapeZoomRunnable: Runnable? = null
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -95,6 +96,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
         scope = null
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelLandscapeZoom()
+    }
+
+    private fun cancelLandscapeZoom() {
+        landscapeZoomRunnable?.let { handler?.removeCallbacks(it) }
+        landscapeZoomRunnable = null
     }
 
     var onImageLoaded: (() -> Unit)? = null
@@ -158,7 +165,11 @@ open class ReaderPageImageView @JvmOverloads constructor(
             sWidth > sHeight &&
             scale == minScale
         ) {
-            handler?.postDelayed(500) {
+            // Track the delayed runnable: a stale callback firing after a fast page flip or a
+            // detach used to zoom the wrong/recycled view.
+            cancelLandscapeZoom()
+            val runnable = Runnable {
+                landscapeZoomRunnable = null
                 val point = when (config!!.zoomStartPosition) {
                     ZoomStartPosition.LEFT -> if (forward) {
                         PointF(0F, 0F)
@@ -186,6 +197,8 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     .withInterruptible(true)
                     .start()
             }
+            landscapeZoomRunnable = runnable
+            handler?.postDelayed(runnable, 500)
         }
     }
 
@@ -218,6 +231,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
     fun recycle() {
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelLandscapeZoom()
         pageView?.let {
             when (it) {
                 is SubsamplingScaleImageView -> it.recycle()

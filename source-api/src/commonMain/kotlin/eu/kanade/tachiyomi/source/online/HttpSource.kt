@@ -533,10 +533,11 @@ abstract class HttpSource : CatalogueSource {
                     val nextUrl = fetchImageUrl(nextPage).awaitSingle()
                     nextPage.imageUrl = nextUrl
                 }
-                val imageUrl = nextPage.imageUrl
-                if (imageUrl != null && nextPage.status != Page.State.READY) {
-                    client.newCall(GET(imageUrl, headers)).awaitSuccess().close()
-                }
+                // The image body is deliberately NOT downloaded here. The reader fetches images
+                // through a cacheless client (newCachelessCallWithProgress), so these bytes were
+                // never reused - every page could be downloaded 2-3 times concurrently, competing
+                // with the visible page for bandwidth. HttpPageLoader's own priority preload
+                // (which writes into ChapterCache) covers neighbour warming.
             } catch (e: Exception) {
                 // Ignore prefetch failures
             }

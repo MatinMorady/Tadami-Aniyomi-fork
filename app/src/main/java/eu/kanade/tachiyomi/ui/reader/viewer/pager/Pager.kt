@@ -4,6 +4,9 @@ import android.content.Context
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
 import androidx.viewpager.widget.DirectionalViewPager
 import eu.kanade.tachiyomi.ui.reader.viewer.GestureDetectorWithLongTap
 
@@ -55,14 +58,43 @@ open class Pager(
     private var isGestureDetectorEnabled = true
 
     /**
+     * Set on ACTION_DOWN when the touch landed on a real button inside a page (Retry /
+     * Open in WebView in the error and transition layouts). The gesture detector used to be fed
+     * unconditionally, so such a tap fired BOTH the button click and the tap-zone action
+     * (menu toggle / page turn). SSIV is intentionally not matched here: it carries a click
+     * listener but tap zones over the image must keep working.
+     */
+    private var downOnButtonChild = false
+
+    /**
      * Dispatches a touch event.
      */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            // ev.x/y are viewport coordinates; children are laid out in content coordinates
+            // (the pager's own scroll offset positions the pages), so add scrollX/scrollY.
+            downOnButtonChild = isOnButtonChild(this, ev.x + scrollX, ev.y + scrollY)
+        }
         val handled = super.dispatchTouchEvent(ev)
-        if (isGestureDetectorEnabled) {
+        if (isGestureDetectorEnabled && !downOnButtonChild) {
             gestureDetector.onTouchEvent(ev)
         }
         return handled
+    }
+
+    private fun isOnButtonChild(parent: ViewGroup, x: Float, y: Float): Boolean {
+        for (i in parent.childCount - 1 downTo 0) {
+            val child = parent.getChildAt(i)
+            if (child.visibility != View.VISIBLE || child.alpha == 0f) continue
+            if (x < child.left || x > child.right || y < child.top || y > child.bottom) continue
+            if (child is Button) return true
+            if (child is ViewGroup &&
+                isOnButtonChild(child, x - child.left + child.scrollX, y - child.top + child.scrollY)
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     /**

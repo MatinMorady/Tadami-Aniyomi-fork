@@ -1,8 +1,12 @@
 package eu.kanade.tachiyomi.ui.reader.setting
 
 import cafe.adriel.voyager.core.model.ScreenModel
-import eu.kanade.presentation.util.ioCoroutineScope
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -26,13 +30,30 @@ class ReaderSettingsScreenModel(
     val preferences: ReaderPreferences = Injekt.get(),
 ) : ScreenModel {
 
+    /**
+     * Owned scope, cancelled in [onDispose]. This screen model is constructed with a plain
+     * remember{} inside the reader composition and is never registered with Voyager's
+     * ScreenModelStore, so the shared ioCoroutineScope dependency was never disposed for it:
+     * stateIn(Lazily) below kept collecting ReaderViewModel.state forever, leaking the whole
+     * reader graph (Activity + Viewer + Views) after the first mode/orientation dialog.
+     * Unregistered screen models also all resolve to the SAME "standalone" dependency key in
+     * ScreenModelStore, sharing one global scope - another reason to own this one.
+     */
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineName("ReaderSettingsScreenModel"),
+    )
+
     val viewerFlow = readerState
         .map { it.viewer }
         .distinctUntilChanged()
-        .stateIn(ioCoroutineScope, SharingStarted.Lazily, null)
+        .stateIn(scope, SharingStarted.Lazily, null)
 
     val mangaFlow = readerState
         .map { it.manga }
         .distinctUntilChanged()
-        .stateIn(ioCoroutineScope, SharingStarted.Lazily, null)
+        .stateIn(scope, SharingStarted.Lazily, null)
+
+    override fun onDispose() {
+        scope.cancel()
+    }
 }

@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader
 
 import android.app.Application
+import android.net.ConnectivityManager
 import android.net.Uri
 import androidx.annotation.IntRange
 import androidx.compose.runtime.Immutable
@@ -77,6 +78,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import logcat.LogPriority
 import tachiyomi.core.common.preference.toggle
 import tachiyomi.core.common.util.lang.launchIO
@@ -144,7 +147,10 @@ class ReaderViewModel @JvmOverloads constructor(
     )
     val state = mutableState.asStateFlow()
 
-    private val eventChannel = Channel<Event>()
+    // BUFFERED, not rendezvous: trySend(ReloadViewerChapters/PageChanged) silently dropped when
+    // the main-thread collector was momentarily busy (e.g. mid-scroll), leaving transition pages
+    // stuck on a spinner; NonCancellable send() after the activity died suspended forever.
+    private val eventChannel = Channel<Event>(Channel.BUFFERED)
     val eventFlow = eventChannel.receiveAsFlow()
 
     private val autoWebtoonPageIndexes = mutableSetOf<Int>()
@@ -194,6 +200,29 @@ class ReaderViewModel @JvmOverloads constructor(
     private var chapterToDownload: MangaDownload? = null
 
     private val speedTracker = ReadingSpeedTracker()
+
+    /**
+     * Hoisted out of onPageSelected: an Injekt lookup + service fetch ran on the main thread for
+     * every single page turn.
+     */
+    private val connectivityManager: ConnectivityManager by lazy {
+        Injekt.get<Application>().connectivityManager
+    }
+
+    /**
+     * Serializes all last_page_read DB writes (page-select, webtoon scroll flush, mode-switch
+     * flush) so concurrent detached writers cannot interleave; waiting lockers are served in
+     * lock-acquisition order (launch dispatch order is not strictly guaranteed).
+     */
+    private val progressWriteMutex = Mutex()
+
+    private var downloadAheadTriggeredForChapterId: Long? = null
+
+    /**
+     * Chapters for which a ReloadViewerChapters event was already sent after they became Loaded
+     * (see [preload]).
+     */
+    private var reloadSentForChapterId: Long? = null
 
     /**
      * Full chapter list for gap detection. This intentionally ignores reader skip filters, so
@@ -332,6 +361,11 @@ class ReaderViewModel @JvmOverloads constructor(
                 ) {
                     applySavedProgress(currentChapter)
                 }
+                // The SavedState restore above is ONE-SHOT (process death). Without this reset
+                // the branch re-fired on every subsequent chapter change, stamping the previous
+                // chapter's page index onto the new chapter and making applySavedProgress /
+                // preserve-position unreachable after the first chapter.
+                chapterPageIndex = -1
                 chapterId = currentChapter.chapter.id!!
             }
             .launchIn(viewModelScope)
@@ -439,6 +473,24 @@ class ReaderViewModel @JvmOverloads constructor(
         // string parsing on access) ran synchronously on the MAIN thread on every flush (chapter
         // change, pause, finish); it moved into the same detached IO block as the DB write.
         launchIO {
+            writeWebtoonProgressSnapshot(pending)
+        }
+    }
+
+    /**
+     * Suspends until any pending debounced webtoon flush is written. Used by the reading-mode
+     * switch, which must remove the long-page cache entry AFTER the flush - not race it.
+     */
+    private suspend fun flushPendingWebtoonScrollProgressNow() {
+        webtoonProgressSaveJob?.cancel()
+        webtoonProgressSaveJob = null
+        val pending = pendingWebtoonProgress ?: return
+        pendingWebtoonProgress = null
+        writeWebtoonProgressSnapshot(pending)
+    }
+
+    private suspend fun writeWebtoonProgressSnapshot(pending: PendingWebtoonProgress) {
+        progressWriteMutex.withLock {
             if (readerPreferences.saveLongPagePosition().get()) {
                 val saved = readerPreferences.getLongPageProgressForChapter(
                     chapterId = pending.chapterId,
@@ -501,7 +553,12 @@ class ReaderViewModel @JvmOverloads constructor(
                     val source = sourceManager.getOrStub(manga.source)
                     loader = ChapterLoader(context, downloadManager, downloadProvider, manga, source)
 
-                    loadChapter(loader!!, chapterList.first { chapterId == it.chapter.id })
+                    val initialChapter = chapterList.find { chapterId == it.chapter.id }
+                        ?: error(
+                            "Initial chapter $chapterId is missing from the chapter list " +
+                                "(filtered out by downloaded-only/skip filters?)",
+                        )
+                    loadChapter(loader!!, initialChapter)
                     Result.success(true)
                 } else {
                     // Unlikely but okay
@@ -612,7 +669,21 @@ class ReaderViewModel @JvmOverloads constructor(
      * that the user doesn't have to wait too long to continue reading.
      */
     suspend fun preload(chapter: ReaderChapter) {
-        if (chapter.state is ReaderChapter.State.Loaded || chapter.state == ReaderChapter.State.Loading) {
+        if (chapter.state is ReaderChapter.State.Loaded) {
+            // Already loaded by a racing call: the viewer still needs the rebuild event or the
+            // transition page waits forever (the old rendezvous channel could drop it).
+            // Once per chapter: setChapters ends with checkAndPreload, which re-requests this
+            // same loaded chapter - without the dedup the event loop rebuilds the viewer
+            // endlessly while the user sits near the chapter end.
+            val cid = chapter.chapter.id
+            if (reloadSentForChapterId != cid) {
+                reloadSentForChapterId = cid
+                eventChannel.trySend(Event.ReloadViewerChapters)
+            }
+            return
+        }
+        if (chapter.state == ReaderChapter.State.Loading) {
+            // The in-flight load sends ReloadViewerChapters when it completes.
             return
         }
 
@@ -647,6 +718,7 @@ class ReaderViewModel @JvmOverloads constructor(
             }
             return
         }
+        reloadSentForChapterId = chapter.chapter.id
         eventChannel.trySend(Event.ReloadViewerChapters)
     }
 
@@ -670,17 +742,20 @@ class ReaderViewModel @JvmOverloads constructor(
 
         // Track reading speed and update dynamic preloading
         speedTracker.addPageTransition(System.currentTimeMillis())
-        val context = Injekt.get<Application>()
-        val isMetered = context.connectivityManager.isActiveNetworkMetered
+        val isMetered = connectivityManager.isActiveNetworkMetered
         val bufferSize = calculatePreloadBufferSize(speedTracker.getAverageSpeedSeconds(), isMetered)
         ReaderPreloadManager.dynamicPreloadPagesAfter = bufferSize
 
         val selectedChapter = page.chapter
         val pages = selectedChapter.pages ?: return
 
-        // Save last page read and mark as read if needed
+        // Save last page read and mark as read if needed. Serialized with every other
+        // last_page_read writer through progressWriteMutex: detached per-page-turn coroutines
+        // used to finish out of order on fast flings, regressing progress (last-write-wins).
         viewModelScope.launchNonCancellable {
-            updateChapterProgress(selectedChapter, page)
+            progressWriteMutex.withLock {
+                updateChapterProgress(selectedChapter, page)
+            }
         }
 
         if (selectedChapter != getCurrentChapter()) {
@@ -689,14 +764,17 @@ class ReaderViewModel @JvmOverloads constructor(
         }
 
         val inDownloadRange = page.number.toDouble() / pages.size > 0.25
-        if (inDownloadRange) {
-            downloadNextChapters()
+        // At most one disk-checked download-ahead per chapter; the cheap in-memory gates below
+        // stay per-page. The trigger is consumed only once the async "next is downloaded" gate
+        // passes, so a still-downloading next chapter is retried on the following pages.
+        if (inDownloadRange && downloadAheadTriggeredForChapterId != selectedChapter.chapter.id) {
+            downloadNextChapters(selectedChapter.chapter.id)
         }
 
         eventChannel.trySend(Event.PageChanged)
     }
 
-    private fun downloadNextChapters() {
+    private fun downloadNextChapters(triggerChapterId: Long?) {
         if (downloadAheadAmount == 0) return
         val manga = manga ?: return
 
@@ -714,6 +792,7 @@ class ReaderViewModel @JvmOverloads constructor(
                 chapterId = nextChapter.id,
             )
             if (!isNextChapterDownloaded) return@launchIO
+            downloadAheadTriggeredForChapterId = triggerChapterId
 
             val chaptersToDownload = getNextChapters.await(manga.id, nextChapter.id!!)
                 .run {
@@ -1361,7 +1440,16 @@ class ReaderViewModel @JvmOverloads constructor(
                 // webtoon entry behind: webtoon(px 50) -> pager(page 80) -> webtoon rolled back
                 // to the old px-50 position. Drop the entry so applySavedProgress resolves from
                 // the fresh DB progress written by the pager.
-                currChapter.chapter.id?.let { readerPreferences.removeLongPageProgressForChapter(it) }
+                // РЕШ-8 (part 3): a debounced flush still in flight (<=350ms) used to land AFTER
+                // the removal, re-adding the entry and reproducing the very rollback this fixes.
+                // Write it inline (under the progress mutex) before removing the entry.
+                flushPendingWebtoonScrollProgressNow()
+                // Under the same mutex as the flush writers: a debounced flush that had already
+                // detached its IO block could otherwise land putLongPageProgressForChapter AFTER
+                // this removal (millisecond window reproducing the very rollback РЕШ-8 fixed).
+                progressWriteMutex.withLock {
+                    currChapter.chapter.id?.let { readerPreferences.removeLongPageProgressForChapter(it) }
+                }
                 applySavedProgress(currChapter)
 
                 mutableState.update {
@@ -1504,6 +1592,13 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     private fun applySavedProgress(chapter: ReaderChapter) {
+        if (shouldPauseHistory()) {
+            // Incognito: progress is not persisted, so the stored position (DB and long-page
+            // cache) goes stale during the session. Decoding it on a reading-mode/orientation
+            // switch rewound the reader; keep the live position maintained by page-select and
+            // webtoon scroll tracking instead.
+            return
+        }
         val decodedProgress = if (shouldHandleLongPageProgress()) {
             resolveLongPageSavedProgress(chapter)
         } else {

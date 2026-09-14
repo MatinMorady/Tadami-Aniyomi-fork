@@ -81,7 +81,7 @@ class WebtoonPageHolder(
         refreshLayoutParams()
 
         frame.onImageLoaded = { onImageDecoded() }
-        frame.onImageLoadError = { setError() }
+        frame.onImageLoadError = { markDecodeError() }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
     }
 
@@ -243,7 +243,7 @@ class WebtoonPageHolder(
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
             withUIContext {
-                setError()
+                markDecodeError()
             }
         }
     }
@@ -280,6 +280,19 @@ class WebtoonPageHolder(
     private fun setError() {
         progressContainer.isVisible = false
         initErrorLayout()
+    }
+
+    /**
+     * Decode/render failure while the page status is READY: move the status to ERROR so the
+     * Retry button can re-queue it through the page loader. Showing the error layout alone left
+     * the status at READY and retryPage() became a no-op (the loader skips non-QUEUE pages).
+     */
+    private fun markDecodeError() {
+        val currentPage = page
+        if (currentPage != null && currentPage.status == Page.State.READY) {
+            currentPage.status = Page.State.ERROR
+        }
+        setError()
     }
 
     /**

@@ -6,6 +6,7 @@ import android.graphics.PointF
 import android.widget.LinearLayout
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import eu.kanade.tachiyomi.ui.reader.model.JoinedReaderPage
+import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
 
 /**
@@ -42,6 +43,14 @@ class JoinedPagerPageHolder(
         setupZoomSynchronization()
     }
 
+    /**
+     * Returns the nested half-page holder for [page], if any. The viewer's page-holder lookup
+     * only saw direct pager children, leaving pan navigation and onPageSelected(forward) dead
+     * for spread pages without this.
+     */
+    fun findPageHolder(page: ReaderPage): PagerPageHolder? =
+        listOf(leftPageHolder, rightPageHolder).firstOrNull { it.item == page }
+
     private fun setupZoomSynchronization() {
         leftPageHolder.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             val leftView = leftPageHolder.getImageView() as? SubsamplingScaleImageView
@@ -50,6 +59,9 @@ class JoinedPagerPageHolder(
             leftView?.setOnStateChangedListener(object : SubsamplingScaleImageView.OnStateChangedListener {
                 override fun onScaleChanged(newScale: Float, origin: Int) {
                     syncZoom(leftView, rightView)
+                    // setOnStateChangedListener REPLACED the holder's own listener, so zooming a
+                    // spread no longer hid the menu; forward to the holder chain to restore it.
+                    leftPageHolder.onScaleChanged(newScale)
                 }
 
                 override fun onCenterChanged(newCenter: PointF?, origin: Int) {
@@ -60,6 +72,7 @@ class JoinedPagerPageHolder(
             rightView?.setOnStateChangedListener(object : SubsamplingScaleImageView.OnStateChangedListener {
                 override fun onScaleChanged(newScale: Float, origin: Int) {
                     syncZoom(rightView, leftView)
+                    rightPageHolder.onScaleChanged(newScale)
                 }
 
                 override fun onCenterChanged(newCenter: PointF?, origin: Int) {

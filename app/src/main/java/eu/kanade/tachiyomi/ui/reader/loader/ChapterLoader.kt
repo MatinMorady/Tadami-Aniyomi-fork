@@ -9,6 +9,10 @@ import eu.kanade.tachiyomi.ui.reader.decodeStoredChapterProgress
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.shouldRestoreSavedProgress
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import mihon.core.archive.archiveReader
 import mihon.core.archive.epubReader
 import mihon.core.archive.pdfReader
@@ -36,23 +40,58 @@ class ChapterLoader(
     private val readerPreferences: ReaderPreferences by injectLazy()
 
     /**
+     * Serializes the check-and-set of [ReaderChapter.State.Loading]: preload (launched per
+     * page-select) and loadNewChapter/loadAdjacent could both pass the non-atomic check, create
+     * two page loaders and race the network page-list fetch.
+     */
+    private val loadMutex = Mutex()
+
+    /**
      * Assigns the chapter's page loader and loads the its pages. Returns immediately if the chapter
-     * is already loaded.
+     * is already loaded. If another caller is already loading the chapter, suspends until that
+     * load settles instead of returning with a page-less chapter (which used to make the viewer
+     * rebuild with empty pages - blank screen until the next interaction).
      */
     suspend fun loadChapter(chapter: ReaderChapter) {
         if (chapterIsReady(chapter)) {
             return
         }
 
-        // A-LOW (orphaned loader): concurrent loadChapter calls for the same chapter (navigating
-        // onto a chapter that is already being preloaded) each created a page loader; the second
-        // assignment overwrote the first, which was never recycled and whose HTTP worker kept an
-        // IO thread blocked forever. Skip when a load is already in flight.
-        if (chapter.state is ReaderChapter.State.Loading) {
+        val startedHere = loadMutex.withLock {
+            when {
+                chapterIsReady(chapter) -> false
+                // A-LOW (orphaned loader): concurrent loadChapter calls for the same chapter
+                // (navigating onto a chapter that is already being preloaded) each created a
+                // page loader; the second assignment overwrote the first, which was never
+                // recycled and whose HTTP worker kept an IO thread blocked forever.
+                chapter.state is ReaderChapter.State.Loading -> false
+                else -> {
+                    chapter.state = ReaderChapter.State.Loading
+                    true
+                }
+            }
+        }
+        if (!startedHere) {
+            // Someone else is loading this chapter right now: wait for their result so the
+            // caller never proceeds with a page-less Loading chapter.
+            chapter.stateFlow.first { it !is ReaderChapter.State.Loading }
             return
         }
 
-        chapter.state = ReaderChapter.State.Loading
+        try {
+            loadPages(chapter)
+        } catch (e: CancellationException) {
+            // Cancelled between setting State.Loading and entering the IO block: the inner
+            // try/catch never ran, so without this the state stays Loading forever and every
+            // awaiter (loadChapter waiters, preload, transition retry) hangs.
+            if (chapter.state is ReaderChapter.State.Loading) {
+                chapter.state = ReaderChapter.State.Error(e)
+            }
+            throw e
+        }
+    }
+
+    private suspend fun loadPages(chapter: ReaderChapter) {
         withIOContext {
             logcat { "Loading pages for ${chapter.chapter.name}" }
             try {

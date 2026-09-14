@@ -55,7 +55,10 @@ class WebtoonRecyclerView @JvmOverloads constructor(
     override fun onMeasure(widthSpec: Int, heightSpec: Int) {
         halfWidth = MeasureSpec.getSize(widthSpec) / 2
         halfHeight = MeasureSpec.getSize(heightSpec) / 2
-        if (!heightSet) {
+        // Refresh the baseline height while not zoomed so multi-window/foldable resizes keep the
+        // zoom clamps and tap zones correct. While zoomed the height spec reflects the inflated
+        // layoutParams.height, which must not be captured as the baseline.
+        if (!heightSet || currentScale == DEFAULT_RATE) {
             originalHeight = MeasureSpec.getSize(heightSpec)
             heightSet = true
         }
@@ -69,9 +72,8 @@ class WebtoonRecyclerView @JvmOverloads constructor(
 
     override fun onScrolled(dx: Int, dy: Int) {
         super.onScrolled(dx, dy)
-        val layoutManager = layoutManager
-        lastVisibleItemPosition =
-            (layoutManager as LinearLayoutManager).findLastVisibleItemPosition()
+        val layoutManager = layoutManager as? LinearLayoutManager ?: return
+        lastVisibleItemPosition = layoutManager.findLastVisibleItemPosition()
         firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
     }
 

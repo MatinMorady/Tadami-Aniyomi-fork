@@ -99,8 +99,10 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
                 stopPendingRelativeRestoreLoop()
                 return
             }
-            if (pendingRelativeRestore != pending) {
+            if (pendingRelativeRestore !== pending) {
                 // Pending target changed while retrying, restart from scratch for the new target.
+                // Reference check on purpose: PendingRelativeRestore has mutable fields, so a
+                // structural comparison can miss a replacement target with equal field values.
                 startPendingRelativeRestoreLoop()
                 return
             }
@@ -171,16 +173,24 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
                         }
                     }
 
-                    val lastIndex = layoutManager.findLastEndVisibleItemPosition()
-                    val lastItem = adapter.items.getOrNull(lastIndex)
-                    if (dy > 0 && lastItem is ChapterTransition.Next && lastItem.to == null) {
-                        activity.showMenu()
+                    if (dy > 0) {
+                        val lastIndex = layoutManager.findLastEndVisibleItemPosition()
+                        val lastItem = adapter.items.getOrNull(lastIndex)
+                        if (lastItem is ChapterTransition.Next && lastItem.to == null) {
+                            activity.showMenu()
+                        }
                     }
                 }
 
                 override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                     when (newState) {
                         RecyclerView.SCROLL_STATE_DRAGGING -> {
+                            // User took over the scroll: stop re-anchoring every frame against
+                            // the drag ("rubber band") and let the pending restore go.
+                            if (pendingRelativeRestore != null) {
+                                pendingRelativeRestore = null
+                                stopPendingRelativeRestoreLoop()
+                            }
                             // Only a drag that starts with the end-of-manga transition already
                             // visible counts as a swipe into the void; landing on the page
                             // must not trigger the meltdown escalation.
@@ -209,11 +219,12 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
         recycler.tapListener = { event ->
             val viewPosition = IntArray(2)
             recycler.getLocationOnScreen(viewPosition)
-            val viewPositionRelativeToWindow = IntArray(2)
-            recycler.getLocationInWindow(viewPositionRelativeToWindow)
+            // rawX/rawY are screen coordinates: subtracting the on-screen position already gives
+            // view-relative points. The old "+ locationInWindow" term double-counted the window
+            // offset whenever the recycler was not flush with the window origin.
             val pos = PointF(
-                (event.rawX - viewPosition[0] + viewPositionRelativeToWindow[0]) / recycler.width,
-                (event.rawY - viewPosition[1] + viewPositionRelativeToWindow[1]) / recycler.originalHeight,
+                (event.rawX - viewPosition[0]) / recycler.width,
+                (event.rawY - viewPosition[1]) / recycler.originalHeight,
             )
             when (config.navigator.getAction(pos)) {
                 NavigationRegion.MENU -> activity.toggleMenu()
@@ -331,6 +342,10 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
         super.destroy()
         stopPendingRelativeRestoreLoop()
         autoScrollManager.destroy()
+        // Detaching the recycler from the window does NOT call onViewRecycled; without this the
+        // bound holders of a swapped-out viewer keep collecting page status flows (duplicate
+        // decodes) and hold their frames/bitmaps for the rest of the activity's life.
+        recycler.adapter = null
         scope.cancel()
     }
 
@@ -534,6 +549,14 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
         val pending = pendingRelativeRestore ?: return false
         val (adapterPosition, item) = resolvePendingRestoreTarget(pending) ?: return false
 
+        // The target page failed: waiting for READY/decoded frames would pin the user to the
+        // restore position until the 30s timeout with no way to scroll away. Give up instead.
+        if (item.status == Page.State.ERROR) {
+            pendingRelativeRestore = null
+            stopPendingRelativeRestoreLoop()
+            return true
+        }
+
         val view = layoutManager.findViewByPosition(adapterPosition) ?: return false
         val pageHeightPx = view.height.takeIf { it > 0 } ?: return false
 
@@ -726,10 +749,11 @@ class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = tr
     private fun refreshAdapter() {
         val position = layoutManager.findLastEndVisibleItemPosition()
         adapter.refresh()
-        adapter.notifyItemRangeChanged(
-            max(0, position - 3),
-            min(position + 3, adapter.itemCount - 1),
-        )
+        // notifyItemRangeChanged takes a COUNT, not an end position: the old call invalidated
+        // [pos-3, pos-3+min(pos+3, last)] - the whole chapter tail for any later position.
+        val start = max(0, position - 3)
+        val endInclusive = min(position + 3, adapter.itemCount - 1)
+        adapter.notifyItemRangeChanged(start, max(0, endInclusive - start + 1))
     }
 }
 

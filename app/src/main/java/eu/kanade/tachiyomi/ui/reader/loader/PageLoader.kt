@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.loader
 
 import androidx.annotation.CallSuper
+import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 
 /**
@@ -30,10 +31,15 @@ abstract class PageLoader {
     open suspend fun loadPage(page: ReaderPage) {}
 
     /**
-     * Retries the given [page] in case it failed to load. This method only makes sense when an
-     * online source is used.
+     * Retries the given [page] in case it failed to load. For local loaders (archive/directory/
+     * download) there is no download queue: pages are READY from the start and a decode failure
+     * moves them to ERROR, so re-emitting READY makes the holder run the decode pipeline again.
      */
-    open fun retryPage(page: ReaderPage) {}
+    open fun retryPage(page: ReaderPage) {
+        if (page.status == Page.State.ERROR) {
+            page.status = Page.State.READY
+        }
+    }
 
     /**
      * Recycles this loader. Implementations must override this method to clean up any active

@@ -147,7 +147,7 @@ class PagerPageHolder(
         val streamFn = page.stream ?: return
 
         try {
-            val (source, isAnimated, background, dimensions) = withIOContext {
+            val (source, isAnimated, background, dimensions, canUseHardware) = withIOContext {
                 val source = streamFn().use { process(item, Buffer().readFrom(it)) }
                 val isAnimated = ImageUtil.isAnimatedAndSupported(source)
                 val background = if (!isAnimated && viewer.config.automaticBackground) {
@@ -160,6 +160,10 @@ class PagerPageHolder(
                     isAnimated = isAnimated,
                     background = background,
                     dimensions = ImageUtil.getImageDimensions(source),
+                    // Sniff the header here so the UI thread does not have to instantiate a
+                    // native decoder per page (ReaderPageImageView falls back to parsing the
+                    // source on the main thread when the config value is absent).
+                    canUseHardwareBitmap = !isAnimated && ImageUtil.canUseHardwareBitmap(source),
                 )
             }
             withUIContext {
@@ -180,6 +184,7 @@ class PagerPageHolder(
                         zoomStartPosition = viewer.config.imageZoomType,
                         landscapeZoom = viewer.config.landscapeZoom,
                         enablePinchToZoom = viewer.config.enablePinchToZoom,
+                        canUseHardwareBitmap = canUseHardware,
                     ),
                 )
                 if (!isAnimated) {
@@ -190,7 +195,7 @@ class PagerPageHolder(
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
             withUIContext {
-                setError()
+                markDecodeError()
             }
         }
     }
@@ -200,6 +205,7 @@ class PagerPageHolder(
         val isAnimated: Boolean,
         val background: android.graphics.drawable.Drawable?,
         val dimensions: ImageUtil.ImageDimensions?,
+        val canUseHardwareBitmap: Boolean,
     )
 
     private fun process(page: ReaderPage, imageSource: BufferedSource): BufferedSource {
@@ -217,7 +223,10 @@ class PagerPageHolder(
             return rotateDualPage(imageSource)
         }
 
-        if (!viewer.config.dualPageSplit) {
+        // joinDoublePages wins over dualPageSplit: the halves of a JoinedReaderPage spread are
+        // raw ReaderPages that are not adapter items, so splitting them produced a duplicate of
+        // the same half (and index -1 lookups in the adapter).
+        if (!viewer.config.dualPageSplit || viewer.config.joinDoublePages) {
             return imageSource
         }
 
@@ -276,6 +285,18 @@ class PagerPageHolder(
         showErrorLayout()
     }
 
+    /**
+     * Decode/render failure while the page status is READY: move the status to ERROR so the
+     * Retry button can re-queue it through the page loader. Showing the error layout alone left
+     * the status at READY and retryPage() became a no-op (the loader skips non-QUEUE pages).
+     */
+    private fun markDecodeError() {
+        if (page.status == Page.State.READY) {
+            page.status = Page.State.ERROR
+        }
+        setError()
+    }
+
     override fun onImageLoaded() {
         super.onImageLoaded()
         progressIndicator?.hide()
@@ -286,7 +307,7 @@ class PagerPageHolder(
      */
     override fun onImageLoadError() {
         super.onImageLoadError()
-        setError()
+        markDecodeError()
     }
 
     /**

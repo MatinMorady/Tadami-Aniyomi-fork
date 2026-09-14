@@ -149,8 +149,14 @@ internal class HttpPageLoader(
      * Retries a page. This method is only called from user interaction on the viewer.
      */
     override fun retryPage(page: ReaderPage) {
-        if (page.status == Page.State.ERROR) {
-            page.status = Page.State.QUEUE
+        // READY is included on purpose: a cached file evicted under a READY page, or a decode
+        // failure the holder surfaced while the status stayed READY, both left the worker
+        // skipping the re-offered page (it only processes QUEUE) - Retry was a dead button.
+        // Pages genuinely in flight (QUEUE/LOAD_PAGE/DOWNLOAD_IMAGE) are left alone to avoid
+        // double fetches.
+        when (page.status) {
+            Page.State.ERROR, Page.State.READY -> page.status = Page.State.QUEUE
+            else -> return
         }
         offerPage(page, 2)
     }
