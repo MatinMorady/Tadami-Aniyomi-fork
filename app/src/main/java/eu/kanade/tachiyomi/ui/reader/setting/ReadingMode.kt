@@ -72,7 +72,9 @@ enum class ReadingMode(
                 RIGHT_TO_LEFT -> R2LPagerViewer(activity)
                 VERTICAL -> VerticalPagerViewer(activity)
                 WEBTOON -> WebtoonViewer(activity)
-                CONTINUOUS_VERTICAL -> WebtoonViewer(activity, isContinuous = false)
+                // "Continuous vertical" scrolls with visible gaps between pages; plain "Webtoon"
+                // joins them seamlessly - hence hasPageGaps, the old isContinuous flag read inverted.
+                CONTINUOUS_VERTICAL -> WebtoonViewer(activity, hasPageGaps = true)
                 DEFAULT -> throw IllegalStateException(
                     "Preference value must be resolved: $preference",
                 )

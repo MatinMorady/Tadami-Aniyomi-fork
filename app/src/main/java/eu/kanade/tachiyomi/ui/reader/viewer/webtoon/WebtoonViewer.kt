@@ -42,7 +42,7 @@ import kotlin.math.min
 /**
  * Implementation of a [Viewer] to display pages with a [RecyclerView].
  */
-class WebtoonViewer(val activity: ReaderActivity, val isContinuous: Boolean = true) : Viewer {
+class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = false) : Viewer {
 
     val downloadManager: MangaDownloadManager by injectLazy()
 

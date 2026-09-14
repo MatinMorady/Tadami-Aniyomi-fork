@@ -6,11 +6,11 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ViewerNavigation
 /**
  * Visualization of default state without any inversion
  * +---+---+---+
- * | N | M | P |   P: Move Right
+ * | L | M | R |   L: Move Left
  * +---+---+---+
- * | N | M | P |   M: Menu
+ * | L | M | R |   M: Menu (taps outside the side zones)
  * +---+---+---+
- * | N | M | P |   N: Move Left
+ * | L | M | R |   R: Move Right
  * +---+---+---+
  */
 class RightAndLeftNavigation : ViewerNavigation() {

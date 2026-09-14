@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import tachiyomi.core.common.preference.Preference
 import uy.kohesive.injekt.injectLazy
+import java.io.IOException
 import java.net.URLEncoder
 
 interface DataSaver {
@@ -173,7 +174,11 @@ private class ReSmushItDataSaver(preferences: SourcePreferences) : DataSaver {
 
     private fun getUrl(imageUrl: String): String {
         // Network Request sent to resmush
-        return client.newCall(GET("http://api.resmush.it/ws.php?img=$imageUrl&qlty=$quality")).execute()
-            .body.string().substringAfter("\"dest\":\"").substringBefore("\",")
+        client.newCall(GET("http://api.resmush.it/ws.php?img=$imageUrl&qlty=$quality")).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("ReSmushIt request failed: HTTP ${response.code}")
+            }
+            return response.body.string().substringAfter("\"dest\":\"").substringBefore("\",")
+        }
     }
 }

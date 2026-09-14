@@ -100,7 +100,7 @@ class WebtoonPageHolder(
 
     private fun refreshLayoutParams() {
         val margin = (Resources.getSystem().displayMetrics.widthPixels * (viewer.config.sidePadding / 100f)).toInt()
-        val bottomMargin = if (!viewer.isContinuous) 15.dpToPx else 0
+        val bottomMargin = if (viewer.hasPageGaps) 15.dpToPx else 0
 
         // Avoid layout thrash: rebinds while scrolling must not trigger a requestLayout
         // when nothing about the layout params actually changed.

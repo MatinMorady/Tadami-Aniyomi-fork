@@ -54,7 +54,14 @@ actual class LocalMangaCoverManager(
 
         // Only ever writes the user cover file. Auto-generated thumbnails go through
         // [generateCover] so they can never overwrite a user-provided cover.
-        val targetFile = findUserCover(manga.url) ?: directory.createFile(DEFAULT_COVER_NAME)!!
+        // createFile can legitimately fail (SAF/disk errors): close the input and report null
+        // instead of throwing through `!!` with the stream still open.
+        val targetFile = findUserCover(manga.url)
+            ?: directory.createFile(DEFAULT_COVER_NAME)
+            ?: run {
+                inputStream.close()
+                return null
+            }
 
         inputStream.use { input ->
             targetFile.openOutputStream().use { output ->
@@ -82,7 +89,12 @@ actual class LocalMangaCoverManager(
             return null
         }
 
-        val targetFile = findGeneratedCover(manga.url) ?: directory.createFile(GENERATED_COVER_NAME)!!
+        val targetFile = findGeneratedCover(manga.url)
+            ?: directory.createFile(GENERATED_COVER_NAME)
+            ?: run {
+                inputStream.close()
+                return null
+            }
 
         inputStream.use { input ->
             targetFile.openOutputStream().use { output ->

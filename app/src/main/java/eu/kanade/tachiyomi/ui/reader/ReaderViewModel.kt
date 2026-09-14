@@ -321,7 +321,10 @@ class ReaderViewModel @JvmOverloads constructor(
         return getIncognitoState.shouldPauseHistory(manga?.source, manga?.favorite == true)
     }
 
-    private val downloadAheadAmount = downloadPreferences.autoDownloadWhileReading().get()
+    // Read on demand: a construction-time snapshot ignored preference changes until the reader
+    // was recreated.
+    private val downloadAheadAmount
+        get() = downloadPreferences.autoDownloadWhileReading().get()
 
     // A-LOW: read on the main thread and cleared from detached IO flushes - make the handoff
     // visibility-safe across threads.

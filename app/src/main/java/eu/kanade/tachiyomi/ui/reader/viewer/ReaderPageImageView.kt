@@ -23,6 +23,7 @@ import coil3.asDrawable
 import coil3.dispose
 import coil3.imageLoader
 import coil3.request.CachePolicy
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Precision
@@ -80,6 +81,18 @@ open class ReaderPageImageView @JvmOverloads constructor(
     private var scope: CoroutineScope? = null
     private var smartFitJob: Job? = null
     private var landscapeZoomRunnable: Runnable? = null
+
+    /**
+     * In-flight Coil request for the current image. Tracked so a rebind (or recycle) cancels it:
+     * an orphaned request's onError/onSuccess used to land on the NEXT page bound into this view,
+     * marking a healthy page as failed or overwriting the new image.
+     */
+    private var coilDisposable: Disposable? = null
+
+    private fun cancelCoilRequest() {
+        coilDisposable?.dispose()
+        coilDisposable = null
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -206,6 +219,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         this.config = config
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelCoilRequest()
         if (drawable is Animatable) {
             prepareAnimatedImageView()
             setAnimatedImage(drawable, config)
@@ -219,6 +233,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         this.config = config
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelCoilRequest()
         if (isAnimated) {
             prepareAnimatedImageView()
             setAnimatedImage(source, config)
@@ -232,6 +247,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         smartFitJob?.cancel()
         smartFitJob = null
         cancelLandscapeZoom()
+        cancelCoilRequest()
         pageView?.let {
             when (it) {
                 is SubsamplingScaleImageView -> it.recycle()
@@ -446,7 +462,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     .customDecoder(true)
                     .crossfade(false)
                     .build()
-                    .let(context.imageLoader::enqueue)
+                    .let { request ->
+                        coilDisposable = context.imageLoader.enqueue(request)
+                    }
             }
             else -> {
                 throw IllegalArgumentException("Not implemented for class ${data::class.simpleName}")
@@ -520,7 +538,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
             )
             .crossfade(false)
             .build()
-        context.imageLoader.enqueue(request)
+        coilDisposable = context.imageLoader.enqueue(request)
     }
 
     private fun Int.getSystemScaledDuration(): Int {
