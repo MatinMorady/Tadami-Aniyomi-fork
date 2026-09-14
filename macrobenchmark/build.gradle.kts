@@ -7,7 +7,19 @@ android {
 
     defaultConfig {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        testInstrumentationRunnerArguments["androidx.benchmark.enabledRules"] = "BaselineProfile"
+        // Default keeps the historical behaviour (only BaselineProfileGenerator runs).
+        // Override to run macrobenchmarks:
+        //   ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest -PbenchRules=Macrobenchmark
+        testInstrumentationRunnerArguments["androidx.benchmark.enabledRules"] =
+            (properties["benchRules"] as String?) ?: "BaselineProfile"
+        // Chapter under test for ReaderScrollBenchmark (it skips itself when absent):
+        //   -PbenchMangaId=<id> -PbenchChapterId=<id>
+        (properties["benchMangaId"] as String?)?.let {
+            testInstrumentationRunnerArguments["benchMangaId"] = it
+        }
+        (properties["benchChapterId"] as String?)?.let {
+            testInstrumentationRunnerArguments["benchChapterId"] = it
+        }
     }
 
     buildTypes {
