@@ -44,6 +44,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -211,15 +212,10 @@ fun ReelsPlayerView(
                 .setBufferDurationsMs(5_000, 15_000, 2_500, 5_000)
                 .build()
             val exoPlayer = ExoPlayer.Builder(context)
-                // Request audio focus: reels must duck/pause for calls and not play over the
-                // user's music, and concurrent page players must arbitrate with each other.
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .build(),
-                    /* handleAudioFocus = */ true,
-                )
+                // Request audio focus only while the reel is AUDIBLE (audit H4): a muted feed
+                // must not duck/pause the user's music. Unmuting re-requests focus below;
+                // audible reels still arbitrate with calls and concurrent page players.
+                .setAudioAttributes(reelsAudioAttributes(), /* handleAudioFocus = */ !isMuted)
                 .setHandleAudioBecomingNoisy(true)
                 .setLoadControl(loadControl)
                 .build()
@@ -230,21 +226,7 @@ fun ReelsPlayerView(
                     // Feed plugins implement AnimeFeedSource (not AnimeHttpSource), so `headers`
                     // is empty for them and Bunny-CDN 403s the media requests: fall back to a
                     // generic same-origin Referer derived from the item's page URL.
-                    val requestHeaders = if (headers.keys.none { it.equals("Referer", ignoreCase = true) }) {
-                        val referer = runCatching {
-                            val page = Uri.parse(webUrl)
-                            val host = page.host?.takeIf { it.isNotBlank() }
-                            if (host != null && (page.scheme == "http" || page.scheme == "https")) {
-                                val port = if (page.port != -1) ":${page.port}" else ""
-                                "${page.scheme}://$host$port/"
-                            } else {
-                                null
-                            }
-                        }.getOrNull()
-                        if (referer != null) headers + ("Referer" to referer) else headers
-                    } else {
-                        headers
-                    }
+                    val requestHeaders = reelsRequestHeaders(headers, webUrl)
                     // DefaultDataSource routes file:///content:// (B3.3 offline copies) to local readers and
                     // delegates http(s) to the OkHttp factory — OkHttp alone rejects file:// URLs.
                     val upstream = DefaultDataSource.Factory(
@@ -262,9 +244,7 @@ fun ReelsPlayerView(
                     // progressive content — media3 rejects it for adaptive sources — so the
                     // key applies only to a whitelist of container suffixes; everything else
                     // (m3u8/mpd manifests, unknown containers) keeps the URL-derived key.
-                    val isProgressiveContainer = Uri.parse(videoUrl).lastPathSegment
-                        ?.substringAfterLast('.', "")
-                        ?.lowercase() in PROGRESSIVE_CONTAINER_EXTENSIONS
+                    val isProgressiveContainer = isProgressiveReelUrl(videoUrl)
                     val mediaItem = MediaItem.Builder()
                         .setUri(videoUrl)
                         .apply { if (cacheKey != null && isProgressiveContainer) setCustomCacheKey(cacheKey) }
@@ -422,9 +402,13 @@ fun ReelsPlayerView(
         }
     }
 
-    // React to mute / unmute changes.
+    // React to mute / unmute changes. Audit H4: focus follows audibility — muting ABANDONS
+    // audio focus (the user's music resumes), unmuting re-requests it.
     LaunchedEffect(isMuted) {
-        player?.volume = if (isMuted) 0f else 1f
+        player?.apply {
+            volume = if (isMuted) 0f else 1f
+            setAudioAttributes(reelsAudioAttributes(), /* handleAudioFocus = */ !isMuted)
+        }
     }
 
     // React to speed changes (long-press 2x).
@@ -643,4 +627,95 @@ internal fun clearReelsVideoCache(context: android.content.Context): Long {
         }
     }
     return freed
+}
+
+/** Shared media audio attributes; focus handling follows audibility (audit H4). */
+private fun reelsAudioAttributes(): AudioAttributes = AudioAttributes.Builder()
+    .setUsage(C.USAGE_MEDIA)
+    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+    .build()
+
+/**
+ * Reel media request headers: the feed's own headers, or — when none carries a Referer (feed
+ * plugins implement AnimeFeedSource, not AnimeHttpSource, so Bunny-CDN-style checks reject
+ * their media requests) — a generic same-origin Referer derived from the item's page URL.
+ */
+internal fun reelsRequestHeaders(headers: Map<String, String>, webUrl: String?): Map<String, String> {
+    if (headers.keys.any { it.equals("Referer", ignoreCase = true) }) return headers
+    val referer = runCatching {
+        val page = Uri.parse(webUrl)
+        val host = page.host?.takeIf { it.isNotBlank() }
+        if (host != null && (page.scheme == "http" || page.scheme == "https")) {
+            val port = if (page.port != -1) ":${page.port}" else ""
+            "${page.scheme}://$host$port/"
+        } else {
+            null
+        }
+    }.getOrNull() ?: return headers
+    return headers + ("Referer" to referer)
+}
+
+/** The progressive-container whitelist check for a media URL (stable customCacheKey is safe). */
+internal fun isProgressiveReelUrl(url: String): Boolean =
+    Uri.parse(url).lastPathSegment
+        ?.substringAfterLast('.', "")
+        ?.lowercase() in PROGRESSIVE_CONTAINER_EXTENSIONS
+
+/** Head-prewarm chunk: how many leading bytes of a reel are warmed ahead of the player window. */
+internal const val HEAD_PREWARM_BYTES = 512L * 1024L
+
+/**
+ * C-intermediate (audit): warms the first [HEAD_PREWARM_BYTES] of a reel into the SAME
+ * process-wide video cache under the SAME [cacheKey] the player will later use, so deep
+ * swipes (beyond the single-player preload window) start from disk instead of a cold CDN
+ * round-trip. No player, no decoder — bytes only, which is why the forward player preload
+ * stays at one neighbor (three live decoders competed for bandwidth).
+ *
+ * Skips non-http URLs (offline copies are already local) and non-progressive containers
+ * (their cache key is URL-derived, a stable-key prewarm would never be read back), and
+ * anything already cached. Failures are swallowed: prewarm is best-effort.
+ * Blocking network + file IO: call from a background dispatcher.
+ */
+internal fun prewarmReelHead(
+    context: android.content.Context,
+    url: String,
+    cacheKey: String,
+    headers: Map<String, String>,
+    webUrl: String?,
+) {
+    if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return
+    if (!isProgressiveReelUrl(url)) return
+    val appContext = context.applicationContext
+    val cache = getReelsVideoCache(appContext)
+    if (cache.isCached(cacheKey, 0, HEAD_PREWARM_BYTES)) return
+    val networkClient: OkHttpClient = Injekt.get<NetworkHelper>().client
+    val upstream = DefaultDataSource.Factory(
+        appContext,
+        OkHttpDataSource.Factory(networkClient)
+            .setDefaultRequestProperties(reelsRequestHeaders(headers, webUrl)),
+    )
+    val dataSource = CacheDataSource.Factory()
+        .setCache(cache)
+        .setUpstreamDataSourceFactory(upstream)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        .createDataSource()
+    val spec = DataSpec.Builder()
+        .setUri(url)
+        .setKey(cacheKey)
+        .setLength(HEAD_PREWARM_BYTES)
+        .build()
+    runCatching {
+        dataSource.open(spec)
+        try {
+            // CacheDataSource writes spans into the cache as bytes are pulled through read();
+            // the length-bounded spec stops the drain at HEAD_PREWARM_BYTES even when the CDN
+            // ignores the Range hint and offers the whole body.
+            val buffer = ByteArray(64 * 1024)
+            while (dataSource.read(buffer, 0, buffer.size) != C.RESULT_END_OF_INPUT) {
+                // drain
+            }
+        } finally {
+            dataSource.close()
+        }
+    }
 }

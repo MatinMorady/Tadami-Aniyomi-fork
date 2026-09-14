@@ -49,6 +49,7 @@ fun ReelsCustomFeedsSheet(
     onNewFeed: () -> Unit,
     onEditFeed: (CustomFeedRef) -> Unit,
     onDeleteFeed: (CustomFeedRef) -> Unit,
+    onRetry: () -> Unit = {},
 ) {
     AdaptiveSheet(onDismissRequest = onDismissRequest) {
         Column(
@@ -75,13 +76,23 @@ fun ReelsCustomFeedsSheet(
 
             when {
                 isLoading -> Text(
-                    text = stringResource(MR.strings.reels_loading_more),
+                    text = stringResource(MR.strings.loading),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                error != null -> Text(
-                    text = error,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                error != null -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    // Audit H11: an error without a retry is a dead end inside the sheet.
+                    TextButton(onClick = onRetry) {
+                        Text(stringResource(MR.strings.action_retry))
+                    }
+                }
                 feeds.isEmpty() -> Text(
                     text = stringResource(MR.strings.reels_custom_feeds_empty),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -38,51 +38,77 @@ class ReelsOfflineStoreImpl(
             .toSet()
     }
 
-    override suspend fun download(item: ShortVideoItem, sourceId: Long): Boolean = withContext(ioDispatcher) {
-        val target = fileFor(sourceId, item.id)
-        if (target.exists()) return@withContext true
-        dir.mkdirs()
-        sweepStaleParts()
-        val currentSize = (dir.listFiles() ?: emptyArray()).sumOf { it.length() }
-        val request = Request.Builder()
-            .url(item.videoUrl)
-            .apply { sameOriginReferer(item.webUrl)?.let { header("Referer", it) } }
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@withContext false
-            val expected = response.body.contentLength().coerceAtLeast(0)
-            if (expected > 0 && currentSize + expected > ReelsOfflineStore.MAX_OFFLINE_BYTES) {
-                return@withContext false
-            }
-            // Unique part name per attempt: a double-tap starts two concurrent downloads and a shared
-            // ".part" path would let two writers corrupt each other's file.
-            val part = File(dir, "${target.name}.${System.nanoTime()}.part")
-            try {
-                response.body.byteStream().use { input ->
-                    part.outputStream().use { output -> input.copyTo(output) }
+    override suspend fun download(item: ShortVideoItem, sourceId: Long): ReelsOfflineStore.DownloadResult =
+        withContext(ioDispatcher) {
+            val target = fileFor(sourceId, item.id)
+            if (target.exists()) return@withContext ReelsOfflineStore.DownloadResult.SAVED
+            dir.mkdirs()
+            sweepStaleParts()
+            val currentSize = (dir.listFiles() ?: emptyArray()).sumOf { it.length() }
+            val request = Request.Builder()
+                .url(item.videoUrl)
+                .apply { sameOriginReferer(item.webUrl)?.let { header("Referer", it) } }
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext ReelsOfflineStore.DownloadResult.NETWORK
+                val expected = response.body.contentLength().coerceAtLeast(0)
+                if (expected > 0 && currentSize + expected > ReelsOfflineStore.MAX_OFFLINE_BYTES) {
+                    return@withContext ReelsOfflineStore.DownloadResult.QUOTA
                 }
-            } catch (e: Exception) {
-                // Transport failure or cancellation: never leave an orphan part eating quota.
-                part.delete()
-                throw e
+                // Unique part name per attempt: a double-tap starts two concurrent downloads and a shared
+                // ".part" path would let two writers corrupt each other's file.
+                val part = File(dir, "${target.name}.${System.nanoTime()}.part")
+                try {
+                    response.body.byteStream().use { input ->
+                        part.outputStream().use { output -> input.copyTo(output) }
+                    }
+                } catch (e: Exception) {
+                    // Transport failure or cancellation: never leave an orphan part eating quota.
+                    part.delete()
+                    throw e
+                }
+                // Chunked responses report contentLength -1 and skip the pre-check: enforce the
+                // quota on the REAL copied size instead (an oversized copy is discarded).
+                if (part.length() == 0L) {
+                    part.delete()
+                    return@withContext ReelsOfflineStore.DownloadResult.NETWORK
+                }
+                if (currentSize + part.length() > ReelsOfflineStore.MAX_OFFLINE_BYTES) {
+                    part.delete()
+                    return@withContext ReelsOfflineStore.DownloadResult.QUOTA
+                }
+                if (!part.renameTo(target)) {
+                    part.copyTo(target, overwrite = true)
+                    part.delete()
+                }
             }
-            // Chunked responses report contentLength -1 and skip the pre-check: enforce the
-            // quota on the REAL copied size instead (an oversized copy is discarded, never kept).
-            if (part.length() == 0L || currentSize + part.length() > ReelsOfflineStore.MAX_OFFLINE_BYTES) {
-                part.delete()
-                return@withContext false
-            }
-            if (!part.renameTo(target)) {
-                part.copyTo(target, overwrite = true)
-                part.delete()
+            if (target.exists()) {
+                ReelsOfflineStore.DownloadResult.SAVED
+            } else {
+                ReelsOfflineStore.DownloadResult.NETWORK
             }
         }
-        target.exists()
-    }
 
     override suspend fun delete(sourceId: Long, videoId: String): Boolean = withContext(ioDispatcher) {
         val file = fileFor(sourceId, videoId)
         !file.exists() || file.delete()
+    }
+
+    override fun usedBytes(): Long = (dir.listFiles() ?: emptyArray()).sumOf { it.length() }
+
+    override suspend fun deleteBySource(sourceId: Long): Int = withContext(ioDispatcher) {
+        val prefix = "${sourceId}_"
+        (dir.listFiles() ?: emptyArray())
+            .filter { it.name.startsWith(prefix) }
+            .count { it.delete() }
+    }
+
+    override suspend fun clearAll(): Long = withContext(ioDispatcher) {
+        val files = dir.listFiles() ?: return@withContext 0L
+        files.sumOf { file ->
+            val size = file.length()
+            if (file.delete()) size else 0L
+        }
     }
 
     private fun fileFor(sourceId: Long, videoId: String): File {

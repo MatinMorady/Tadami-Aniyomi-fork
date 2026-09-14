@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.reels.components
 
+import android.text.format.Formatter
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -38,10 +41,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DataSaverOn
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.Block
@@ -53,10 +59,13 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -73,11 +82,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -119,9 +130,22 @@ fun ReelsTopBar(
     // Following) live in the account hub, which always has at least two entries.
     onOpenFavorites: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
+    onOpenHidden: () -> Unit = {},
     onOpenFollows: () -> Unit = {},
     isPipEnabled: Boolean = false,
     onTogglePip: () -> Unit = {},
+    // Audit H8: offline-copy storage visibility + user-initiated cleanup (More menu).
+    offlineUsedBytes: Long = 0L,
+    onClearOfflineStorage: () -> Unit = {},
+    // B2 sleep timer: preformatted value ("12:34" / "After this video" / "Off") + option
+    // callback in MINUTES (-1 = off, 0 = after this video, >0 = countdown).
+    sleepTimerValue: String = "",
+    onSetSleepTimerMinutes: (Int) -> Unit = {},
+    // B3 touch lock: blocks every gesture; unlock is a long-press on the full-screen overlay.
+    isTouchLocked: Boolean = false,
+    onToggleTouchLock: () -> Unit = {},
+    // Audit H9: incognito must be visible — writes are silently suppressed while it is on.
+    isIncognito: Boolean = false,
     // Account hub (contract v19): identity + personal content. The hub shows the login state,
     // the custom-feeds entry (enabled only while logged in), the followed-creators entry
     // (capability-gated) and login/logout.
@@ -178,6 +202,8 @@ fun ReelsTopBar(
         }
     }
     var openHub by remember { mutableStateOf(HubMenu.NONE) }
+    var confirmLogout by remember { mutableStateOf(false) }
+    var sleepDialogOpen by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -259,6 +285,15 @@ fun ReelsTopBar(
                                 // never squeezed out by a long name.
                                 modifier = Modifier.weight(1f, fill = false),
                             )
+                            if (isIncognito) {
+                                // Audit H9: a visible marker that writes are being suppressed.
+                                Icon(
+                                    imageVector = Icons.Filled.PrivacyTip,
+                                    contentDescription = stringResource(MR.strings.reels_incognito_active),
+                                    tint = AuroraTheme.colors.accent,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
                             if (showSourcePicker) {
                                 Icon(
                                     imageVector = Icons.Filled.ArrowDropDown,
@@ -417,7 +452,7 @@ fun ReelsTopBar(
                                 showContentPrefsRow = showContentPrefsAccountRow,
                                 showBlockedTagsRow = showBlockedTagsAccountRow,
                                 onLoginRequest = onLoginRequest,
-                                onLogout = onLogout,
+                                onLogout = { confirmLogout = true },
                                 onOpenCustomFeeds = onOpenCustomFeeds,
                                 onOpenNiches = onOpenNiches,
                                 onOpenContentPrefs = onOpenContentPrefs,
@@ -475,42 +510,42 @@ fun ReelsTopBar(
                             preloadEnabled = preloadEnabled,
                             preloadWifiOnly = preloadWifiOnly,
                             isPipEnabled = isPipEnabled,
+                            offlineUsedBytes = offlineUsedBytes,
+                            sleepTimerValue = sleepTimerValue,
+                            isTouchLocked = isTouchLocked,
                             onOpenHistory = {
                                 onOpenHistory()
+                                openHub = HubMenu.NONE
+                            },
+                            onOpenHidden = {
+                                onOpenHidden()
                                 openHub = HubMenu.NONE
                             },
                             onOpenFilter = {
                                 onOpenFilterDialog()
                                 openHub = HubMenu.NONE
                             },
-                            onToggleAutoAdvance = {
-                                onToggleAutoAdvance()
+                            onOpenSleepDialog = {
+                                sleepDialogOpen = true
                                 openHub = HubMenu.NONE
                             },
-                            onToggleCropMode = {
-                                onToggleCropMode()
+                            onToggleTouchLock = {
+                                onToggleTouchLock()
                                 openHub = HubMenu.NONE
                             },
-                            onToggleQuality = {
-                                onToggleQuality()
+                            onClearOfflineStorage = {
+                                onClearOfflineStorage()
                                 openHub = HubMenu.NONE
                             },
-                            onToggleDataSaver = {
-                                onToggleDataSaver()
-                                openHub = HubMenu.NONE
-                            },
-                            onTogglePreload = {
-                                onTogglePreload()
-                                openHub = HubMenu.NONE
-                            },
-                            onTogglePip = {
-                                onTogglePip()
-                                openHub = HubMenu.NONE
-                            },
-                            onTogglePreloadWifiOnly = {
-                                onTogglePreloadWifiOnly()
-                                openHub = HubMenu.NONE
-                            },
+                            onToggleAutoAdvance = onToggleAutoAdvance,
+                            onToggleCropMode = onToggleCropMode,
+                            onToggleQuality = onToggleQuality,
+                            onToggleDataSaver = onToggleDataSaver,
+                            onTogglePreload = onTogglePreload,
+                            // Audit H11: setting toggles keep the menu OPEN — flipping several
+                            // switches in a row must not require reopening the popup each time.
+                            onTogglePip = onTogglePip,
+                            onTogglePreloadWifiOnly = onTogglePreloadWifiOnly,
                             onClearVideoCache = {
                                 onClearVideoCache()
                                 openHub = HubMenu.NONE
@@ -679,6 +714,78 @@ fun ReelsTopBar(
             }
         }
     }
+
+    // Audit H11: logout wipes the whole session (tokens + cookies) and reloads the feed —
+    // destructive enough to require a confirmation.
+    if (confirmLogout) {
+        AlertDialog(
+            onDismissRequest = { confirmLogout = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmLogout = false
+                        onLogout()
+                    },
+                ) {
+                    Text(stringResource(MR.strings.reels_logout))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmLogout = false }) {
+                    Text(stringResource(MR.strings.action_cancel))
+                }
+            },
+            title = { Text(stringResource(MR.strings.reels_logout)) },
+            text = { Text(stringResource(MR.strings.reels_logout_confirm)) },
+        )
+    }
+
+    // B2 sleep timer picker: countdowns, "after this video" (YouTube pattern) and off.
+    if (sleepDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { sleepDialogOpen = false },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { sleepDialogOpen = false }) {
+                    Text(stringResource(MR.strings.action_cancel))
+                }
+            },
+            title = { Text(stringResource(MR.strings.reels_sleep_timer)) },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            sleepDialogOpen = false
+                            onSetSleepTimerMinutes(-1)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(MR.strings.off))
+                    }
+                    TextButton(
+                        onClick = {
+                            sleepDialogOpen = false
+                            onSetSleepTimerMinutes(0)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(MR.strings.reels_sleep_timer_end_video))
+                    }
+                    listOf(15, 30, 60).forEach { minutes ->
+                        TextButton(
+                            onClick = {
+                                sleepDialogOpen = false
+                                onSetSleepTimerMinutes(minutes)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(MR.strings.reels_sleep_timer_minutes, minutes))
+                        }
+                    }
+                }
+            },
+        )
+    }
 }
 
 /**
@@ -818,8 +925,15 @@ private fun ReelsMoreMenu(
     preloadEnabled: Boolean,
     preloadWifiOnly: Boolean,
     isPipEnabled: Boolean,
+    offlineUsedBytes: Long,
+    sleepTimerValue: String,
+    isTouchLocked: Boolean,
     onOpenHistory: () -> Unit,
+    onOpenHidden: () -> Unit,
     onOpenFilter: () -> Unit,
+    onOpenSleepDialog: () -> Unit,
+    onToggleTouchLock: () -> Unit,
+    onClearOfflineStorage: () -> Unit,
     onToggleAutoAdvance: () -> Unit,
     onToggleCropMode: () -> Unit,
     onToggleQuality: () -> Unit,
@@ -840,12 +954,18 @@ private fun ReelsMoreMenu(
         Column(
             modifier = Modifier
                 .width(220.dp)
+                // Audit UI (device screenshot): 14 rows overflow the viewport and the popup
+                // clipped its own tail — cap the height to the visible area and scroll.
+                .heightIn(max = (LocalConfiguration.current.screenHeightDp - 96).dp)
+                .clip(RoundedCornerShape(14.dp))
+                .verticalScroll(rememberScrollState())
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(14.dp))
                 .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(14.dp))
                 .padding(6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // Relocated from the top bar (declutter): local retrospective actions first.
+            MoreMenuSection(stringResource(MR.strings.reels_menu_section_feed))
             MoreMenuRow(
                 icon = {
                     Icon(
@@ -859,6 +979,20 @@ private fun ReelsMoreMenu(
                 value = null,
                 checked = null,
                 onClick = onOpenHistory,
+            )
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Filled.VisibilityOff,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_hidden_manage),
+                value = null,
+                checked = null,
+                onClick = onOpenHidden,
             )
             if (showFilterRow) {
                 MoreMenuRow(
@@ -876,6 +1010,7 @@ private fun ReelsMoreMenu(
                     onClick = onOpenFilter,
                 )
             }
+            MoreMenuSection(stringResource(MR.strings.reels_menu_section_playback))
             MoreMenuRow(
                 icon = {
                     Icon(
@@ -904,6 +1039,7 @@ private fun ReelsMoreMenu(
                 checked = null,
                 onClick = onToggleCropMode,
             )
+            MoreMenuSection(stringResource(MR.strings.reels_menu_section_quality))
             MoreMenuRow(
                 icon = {
                     Icon(
@@ -914,7 +1050,15 @@ private fun ReelsMoreMenu(
                     )
                 },
                 label = stringResource(MR.strings.reels_quality),
-                value = stringResource(if (isHdQuality) MR.strings.reels_quality_hd else MR.strings.reels_quality_sd),
+                // Audit H11: show the EFFECTIVE quality — with data saver on, HD silently
+                // downgrades to SD on mobile networks and the menu must not lie about it.
+                value = stringResource(
+                    when {
+                        isHdQuality && dataSaverEnabled -> MR.strings.reels_quality_hd_saver
+                        isHdQuality -> MR.strings.reels_quality_hd
+                        else -> MR.strings.reels_quality_sd
+                    },
+                ),
                 checked = null,
                 onClick = onToggleQuality,
             )
@@ -960,6 +1104,7 @@ private fun ReelsMoreMenu(
                 checked = dataSaverEnabled,
                 onClick = onToggleDataSaver,
             )
+            MoreMenuSection(stringResource(MR.strings.reels_menu_section_session))
             MoreMenuRow(
                 icon = {
                     Icon(
@@ -970,9 +1115,54 @@ private fun ReelsMoreMenu(
                     )
                 },
                 label = stringResource(MR.strings.reels_pip),
-                value = stringResource(if (isPipEnabled) MR.strings.on else MR.strings.off),
+                value = stringResource(if (isPipEnabled) MR.strings.reels_on_short else MR.strings.reels_off_short),
                 checked = null,
                 onClick = onTogglePip,
+            )
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Outlined.Timer,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_sleep_timer),
+                value = sleepTimerValue,
+                checked = null,
+                onClick = onOpenSleepDialog,
+            )
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Filled.Lock,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_touch_lock),
+                value = stringResource(if (isTouchLocked) MR.strings.reels_on_short else MR.strings.reels_off_short),
+                checked = null,
+                onClick = onToggleTouchLock,
+            )
+            MoreMenuSection(stringResource(MR.strings.reels_menu_section_data))
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Filled.Download,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_offline_storage),
+                // Audit H8: the share of the 1 GB quota in plain sight; the cleanup itself is
+                // destructive → the calling screen owns the confirm dialog.
+                value = Formatter.formatFileSize(LocalContext.current, offlineUsedBytes),
+                checked = null,
+                onClick = onClearOfflineStorage,
             )
             MoreMenuRow(
                 icon = {
@@ -1015,6 +1205,7 @@ private fun MoreMenuRow(
             color = MaterialTheme.colorScheme.onSurface,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
+            maxLines = 2,
             modifier = Modifier.weight(1f),
         )
         if (checked != null) {
@@ -1027,14 +1218,34 @@ private fun MoreMenuRow(
                 )
             }
         } else {
+            // Audit UI (device screenshot): an unconstrained value Text ("HD (SD в мобильной
+            // сети)") ate the label's whole weight and crushed it into a one-char-per-line
+            // column. Cap the value's width and let it wrap to two lines, right-aligned.
             Text(
                 text = value.orEmpty(),
                 color = AuroraTheme.colors.accent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.End,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 100.dp),
             )
         }
     }
+}
+
+/** Uppercase group caption inside the More menu (audit UI: sectioned, scannable list). */
+@Composable
+private fun MoreMenuSection(title: String) {
+    Text(
+        text = title.uppercase(),
+        color = Color.White.copy(alpha = 0.45f),
+        fontSize = 10.sp,
+        fontWeight = FontWeight.ExtraBold,
+        letterSpacing = 0.9.sp,
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 2.dp),
+    )
 }
 
 /** Which popup is open in the top bar; only one at a time. */
@@ -1096,8 +1307,11 @@ private fun ReelsAccountMenu(
                 ) {
                     if (isLoggedIn) {
                         onOpenCustomFeeds()
-                        onDismiss()
+                    } else {
+                        // Audit H11: a dead disabled tap — route it to the login instead.
+                        onLoginRequest()
                     }
+                    onDismiss()
                 }
             }
             if (showFollowsRow) {
@@ -1126,8 +1340,10 @@ private fun ReelsAccountMenu(
                 ) {
                     if (isLoggedIn) {
                         onOpenContentPrefs()
-                        onDismiss()
+                    } else {
+                        onLoginRequest()
                     }
+                    onDismiss()
                 }
             }
             if (showBlockedTagsRow) {
@@ -1138,8 +1354,10 @@ private fun ReelsAccountMenu(
                 ) {
                     if (isLoggedIn) {
                         onOpenBlockedTags()
-                        onDismiss()
+                    } else {
+                        onLoginRequest()
                     }
+                    onDismiss()
                 }
             }
             Box(

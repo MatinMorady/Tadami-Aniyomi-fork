@@ -38,9 +38,11 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,7 +79,9 @@ class ReelsFavoritesScreen : Screen {
         val snackbarHostState = remember { SnackbarHostState() }
         val removedMessage = stringResource(MR.strings.reels_favorites_removed_snackbar)
         val undoLabel = stringResource(MR.strings.action_undo)
-        var sort by remember { mutableStateOf(FavoritesSort.DateDesc) }
+        // Audit H11: the sort choice survives config changes and re-entry (process scope).
+        var sortOrdinal by rememberSaveable { mutableIntStateOf(FavoritesSort.DateDesc.ordinal) }
+        val sort = FavoritesSort.entries[sortOrdinal]
         var confirmCleanup by remember { mutableStateOf(false) }
         val context = LocalContext.current
 
@@ -133,27 +137,30 @@ class ReelsFavoritesScreen : Screen {
                         }
                         var menuOpen by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.AutoMirrored.Outlined.Sort, contentDescription = null)
+                            Icon(
+                                Icons.AutoMirrored.Outlined.Sort,
+                                contentDescription = stringResource(MR.strings.action_sort),
+                            )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(MR.strings.reels_sort_newest)) },
                                 onClick = {
-                                    sort = FavoritesSort.DateDesc
+                                    sortOrdinal = FavoritesSort.DateDesc.ordinal
                                     menuOpen = false
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(MR.strings.reels_sort_oldest)) },
                                 onClick = {
-                                    sort = FavoritesSort.DateAsc
+                                    sortOrdinal = FavoritesSort.DateAsc.ordinal
                                     menuOpen = false
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(MR.strings.reels_sort_source)) },
                                 onClick = {
-                                    sort = FavoritesSort.Source
+                                    sortOrdinal = FavoritesSort.Source.ordinal
                                     menuOpen = false
                                 },
                             )

@@ -6,20 +6,25 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import tachiyomi.domain.reels.anime.model.ReelsWatchEntry
-import tachiyomi.domain.reels.anime.repository.ReelsWatchRepository
+import tachiyomi.domain.reels.anime.model.ReelsHiddenEntry
+import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-class ReelsWatchHistoryScreenModel(
-    private val repository: ReelsWatchRepository = Injekt.get(),
+/**
+ * Hidden-content manager (audit H7): "not interested" decisions used to be reversible only
+ * through the transient undo snackbar. Local data only — the list is live (repository flow),
+ * unhiding a row removes it and the feeds stop filtering it on the next page/source switch.
+ */
+class ReelsHiddenScreenModel(
+    private val repository: ReelsHiddenRepository = Injekt.get(),
     private val sourceManager: AnimeSourceManager = Injekt.get(),
-) : StateScreenModel<ReelsWatchHistoryScreenModel.State>(State()) {
+) : StateScreenModel<ReelsHiddenScreenModel.State>(State()) {
 
     @Immutable
     data class State(
-        val entries: List<ReelsWatchEntry> = emptyList(),
+        val entries: List<ReelsHiddenEntry> = emptyList(),
         val sourceNames: Map<Long, String> = emptyMap(),
     )
 
@@ -36,14 +41,15 @@ class ReelsWatchHistoryScreenModel(
         }
     }
 
-    suspend fun clearHistory() {
-        repository.deleteAll()
+    fun unhide(entry: ReelsHiddenEntry) {
+        screenModelScope.launch {
+            repository.delete(entry.sourceId, entry.kind, entry.value)
+        }
     }
 
-    /** Single-entry removal (audit H10): long-press on a history cell. */
-    fun remove(entry: ReelsWatchEntry) {
+    fun unhideAll() {
         screenModelScope.launch {
-            repository.delete(entry.videoId, entry.sourceId)
+            repository.deleteAll()
         }
     }
 }

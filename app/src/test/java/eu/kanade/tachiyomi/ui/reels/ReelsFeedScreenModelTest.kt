@@ -817,6 +817,37 @@ class ReelsFeedScreenModelTest {
     }
 
     @Test
+    fun `retryFromError opens the picker for a rejected global source and refuses fixed modes`() = runTest(
+        testDispatcher,
+    ) {
+        val notAFeed = object : AnimeSource {
+            override val id: Long = 999L
+            override val name: String = "Catalogue Source"
+            override val lang: String = "all"
+
+            override suspend fun getAnimeDetails(anime: SAnime): SAnime = anime
+            override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = emptyList()
+            override suspend fun getSeasonList(anime: SAnime): List<SAnime> = emptyList()
+            override suspend fun getVideoList(episode: SEpisode): List<Video> = emptyList()
+        }
+
+        // GLOBAL: a retry with source=null must not be a silent no-op — it opens the picker.
+        val global = buildModel(sourceId = 999L, manager = sourceManagerOf(notAFeed))
+        testDispatcher.scheduler.advanceUntilIdle()
+        global.state.value.errorRes shouldBe MR.strings.reels_source_not_feed
+
+        global.retryFromError() shouldBe true
+        global.state.value.isSourcePickerOpen shouldBe true
+
+        // Fixed mode (creator): nowhere to switch — the screen falls back to a back-navigation.
+        val creator = buildModel(sourceId = 999L, manager = sourceManagerOf(notAFeed), creator = "alice")
+        testDispatcher.scheduler.advanceUntilIdle()
+        creator.state.value.errorRes shouldBe MR.strings.reels_source_not_feed
+
+        creator.retryFromError() shouldBe false
+    }
+
+    @Test
     fun `malformed persisted filters do not crash source switch`() = runTest(testDispatcher) {
         class SortFilter : AnimeFilter.Select<String>("Sort", arrayOf("Trending", "Recent"), 0)
         class NsfwFilter : AnimeFilter.CheckBox("Nsfw", false)
@@ -1350,6 +1381,111 @@ class ReelsFeedScreenModelTest {
     }
 
     @Test
+    fun `a 429 verdict surfaces the wait and auto-retries after it`() = runTest(testDispatcher) {
+        var calls = 0
+        val source = object : AnimeFeedSource {
+            override val id: Long = 9099L
+            override val name: String = "Rate Limited"
+            override val lang: String = "all"
+
+            override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage {
+                calls++
+                if (calls == 1) throw java.io.IOException("HTTP 429 Too Many Requests, Retry-After: 7")
+                return FeedPage(listOf(videoItem("rl-1")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9099L, manager = sourceManagerOf(source))
+
+        // The initial load fails with 429; the model schedules ONE capped auto-retry after the
+        // Retry-After window, which the virtual clock executes inside advanceUntilIdle.
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        calls shouldBe 2
+        screenModel.state.value.retryAfterSec shouldBe 0
+        screenModel.state.value.items.map { it.id } shouldContain "rl-1"
+    }
+
+    @Test
+    fun `rate-limit auto-retry is capped at three consecutive attempts`() = runTest(testDispatcher) {
+        var calls = 0
+        val source = object : AnimeFeedSource {
+            override val id: Long = 9100L
+            override val name: String = "Always 429"
+            override val lang: String = "all"
+
+            override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage {
+                calls++
+                throw java.io.IOException("HTTP 429 Too Many Requests")
+            }
+        }
+        val screenModel = buildModel(sourceId = 9100L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Initial failure + exactly RATE_LIMIT_MAX_RETRIES auto-retries, then it stops.
+        calls shouldBe 4
+        screenModel.state.value.error.orEmpty().contains("429") shouldBe true
+    }
+
+    @Test
+    fun `sleep timer countdown pauses the feed stickily on expiry`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9101L) {
+            FeedPage(listOf(videoItem("st-1"), videoItem("st-2")), hasNextPage = false)
+        }
+        val screenModel = buildModel(sourceId = 9101L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.setSleepTimer(ReelsFeedScreenModel.SleepTimerOption.M15)
+        screenModel.state.value.sleepTimerRemainingSec shouldBe 900
+
+        testDispatcher.scheduler.advanceTimeBy(901_000)
+        screenModel.state.value.sleepTimerRemainingSec shouldBe 0
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.userPaused shouldBe true
+    }
+
+    @Test
+    fun `end-of-video sleep pauses at the completion boundary once`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9102L) { FeedPage(listOf(videoItem("ev-1")), hasNextPage = false) }
+        val screenModel = buildModel(sourceId = 9102L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.setSleepTimer(ReelsFeedScreenModel.SleepTimerOption.END_OF_VIDEO)
+        screenModel.state.value.sleepAtVideoEnd shouldBe true
+
+        screenModel.consumeSleepAtVideoEnd() shouldBe true
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.sleepAtVideoEnd shouldBe false
+        // A second completion must advance normally.
+        screenModel.consumeSleepAtVideoEnd() shouldBe false
+    }
+
+    @Test
+    fun `history seed plays the tapped clip at the head of the offline playlist`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["fav-1" to 305L] = offlineFavorite("fav-1").copy(sourceId = 305L)
+        val store = FakeReelsOfflineStore()
+        val seeded = offlineFavorite("hist-clip").copy(sourceId = 305L)
+        ReelsPlaybackSeed.pending = seeded
+        try {
+            val screenModel = buildModel(
+                sourceId = 305L,
+                manager = sourceManagerOf(),
+                repository = favorites,
+                offlineStore = store,
+                offlinePlaylist = true,
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // The history clip leads even though it is NOT favorited; favorites follow.
+            screenModel.state.value.items.map { it.id } shouldBe listOf("hist-clip", "fav-1")
+            // The seed is one-shot.
+            ReelsPlaybackSeed.pending shouldBe null
+        } finally {
+            ReelsPlaybackSeed.pending = null
+        }
+    }
+
+    @Test
     fun `pip toggle persists and defaults to off`() = runTest(testDispatcher) {
         val source = RecordingFeedSource(9095L) { FeedPage(emptyList(), false) }
         val preferences = SourcePreferences(MapPreferenceStore())
@@ -1365,6 +1501,79 @@ class ReelsFeedScreenModelTest {
         screenModel.togglePip()
         screenModel.state.value.isPipEnabled shouldBe false
         preferences.reelsPipEnabled().get() shouldBe false
+    }
+
+    @Test
+    fun `cf bootstrap budget exhausts to an unmounted terminal state`() = runTest(testDispatcher) {
+        val failing = object : AnimeFeedSource, AnimeFeedWebLoginSource {
+            override val id: Long = 9096L
+            override val name: String = "Always 403"
+            override val lang: String = "all"
+
+            override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage =
+                throw java.io.IOException("HTTP 403: managed challenge")
+
+            override fun webLoginUrl(): String = "https://example.invalid/"
+            override fun ownAuthorizeUrl(): String = "https://example.invalid/oauth2/auth?state=own"
+            override fun isOwnLoginRedirect(url: String): Boolean = false
+            override suspend fun importWebRedirect(url: String, cookies: Map<String, String>): Boolean = false
+            override suspend fun importWebSession(
+                cookies: Map<String, String>,
+                localStorage: Map<String, String>,
+            ): Boolean = false
+        }
+        val screenModel = buildModel(sourceId = 9096L, manager = sourceManagerOf(failing))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // The initial failed load bumps the first bootstrap attempt.
+        screenModel.state.value.cfBootstrapAttempt shouldBe 1
+
+        // Attempts 2 and 3 mount the WebView; the 4th failure exhausts the budget: the
+        // WebView must UNMOUNT (attempt back to 0) and the terminal flag must stop any
+        // further mounts for this source entry (audit A4/H6 follow-up).
+        repeat(3) {
+            screenModel.loadFeed(reset = true)
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+        screenModel.state.value.cfBootstrapExhausted shouldBe true
+        screenModel.state.value.cfBootstrapAttempt shouldBe 0
+
+        // A further failure must not re-arm the budget.
+        screenModel.loadFeed(reset = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        screenModel.state.value.cfBootstrapAttempt shouldBe 0
+    }
+
+    @Test
+    fun `history entry navigates the first page to the tapped clip`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9097L) {
+            FeedPage(
+                listOf(videoItem("nav-a"), videoItem("nav-target"), videoItem("nav-b")),
+                hasNextPage = false,
+            )
+        }
+        val screenModel = buildModel(
+            sourceId = 9097L,
+            manager = sourceManagerOf(source),
+            resumeVideoId = "nav-target",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // The one-shot resume navigation outranks the saved source position when the
+        // tapped clip is on the first page.
+        screenModel.state.value.targetPageIndex shouldBe 1
+
+        // A clip the shuffled first page does not contain falls back to the normal restore.
+        val absent = RecordingFeedSource(9098L) {
+            FeedPage(listOf(videoItem("other-a"), videoItem("other-b")), hasNextPage = false)
+        }
+        val fallbackModel = buildModel(
+            sourceId = 9098L,
+            manager = sourceManagerOf(absent),
+            resumeVideoId = "nav-target",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        fallbackModel.state.value.targetPageIndex shouldBe 0
     }
 
     @Test
@@ -1667,6 +1876,8 @@ class ReelsFeedScreenModelTest {
     private class FakeReelsHiddenRepository : ReelsHiddenRepository {
         val entries = mutableMapOf<Triple<Long, String, String>, ReelsHiddenEntry>()
 
+        override fun subscribeAll(): Flow<List<ReelsHiddenEntry>> = MutableStateFlow(entries.values.toList())
+
         override suspend fun getBySource(sourceId: Long): List<ReelsHiddenEntry> =
             entries.values.filter { it.sourceId == sourceId }
 
@@ -1677,6 +1888,12 @@ class ReelsFeedScreenModelTest {
         override suspend fun delete(sourceId: Long, kind: String, value: String) {
             entries.remove(Triple(sourceId, kind, value))
         }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            entries.keys.filter { it.first == sourceId }.forEach { entries.remove(it) }
+        }
+
+        override suspend fun deleteAll() = entries.clear()
     }
 
     private class FakeReelsOfflineStore : ReelsOfflineStore {
@@ -1688,13 +1905,24 @@ class ReelsFeedScreenModelTest {
 
         override fun storedPairs(): Set<Pair<Long, String>> = stored.keys
 
-        override suspend fun download(item: ShortVideoItem, sourceId: Long): Boolean {
+        override fun usedBytes(): Long = stored.size * 1024L
+
+        override suspend fun download(item: ShortVideoItem, sourceId: Long): ReelsOfflineStore.DownloadResult {
             stored[sourceId to item.id] = "file:///offline/${sourceId}_${item.id}.mp4"
-            return true
+            return ReelsOfflineStore.DownloadResult.SAVED
         }
 
         override suspend fun delete(sourceId: Long, videoId: String): Boolean =
             stored.remove(sourceId to videoId) != null
+
+        override suspend fun deleteBySource(sourceId: Long): Int =
+            stored.keys.filter { it.first == sourceId }.count { stored.remove(it) != null }
+
+        override suspend fun clearAll(): Long {
+            val freed = usedBytes()
+            stored.clear()
+            return freed
+        }
     }
 
     private fun timedItem(id: String, createdAtSec: Long) = ShortVideoItem(

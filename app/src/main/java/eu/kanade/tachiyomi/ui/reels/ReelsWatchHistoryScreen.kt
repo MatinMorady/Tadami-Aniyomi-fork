@@ -1,7 +1,8 @@
 package eu.kanade.tachiyomi.ui.reels
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -50,6 +51,7 @@ import coil3.request.crossfade
 import eu.kanade.presentation.components.AppBar
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.model.ReelsWatchEntry
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -70,6 +72,7 @@ class ReelsWatchHistoryScreen : Screen {
         val state by screenModel.state.collectAsStateWithLifecycle()
         val snackbarHostState = remember { SnackbarHostState() }
         var confirmClear by remember { mutableStateOf(false) }
+        var pendingDeleteEntry by remember { mutableStateOf<ReelsWatchEntry?>(null) }
 
         Scaffold(
             topBar = {
@@ -108,10 +111,34 @@ class ReelsWatchHistoryScreen : Screen {
                             entry = entry,
                             sourceName = state.sourceNames[entry.sourceId],
                             onClick = {
+                                // B4 (audit H10): play the tapped clip DIRECTLY — the live feed
+                                // is shuffled and the clip rarely lands on its first page, so
+                                // the row seeds the offline-playlist machinery instead (works
+                                // whether or not the reel is favorited) and keeps the resume seek.
+                                ReelsPlaybackSeed.pending = ReelsFavorite(
+                                    videoId = entry.videoId,
+                                    sourceId = entry.sourceId,
+                                    title = entry.title.orEmpty(),
+                                    author = entry.author,
+                                    videoUrl = entry.videoUrl,
+                                    videoUrlHd = null,
+                                    posterUrl = entry.posterUrl.orEmpty(),
+                                    posterUrlVertical = entry.posterUrl,
+                                    webUrl = entry.webUrl,
+                                    durationSec = entry.durationSec,
+                                    hasAudio = true,
+                                    addedAt = entry.watchedAt,
+                                )
                                 navigator.push(
-                                    ReelsFeedScreen(sourceId = entry.sourceId, resumeVideoId = entry.videoId),
+                                    ReelsFeedScreen(
+                                        sourceId = entry.sourceId,
+                                        offlinePlaylist = true,
+                                        initialVideoId = entry.videoId,
+                                        resumeVideoId = entry.videoId,
+                                    ),
                                 )
                             },
+                            onLongClick = { pendingDeleteEntry = entry },
                         )
                     }
                 }
@@ -146,20 +173,53 @@ class ReelsWatchHistoryScreen : Screen {
                 },
             )
         }
+
+        // Single-entry removal (audit H10): long-press → confirm, consistent with the
+        // destructive-action pattern elsewhere in the app.
+        pendingDeleteEntry?.let { entry ->
+            AlertDialog(
+                onDismissRequest = { pendingDeleteEntry = null },
+                title = { Text(stringResource(MR.strings.reels_history_delete)) },
+                text = {
+                    Text(
+                        entry.author?.let { "@$it" }
+                            ?: entry.title
+                            ?: stringResource(MR.strings.reels_default_video_title),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            pendingDeleteEntry = null
+                            screenModel.remove(entry)
+                        },
+                    ) {
+                        Text(stringResource(MR.strings.action_remove))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingDeleteEntry = null }) {
+                        Text(stringResource(MR.strings.action_cancel))
+                    }
+                },
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryCell(
     entry: ReelsWatchEntry,
     sourceName: String?,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
@@ -183,16 +243,16 @@ private fun HistoryCell(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 4.dp, start = 2.dp, end = 2.dp),
         )
-        if (sourceName != null) {
-            Text(
-                text = sourceName,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 2.dp, end = 2.dp),
-            )
-        }
+        // Audit H11: an uninstalled source must not silently drop the name row (Favorites
+        // shows "Unknown source") — the cell stays explainable and the tap failure predictable.
+        Text(
+            text = sourceName ?: stringResource(MR.strings.reels_unknown_source),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 2.dp, end = 2.dp),
+        )
         // Progress affordance inside the cell: a hint that the clip resumes, not plays from 0.
         if (entry.positionMs > 0) {
             Row(

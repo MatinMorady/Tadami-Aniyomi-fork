@@ -129,6 +129,7 @@ import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
 import eu.kanade.tachiyomi.util.system.isPreviewBuildType
 import eu.kanade.tachiyomi.util.system.openInBrowser
+import eu.kanade.tachiyomi.util.system.tabletUiNeedsRecreate
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.system.updaterEnabled
 import eu.kanade.tachiyomi.util.view.setComposeContent
@@ -638,6 +639,16 @@ class MainActivity : BaseActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         ReelsPip.handler?.invoke()
+    }
+
+    // The manifest configChanges (added for the reels PiP) suppresses rotation recreation,
+    // but the tablet-UI context override is computed only in attachBaseContext: recreate
+    // when the computed tablet mode flips, so phone/tablet layouts keep following rotation.
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (tabletUiNeedsRecreate(newConfig)) {
+            recreate()
+        }
     }
 
     override fun onStop() {

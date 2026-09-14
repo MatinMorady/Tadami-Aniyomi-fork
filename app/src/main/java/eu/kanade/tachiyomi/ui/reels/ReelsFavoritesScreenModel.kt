@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
+import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -17,6 +18,8 @@ import uy.kohesive.injekt.api.get
 class ReelsFavoritesScreenModel(
     private val repository: ReelsFavoriteRepository = Injekt.get(),
     private val sourceManager: AnimeSourceManager = Injekt.get(),
+    private val offlineStore: ReelsOfflineStore = Injekt.get(),
+    private val hiddenRepository: ReelsHiddenRepository = Injekt.get(),
 ) : StateScreenModel<ReelsFavoritesScreenModel.State>(State()) {
 
     @Immutable
@@ -68,7 +71,14 @@ class ReelsFavoritesScreenModel(
         }
         if (missingSourceIds.isEmpty()) return 0
         val removedCount = favorites.count { it.sourceId in missingSourceIds }
-        missingSourceIds.forEach { sourceId -> repository.deleteBySource(sourceId) }
+        missingSourceIds.forEach { sourceId ->
+            repository.deleteBySource(sourceId)
+            // Audit H8: cascade the offline copies — files of a removed source are unreachable
+            // through the playlist from now on and would eat the quota forever.
+            offlineStore.deleteBySource(sourceId)
+            // Audit H7: hidden entries of a removed source are unreachable too.
+            hiddenRepository.deleteBySource(sourceId)
+        }
         return removedCount
     }
 }

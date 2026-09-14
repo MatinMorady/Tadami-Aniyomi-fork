@@ -251,7 +251,7 @@ fun ReelsWebLoginDialog(
                                         // live credentials (contract v22: the source supplies the
                                         // snippet; the legacy fallback serves pre-v22 APKs).
                                         if (url != null && Uri.parse(url).host == Uri.parse(startUrl).host) {
-                                            val js = instrumentationJs ?: LEGACY_INSTRUMENT_JS
+                                            val js = instrumentationJs?.takeIf { it.isNotBlank() }
                                             if (js != null) view.evaluateJavascript(js, null)
                                         }
                                         super.onPageStarted(view, url, favicon)
@@ -274,11 +274,14 @@ fun ReelsWebLoginDialog(
                                             val uri = Uri.parse(u)
                                             uri.host + "/" + (uri.pathSegments.firstOrNull() ?: "")
                                         }
-                                        Log.d(TAG, "page finished: $safe")
+                                        // Debug-only navigation trail (audit): production builds must not log per-page events.
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(TAG, "page finished: $safe")
+                                        }
                                         // Re-inject the credential instrumentation (idempotent)
                                         // and re-dump with a delay: the SPA performs its first
                                         // api calls only after boot, i.e. after this event.
-                                        val js = instrumentationJs ?: LEGACY_INSTRUMENT_JS
+                                        val js = instrumentationJs?.takeIf { it.isNotBlank() }
                                         if (js != null) view.evaluateJavascript(js, null)
                                         if (!isStage2Active && url != null && isBackOnServiceSite(url, startUrl)) {
                                             requestDump(view, onSession)
@@ -388,7 +391,7 @@ fun CfBootstrapWebView(
                         }
                         // Contract v22: the source's instrumentation; the legacy fallback
                         // keeps pre-v22 APKs working until they opt in.
-                        val js = instrumentationJs ?: LEGACY_INSTRUMENT_JS
+                        val js = instrumentationJs?.takeIf { it.isNotBlank() }
                         if (js != null) page.evaluateJavascript(js) { dumpStorage() } else dumpStorage()
                     }
                 }
@@ -474,48 +477,10 @@ private fun parseJsonStringMap(raw: String?): Map<String, String> {
 // answer is delivered through the window.prompt bridge (with a 4s timeout fallback).
 private const val DEEP_DUMP_MARKER = "__DUMP2__:"
 
-// LEGACY: the RedGIFs-specific instrumentation the host used to inject before contract v22.
-// Served ONLY as a fallback for pre-v22 plugin APKs; v22+ sources supply their own snippet via
-// AnimeFeedLoginInstrumentationSource, and this constant is removed once the plugins migrate.
-// Records the SPA's own api credentials into window globals for the dump: the live
-// Authorization bearer of api.redgifs.com calls and the /v2/auth/login handshake body
-// (which carries the session_id the api binds the account session to).
-private val LEGACY_INSTRUMENT_JS: String? =
-    "(function(){" +
-        "  if(window.__rgInstr)return;window.__rgInstr=1;" +
-        "  function hdrAuth(o){" +
-        "    try{" +
-        "      if(!o||!o.headers)return null;" +
-        "      if(typeof Headers!=='undefined'&&o.headers instanceof Headers)return o.headers.get('authorization');" +
-        "      if(Array.isArray(o.headers)){for(var i=0;i<o.headers.length;i++){" +
-        "if(String(o.headers[i][0]).toLowerCase()==='authorization')return o.headers[i][1];}" +
-        "return null;}" +
-        "      if(typeof o.headers==='object'){var ks=Object.keys(o.headers);" +
-        "for(var j=0;j<ks.length;j++){if(ks[j].toLowerCase()==='authorization')return o.headers[ks[j]];}}" +
-        "    }catch(e){}" +
-        "    return null;" +
-        "  }" +
-        "  function note(url,auth,body){" +
-        "    try{" +
-        "      if(auth&&String(url).indexOf('api.redgifs.com')>=0)window.__rgBearer=String(auth);" +
-        "      if(body&&String(url).indexOf('/v2/auth/login')>=0)window.__rgHandshake=String(body);" +
-        "    }catch(e){}" +
-        "  }" +
-        "  var of=window.fetch;" +
-        "  window.fetch=function(u,o){" +
-        "    try{var url=(typeof u==='string')?u:(u&&u.url);note(url,hdrAuth(o),o&&o.body);}catch(e){}" +
-        "    return of.apply(this,arguments);" +
-        "  };" +
-        "  var oo=XMLHttpRequest.prototype.open,os=XMLHttpRequest.prototype.send," +
-        "oh=XMLHttpRequest.prototype.setRequestHeader;" +
-        "  XMLHttpRequest.prototype.open=function(m,u){this.__rgUrl=u;this.__rgAuth=null;" +
-        "return oo.apply(this,arguments);};" +
-        "  XMLHttpRequest.prototype.setRequestHeader=function(k,v){" +
-        "try{if(String(k).toLowerCase()==='authorization')this.__rgAuth=v;}catch(e){}" +
-        "return oh.apply(this,arguments);};" +
-        "  XMLHttpRequest.prototype.send=function(b){" +
-        "try{note(this.__rgUrl,this.__rgAuth,b);}catch(e){}return os.apply(this,arguments);};" +
-        "})()"
+// The pre-v22 host-side RedGIFs instrumentation lived here. Contract v22 moved it into the
+// plugin (AnimeFeedLoginInstrumentationSource.sessionInstrumentationJs) and every web-login
+// plugin now implements the capability (redgifs supplies the snippet, xfree an empty one),
+// so the host injects NOTHING by default — no source-specific JS on foreign origins.
 
 private const val LOCAL_STORAGE_DUMP_JS =
     "(function(){" +

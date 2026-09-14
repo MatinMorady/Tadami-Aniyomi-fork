@@ -161,7 +161,14 @@ class ReelsFeedScreenModel(
 
         // Fan-out protection for the FOLLOWING aggregation: one page per followed creator,
         // fetched in bounded-concurrency chunks (the follow count itself is uncapped).
-        const val FOLLOWING_FETCH_CONCURRENCY = 12
+        // Audit B1: 6 instead of 12 — every request hits the SAME source, and a 12-wide burst
+        // is a self-inflicted 429 on rate-limited backends.
+        const val FOLLOWING_FETCH_CONCURRENCY = 6
+
+        // B1 rate-limit backoff: 429 verdicts are parsed from the plugin error text (plugins
+        // shape their own messages, so this is best-effort), Retry-After is honored when present.
+        const val RATE_LIMIT_MAX_RETRIES = 3
+        const val RATE_LIMIT_DEFAULT_RETRY_SEC = 30
 
         // Debounce window for the categorized-search tabs (contract v20): the request is a
         // network call per query, so the tabs refresh once typing pauses, not per keystroke.
@@ -173,6 +180,14 @@ class ReelsFeedScreenModel(
 
         // Bounded fan-out for the v22 resolver pass on playlist open (see resolveExpiredUrls).
         const val RESOLVE_URL_CONCURRENCY = 6
+
+        // Audit H6: word-boundary status match — a reel id or message that merely CONTAINS
+        // "403"/"401" must not mount the bootstrap WebView.
+        private val HTTP_SESSION_ERROR_REGEX = Regex("\\b(?:401|403)\\b")
+
+        // B1: rate-limit detection in plugin error text + optional Retry-After seconds.
+        private val HTTP_TOO_MANY_REQUESTS_REGEX = Regex("\\b429\\b")
+        private val RETRY_AFTER_REGEX = Regex("(?i)retry[-_ ]?after[:= ]+(\\d{1,4})")
     }
 
     /** Which feed [loadFeed] generates. Fixed for the model's lifetime (per screen key). */
@@ -196,6 +211,10 @@ class ReelsFeedScreenModel(
     // would burn network for nothing).
     @Volatile
     private var loadJob: Job? = null
+
+    // B1 rate-limit backoff: consecutive auto-retries (capped), reset on any successful page.
+    private var rateLimitRetryJob: Job? = null
+    private var rateLimitRetries = 0
 
     // Monotonic token: every loadFeed() call invalidates previously running load jobs,
     // closing the window between ensureActive() and the state write (no suspension there).
@@ -290,21 +309,23 @@ class ReelsFeedScreenModel(
                     FavoritesSort.DateAsc -> all.sortedBy { it.addedAt }
                     FavoritesSort.Source -> all.sortedBy { it.sourceId }
                 }
-                val hiddenBySource = all.map { it.sourceId }.distinct().associateWith { sourceId ->
-                    val entries = runCatching { reelsHiddenRepository.getBySource(sourceId) }
+                val hiddenVideosBySource = all.map { it.sourceId }.distinct().associateWith { sourceId ->
+                    runCatching { reelsHiddenRepository.getBySource(sourceId) }
                         .getOrDefault(emptyList())
-                    val videos = entries.filter { it.kind == ReelsHiddenEntry.KIND_VIDEO }.map { it.value }.toSet()
-                    val authors = entries.filter { it.kind == ReelsHiddenEntry.KIND_AUTHOR }.map { it.value }.toSet()
-                    videos to authors
+                        .filter { it.kind == ReelsHiddenEntry.KIND_VIDEO }
+                        .map { it.value }
+                        .toSet()
                 }
                 val playable = favorites.filterNot { fav ->
-                    val (videos, authors) = hiddenBySource[fav.sourceId] ?: (emptySet<String>() to emptySet<String>())
-                    fav.videoId in videos || (fav.author != null && fav.author in authors)
+                    // Favorites are EXPLICIT likes: only a per-VIDEO hide removes them from the
+                    // playlist. An author-hide is a feed-discovery decision — silently emptying
+                    // the user's own collection (and skipping the tapped card) would be a trap.
+                    fav.videoId in (hiddenVideosBySource[fav.sourceId] ?: emptySet())
                 }
                 // B3.3: locally stored copies win over network URLs; the pair set feeds the
                 // per-item download badge and the toggle action.
                 val stored = offlineStore.storedPairs()
-                val localPlayable = playable.map { fav ->
+                val storedPlayable = playable.map { fav ->
                     if (fav.sourceId to fav.videoId in stored) {
                         val local = offlineStore.localUrl(fav.sourceId, fav.videoId)
                         if (local != null) fav.copy(videoUrl = local, videoUrlHd = null) else fav
@@ -312,6 +333,13 @@ class ReelsFeedScreenModel(
                         fav
                     }
                 }
+                // B4 (audit H10): a watch-history tap seeds the playlist with the tapped clip
+                // itself (favorite or not) — the resume promise must actually play THAT reel.
+                val localPlayable = ReelsPlaybackSeed.consume()?.let { seed ->
+                    listOf(seed) + storedPlayable.filterNot {
+                        it.videoId == seed.videoId && it.sourceId == seed.sourceId
+                    }
+                } ?: storedPlayable
                 offlineSourceIds = localPlayable.map { it.sourceId }
                 val requestedIndex = localPlayable.indexOfFirst { it.videoId == initialVideoId }
                 if (requestedIndex < 0) {
@@ -438,6 +466,8 @@ class ReelsFeedScreenModel(
                 return
             }
             source = rawSource
+            rateLimitRetryJob?.cancel()
+            rateLimitRetries = 0
             persistUnlessIncognito(newSourceId) { sourcePreferences.lastUsedReelsSource().set(newSourceId) }
             baseItems = persistentListOf()
             baseNextPageIndex = 1
@@ -540,6 +570,8 @@ class ReelsFeedScreenModel(
                     isSourcePickerOpen = false,
                     error = null,
                     errorRes = null,
+                    errorCounts = null,
+                    retryAfterSec = 0,
                 )
             }
             loadPersistedFavorites(newSourceId)
@@ -610,7 +642,7 @@ class ReelsFeedScreenModel(
                     canLoadMore = true,
                 )
             } else {
-                current.copy(isLoading = true, error = null, errorRes = null)
+                current.copy(isLoading = true, error = null, errorRes = null, errorCounts = null)
             }
         }
         // Snapshot the per-request inputs on the calling (main) thread: the IO job below
@@ -662,6 +694,8 @@ class ReelsFeedScreenModel(
                 // Generation guard: a newer loadFeed() started after this job's network call
                 // returned; writing now would corrupt the newer feed's cursor/items.
                 if (loadGeneration.get() != generation) return@launch
+                // Any successful page resets the rate-limit retry budget (B1).
+                rateLimitRetries = 0
 
                 // Consume the one-shot position restore OUTSIDE the CAS: update lambdas may
                 // re-run under contention and must stay side-effect-free.
@@ -753,7 +787,8 @@ class ReelsFeedScreenModel(
                 // offscreen WebView without any user interaction; the import verification
                 // reloads the feed on success. Capped per source entry (see the helper).
                 val msg = t.localizedMessage.orEmpty()
-                maybeBumpBootstrap("403" in msg || "401" in msg)
+                maybeBumpBootstrap(HTTP_SESSION_ERROR_REGEX.containsMatchIn(msg))
+                maybeScheduleRateLimitRetry(msg, reset)
             }
         }
     }
@@ -762,6 +797,24 @@ class ReelsFeedScreenModel(
         if (visibleIndex >= state.value.items.size - 2 && state.value.canLoadMore && !state.value.isLoading) {
             loadFeed(reset = false)
         }
+    }
+
+    /**
+     * Error-state retry (audit H5). With a live source this is a plain reset reload. With a
+     * rejected source (non-feed / missing capability → source=null) loadFeed would silently
+     * no-op: GLOBAL opens the source picker instead, fixed modes answer false so the screen
+     * can fall back to a back-navigation.
+     */
+    fun retryFromError(): Boolean {
+        if (source != null) {
+            loadFeed(reset = true)
+            return true
+        }
+        if (mode == FeedMode.GLOBAL) {
+            mutableState.update { it.copy(isSourcePickerOpen = true) }
+            return true
+        }
+        return false
     }
 
     /**
@@ -863,7 +916,14 @@ class ReelsFeedScreenModel(
             val failedText = failures.joinToString("; ")
             // Same self-healing as loadFeed: a Cloudflare/dead-session failure inside the
             // creator streams re-lifts the web session through the bootstrap WebView.
-            maybeBumpBootstrap("403" in failedText || "401" in failedText)
+            maybeBumpBootstrap(HTTP_SESSION_ERROR_REGEX.containsMatchIn(failedText))
+            // B1: a rate-limited shutdown (every stream 429'd) schedules the capped auto-retry;
+            // a fully clean fan-out resets the budget.
+            if (alive.isEmpty() && failures.isNotEmpty()) {
+                maybeScheduleRateLimitRetry(failedText, reset)
+            } else if (failures.isEmpty()) {
+                rateLimitRetries = 0
+            }
 
             mutableState.update { current ->
                 if (loadGeneration.get() != generation) return@update current
@@ -879,10 +939,12 @@ class ReelsFeedScreenModel(
                         prevTailAuthor = null,
                     ).map { it.second }
                     if (newItems.isEmpty() && failures.isNotEmpty() && alive.isEmpty()) {
-                        // All-failed fan-out: nothing to show, surface the combined error.
+                        // All-failed fan-out: nothing to show, surface a localized count summary
+                        // (the raw per-creator detail stays in `error` for logs).
                         current.copy(
                             isLoading = false,
                             error = failedText,
+                            errorCounts = failures.size to requests.size,
                             canLoadMore = false,
                             feedGeneration = current.feedGeneration + 1,
                             targetPageIndex = 0,
@@ -895,6 +957,7 @@ class ReelsFeedScreenModel(
                             isLoading = false,
                             error = null,
                             errorRes = null,
+                            errorCounts = null,
                             pageError = failedText.takeIf { it.isNotEmpty() },
                             canLoadMore = anyAlive,
                             feedGeneration = current.feedGeneration + 1,
@@ -933,6 +996,7 @@ class ReelsFeedScreenModel(
                     current.copy(isLoading = false, pageError = t.localizedMessage.orEmpty())
                 }
             }
+            maybeScheduleRateLimitRetry(t.localizedMessage.orEmpty(), reset)
         }
     }
 
@@ -1365,7 +1429,12 @@ class ReelsFeedScreenModel(
             }
             // Account session expired (short-lived Kinde bearer, no refresh token): silently
             // re-lift a fresh one through the bootstrap WebView; the sheet reloads on success.
-            maybeBumpBootstrap(result.getOrNull().isNullOrEmpty())
+            // Audit H6: only an AUTH failure is session-death evidence — a legitimately empty
+            // preference list (or a timeout) must not mount the bootstrap WebView.
+            maybeBumpBootstrap(
+                result.isFailure &&
+                    HTTP_SESSION_ERROR_REGEX.containsMatchIn(result.exceptionOrNull()?.localizedMessage.orEmpty()),
+            )
         }
     }
 
@@ -1440,7 +1509,7 @@ class ReelsFeedScreenModel(
         if (open) loadCustomFeeds()
     }
 
-    private fun loadCustomFeeds() {
+    fun loadCustomFeeds() {
         val src = source as? AnimeCustomFeedSource ?: return
         val sourceId = state.value.currentSourceId
         mutableState.update { it.copy(isCustomFeedsLoading = true, customFeedsError = null) }
@@ -1496,6 +1565,77 @@ class ReelsFeedScreenModel(
         val next = !state.value.isPipEnabled
         sourcePreferences.reelsPipEnabled().set(next)
         mutableState.update { it.copy(isPipEnabled = next) }
+    }
+
+    // --- B2 sleep timer ---
+
+    enum class SleepTimerOption { OFF, END_OF_VIDEO, M15, M30, M60 }
+
+    private var sleepTimerJob: Job? = null
+
+    /**
+     * Arms/disarms the feed sleep timer (YouTube pattern): a countdown that pauses the feed
+     * on expiry, or "after this video" consumed at the next completion boundary. Expiry is a
+     * STICKY pause (userPaused), so auto-advance and swipes do not undo it.
+     */
+    fun setSleepTimer(option: SleepTimerOption) {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        when (option) {
+            SleepTimerOption.OFF -> mutableState.update {
+                it.copy(sleepTimerRemainingSec = 0, sleepAtVideoEnd = false)
+            }
+            SleepTimerOption.END_OF_VIDEO -> mutableState.update {
+                it.copy(sleepTimerRemainingSec = 0, sleepAtVideoEnd = true)
+            }
+            else -> {
+                val minutes = when (option) {
+                    SleepTimerOption.M15 -> 15
+                    SleepTimerOption.M30 -> 30
+                    else -> 60
+                }
+                mutableState.update {
+                    it.copy(sleepTimerRemainingSec = minutes * 60, sleepAtVideoEnd = false)
+                }
+                sleepTimerJob = screenModelScope.launch {
+                    while (true) {
+                        delay(1000)
+                        var expired = false
+                        mutableState.update { current ->
+                            val remaining = current.sleepTimerRemainingSec - 1
+                            if (remaining <= 0) {
+                                expired = true
+                                current.copy(sleepTimerRemainingSec = 0)
+                            } else {
+                                current.copy(sleepTimerRemainingSec = remaining)
+                            }
+                        }
+                        if (expired) {
+                            triggerSleep()
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Timer expiry / end-of-video consumption: sticky pause, playback stops for good. */
+    private fun triggerSleep() {
+        sleepTimerJob = null
+        mutableState.update {
+            it.copy(isPlaying = false, userPaused = true, sleepAtVideoEnd = false, sleepTimerRemainingSec = 0)
+        }
+    }
+
+    /**
+     * Video-boundary hook (screen's onVideoCompleted): true when the "after this video" timer
+     * was armed — the feed pauses instead of advancing and the flag is consumed.
+     */
+    fun consumeSleepAtVideoEnd(): Boolean {
+        if (!state.value.sleepAtVideoEnd) return false
+        triggerSleep()
+        return true
     }
 
     fun toggleLike(item: ShortVideoItem, itemIndex: Int = -1) {
@@ -1770,7 +1910,8 @@ class ReelsFeedScreenModel(
     /** Hides one reel from future pages; undo until the next hide via [undoHide]. */
     fun hideVideo(item: ShortVideoItem) {
         if (state.value.isOffline || item.id.isBlank()) return
-        applyHide(ReelsHiddenEntry.KIND_VIDEO, item.id, state.value.currentSourceId)
+        // The manager screen shows the captured title; the raw videoId is the fallback.
+        applyHide(ReelsHiddenEntry.KIND_VIDEO, item.id, state.value.currentSourceId, item.title)
     }
 
     /** Hides an author's reels from future pages; undo until the next hide via [undoHide]. */
@@ -1802,7 +1943,7 @@ class ReelsFeedScreenModel(
         }
     }
 
-    private fun applyHide(kind: String, value: String, sourceId: Long) {
+    private fun applyHide(kind: String, value: String, sourceId: Long, label: String? = null) {
         val (videos, authors) = hiddenSnapshot
         hiddenSnapshot = when (kind) {
             ReelsHiddenEntry.KIND_VIDEO -> (videos + value) to authors
@@ -1811,23 +1952,25 @@ class ReelsFeedScreenModel(
         lastHide = Triple(kind, value, sourceId)
         screenModelScope.launch(NonCancellable + ioDispatcher) {
             hiddenWriteMutex.withLock {
-                reelsHiddenRepository.insert(ReelsHiddenEntry(sourceId, kind, value, Date()))
+                reelsHiddenRepository.insert(
+                    ReelsHiddenEntry(sourceId, kind, value, Date(), label?.takeIf { it.isNotBlank() }),
+                )
             }
         }
     }
 
     // --- B3.3 offline copies ---
 
-    enum class OfflineCopyResult { SAVED, REMOVED, FAILED }
+    enum class OfflineCopyResult { SAVED, REMOVED, FAILED_QUOTA, FAILED_NETWORK }
 
     /**
      * Downloads a real offline copy of the current playlist reel (or removes it). On success
      * the item's URL flips to the local file and the player rebuilds automatically; quota and
-     * transport failures answer [OfflineCopyResult.FAILED] and keep the network URL.
+     * transport failures keep the network URL and report distinct reasons for the snackbar.
      */
     suspend fun toggleOfflineCopy(item: ShortVideoItem, itemIndex: Int): OfflineCopyResult {
-        if (!state.value.isOffline) return OfflineCopyResult.FAILED
-        val sourceId = offlineSourceIds.getOrNull(itemIndex) ?: return OfflineCopyResult.FAILED
+        if (!state.value.isOffline) return OfflineCopyResult.FAILED_NETWORK
+        val sourceId = offlineSourceIds.getOrNull(itemIndex) ?: return OfflineCopyResult.FAILED_NETWORK
         val key = "$sourceId:${item.id}"
         if (key in state.value.offlineStored) {
             offlineStore.delete(sourceId, item.id)
@@ -1850,8 +1993,16 @@ class ReelsFeedScreenModel(
             }
             return OfflineCopyResult.REMOVED
         }
-        val ok = offlineStore.download(item, sourceId)
-        if (!ok) return OfflineCopyResult.FAILED
+        // Transport exceptions are a NETWORK verdict, never a crash in the UI scope.
+        val result = runCatching { offlineStore.download(item, sourceId) }
+            .getOrDefault(ReelsOfflineStore.DownloadResult.NETWORK)
+        if (result != ReelsOfflineStore.DownloadResult.SAVED) {
+            return if (result == ReelsOfflineStore.DownloadResult.QUOTA) {
+                OfflineCopyResult.FAILED_QUOTA
+            } else {
+                OfflineCopyResult.FAILED_NETWORK
+            }
+        }
         val local = offlineStore.localUrl(sourceId, item.id)
         mutableState.update { current ->
             current.copy(
@@ -1867,6 +2018,12 @@ class ReelsFeedScreenModel(
         }
         return OfflineCopyResult.SAVED
     }
+
+    /** Bytes occupied by offline copies (quota visibility in the More menu, audit H8). */
+    suspend fun offlineUsedBytes(): Long = withContext(ioDispatcher) { offlineStore.usedBytes() }
+
+    /** User-initiated removal of ALL offline copies; returns the freed bytes. */
+    suspend fun clearOfflineStorage(): Long = offlineStore.clearAll()
 
     /**
      * Playback-error retry path (offline playlist): re-resolves the stored CDN link of ONE clip
@@ -1970,6 +2127,31 @@ class ReelsFeedScreenModel(
     fun setPlaybackRunning(running: Boolean) {
         mutableState.update { current ->
             if (current.isActuallyPlaying == running) current else current.copy(isActuallyPlaying = running)
+        }
+    }
+
+    /**
+     * B1: a 429 verdict surfaces the wait ([State.retryAfterSec] drives the snackbar) and
+     * schedules ONE automatic retry, capped at [RATE_LIMIT_MAX_RETRIES] consecutive attempts
+     * so a hard-blocked source cannot spin forever. Any successful page resets the budget.
+     * Plugin error texts are self-shaped, so the detection is best-effort by pattern.
+     */
+    private fun maybeScheduleRateLimitRetry(message: String, reset: Boolean) {
+        if (!HTTP_TOO_MANY_REQUESTS_REGEX.containsMatchIn(message)) return
+        if (rateLimitRetries >= RATE_LIMIT_MAX_RETRIES) return
+        val seconds = RETRY_AFTER_REGEX.find(message)?.groupValues?.get(1)?.toIntOrNull()
+            ?.coerceIn(1, 120)
+            ?: RATE_LIMIT_DEFAULT_RETRY_SEC
+        val sourceId = state.value.currentSourceId
+        rateLimitRetries++
+        mutableState.update { it.copy(retryAfterSec = seconds) }
+        rateLimitRetryJob?.cancel()
+        rateLimitRetryJob = screenModelScope.launch(ioDispatcher) {
+            delay(seconds * 1000L)
+            // A source switch during the wait invalidates the scheduled retry.
+            if (state.value.currentSourceId != sourceId) return@launch
+            mutableState.update { it.copy(retryAfterSec = 0) }
+            loadFeed(reset = reset)
         }
     }
 
@@ -2205,6 +2387,14 @@ class ReelsFeedScreenModel(
         // Static, localizable feed failure chosen by the model (capability missing etc.);
         // the UI resolves it to its MR string. Transport failures stay in [error] (raw text).
         val errorRes: StringResource? = null,
+        // FOLLOWING all-failed fan-out: (failed, total) creator-stream counts so the screen can
+        // show a localized summary instead of the raw "'creator': msg; …" concatenation.
+        val errorCounts: Pair<Int, Int>? = null,
+        // B1: seconds until the automatic rate-limit retry (0 = none); drives the snackbar.
+        val retryAfterSec: Int = 0,
+        // B2 sleep timer: countdown seconds remaining (0 = off) / "pause after this video" flag.
+        val sleepTimerRemainingSec: Int = 0,
+        val sleepAtVideoEnd: Boolean = false,
         // Transient append failure while the feed is non-empty; surfaced as a snackbar.
         val pageError: String? = null,
         // Login returned false (rejected credentials) — distinct from a transport error so
