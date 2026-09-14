@@ -10,6 +10,8 @@ import dataanime.Animes
 import dataanime.Episodes
 import dataanime.Reels_favorites
 import dataanime.Reels_follows
+import dataanime.Reels_hidden
+import dataanime.Reels_watch_history
 import io.kotest.matchers.collections.shouldContainAll
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -53,6 +55,8 @@ class ReelsFollowRepositoryImplTest {
             ),
             reels_favoritesAdapter = Reels_favorites.Adapter(added_atAdapter = DateColumnAdapter),
             reels_followsAdapter = Reels_follows.Adapter(added_atAdapter = DateColumnAdapter),
+            reels_watch_historyAdapter = Reels_watch_history.Adapter(watched_atAdapter = DateColumnAdapter),
+            reels_hiddenAdapter = Reels_hidden.Adapter(hidden_atAdapter = DateColumnAdapter),
         )
         // Real IO dispatchers (the handler defaults): SQLDelight transactions deadlock on a
         // single-threaded virtual-time dispatcher because the transaction blocks the only

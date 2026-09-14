@@ -51,8 +51,10 @@
 
         <activity
             android:name="eu.kanade.tachiyomi.ui.main.MainActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTop"
+            android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Tachiyomi.SplashScreen">
             <intent-filter>

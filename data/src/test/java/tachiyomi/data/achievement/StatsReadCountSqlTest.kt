@@ -93,6 +93,8 @@ class StatsReadCountSqlTest {
             ),
             reels_favoritesAdapter = dataanime.Reels_favorites.Adapter(added_atAdapter = DateColumnAdapter),
             reels_followsAdapter = dataanime.Reels_follows.Adapter(added_atAdapter = DateColumnAdapter),
+            reels_watch_historyAdapter = dataanime.Reels_watch_history.Adapter(watched_atAdapter = DateColumnAdapter),
+            reels_hiddenAdapter = dataanime.Reels_hidden.Adapter(hidden_atAdapter = DateColumnAdapter),
         )
 
         db.animesQueries.insertAnime(id = 1)

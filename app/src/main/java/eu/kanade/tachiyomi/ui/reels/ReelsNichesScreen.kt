@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +64,15 @@ data class ReelsNichesScreen(
         val navigator = LocalNavigator.currentOrThrow
         val model = rememberScreenModel { ReelsNichesScreenModel(sourceId = sourceId) }
         val state by model.state.collectAsStateWithLifecycle()
+        val snackbarHostState = remember { SnackbarHostState() }
+        // Mid-feed append failures are transient: they surface as a snackbar while the grid
+        // stays usable (mirrors the ReelsFeed pageError pattern).
+        LaunchedEffect(state.pageError) {
+            state.pageError?.let { message ->
+                snackbarHostState.showSnackbar(message)
+                model.onPageErrorShown()
+            }
+        }
 
         Scaffold(
             topBar = {
@@ -70,6 +81,7 @@ data class ReelsNichesScreen(
                     navigateUp = navigator::pop,
                 )
             },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { padding ->
             when {
                 state.isLoading -> LoadingScreen()

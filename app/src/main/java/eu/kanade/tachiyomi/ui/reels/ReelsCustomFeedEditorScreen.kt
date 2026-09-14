@@ -107,9 +107,16 @@ data class ReelsCustomFeedEditorScreen(
                         onToggle = screenModel::toggleTag,
                         modifier = Modifier.weight(1f),
                     )
-                    state.error?.let { error ->
+                    state.error?.takeIf { it.isNotBlank() }?.let { error ->
                         Text(
                             text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    state.errorRes?.let { errorRes ->
+                        Text(
+                            text = stringResource(errorRes),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )

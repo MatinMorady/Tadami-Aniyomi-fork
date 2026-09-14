@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.tadami.aurora.BuildConfig
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -54,6 +56,10 @@ fun ReelsWebLoginDialog(
     showHint: Boolean,
     isOwnRedirect: (String) -> Boolean,
     stage2Attempt: Int,
+    // Contract v22: the source's own session instrumentation and extra dump origins.
+    // null/empty = the generic cookie/localStorage dump only.
+    instrumentationJs: String? = null,
+    extraCookieOrigins: List<String> = emptyList(),
     onSession: (cookies: Map<String, String>, localStorage: Map<String, String>) -> Unit,
     onDoneSession: (cookies: Map<String, String>, localStorage: Map<String, String>) -> Unit,
     onOwnRedirect: (url: String, cookies: Map<String, String>) -> Unit,
@@ -63,7 +69,7 @@ fun ReelsWebLoginDialog(
     // Cookie origins to dump: seeded from the start URL and grown with every page the
     // WebView actually visits (login flows redirect through auth hosts whose host-only
     // cookies are otherwise unreachable).
-    val cookieOrigins = remember(startUrl) { seedOrigins(startUrl) }
+    val cookieOrigins = remember(startUrl, extraCookieOrigins) { seedOrigins(startUrl, extraCookieOrigins) }
 
     // Async-dump plumbing: a dump stores the target consumer + the cookie map; the JS answer
     // arrives either synchronously (evaluateJavascript result) or later through the
@@ -143,6 +149,8 @@ fun ReelsWebLoginDialog(
 
             override fun onCloseWindow(window: WebView) {
                 (window.parent as? FrameLayout)?.removeView(window)
+                // Popup WebViews hold native threads: teardown must destroy, not just detach.
+                window.destroy()
             }
 
             override fun onJsPrompt(
@@ -211,7 +219,10 @@ fun ReelsWebLoginDialog(
                                 // WebView UA carries "; wv"): present a plain Chrome mobile UA.
                                 settings.userAgentString = WEBVIEW_USER_AGENT
                                 // chrome://inspect fallback when a future site change blanks again.
-                                WebView.setWebContentsDebuggingEnabled(true)
+                                // Remote debugging must never ship in production builds.
+                                if (BuildConfig.DEBUG) {
+                                    WebView.setWebContentsDebuggingEnabled(true)
+                                }
                                 val cookieManager = CookieManager.getInstance()
                                 cookieManager.setAcceptCookie(true)
                                 cookieManager.setAcceptThirdPartyCookies(this, true)
@@ -236,10 +247,12 @@ fun ReelsWebLoginDialog(
                                     ) {
                                         if (handleRedirect(view, url)) return
                                         originOf(url)?.let { cookieOrigins += it }
-                                        // Instrument the SPA's own fetch/XHR so the dump can lift
-                                        // its live api bearer + handshake session id.
+                                        // Instrument the SPA's own fetch/XHR so the dump can lift its
+                                        // live credentials (contract v22: the source supplies the
+                                        // snippet; the legacy fallback serves pre-v22 APKs).
                                         if (url != null && Uri.parse(url).host == Uri.parse(startUrl).host) {
-                                            view.evaluateJavascript(INSTRUMENT_JS, null)
+                                            val js = instrumentationJs ?: LEGACY_INSTRUMENT_JS
+                                            if (js != null) view.evaluateJavascript(js, null)
                                         }
                                         super.onPageStarted(view, url, favicon)
                                     }
@@ -264,9 +277,9 @@ fun ReelsWebLoginDialog(
                                         Log.d(TAG, "page finished: $safe")
                                         // Re-inject the credential instrumentation (idempotent)
                                         // and re-dump with a delay: the SPA performs its first
-                                        // api calls (with its live bearer) only after boot,
-                                        // i.e. after this page-finished event.
-                                        view.evaluateJavascript(INSTRUMENT_JS, null)
+                                        // api calls only after boot, i.e. after this event.
+                                        val js = instrumentationJs ?: LEGACY_INSTRUMENT_JS
+                                        if (js != null) view.evaluateJavascript(js, null)
                                         if (!isStage2Active && url != null && isBackOnServiceSite(url, startUrl)) {
                                             requestDump(view, onSession)
                                             view.postDelayed({
@@ -309,6 +322,14 @@ fun ReelsWebLoginDialog(
                         )
                         container
                     },
+                    onRelease = { container ->
+                        // WebViews hold native threads: teardown must destroy, not just detach.
+                        // Destroy every child (the main WebView plus any open popup).
+                        (0 until container.childCount).forEach { i ->
+                            (container.getChildAt(i) as? WebView)?.destroy()
+                        }
+                        webView = null
+                    },
                 )
             }
         }
@@ -328,10 +349,13 @@ fun CfBootstrapWebView(
     startUrl: String,
     attempt: Int,
     onSession: (cookies: Map<String, String>, localStorage: Map<String, String>) -> Unit,
+    instrumentationJs: String? = null,
+    extraCookieOrigins: List<String> = emptyList(),
 ) {
     var firesLeft by remember(attempt) { mutableStateOf(2) }
+    val currentAttempt by rememberUpdatedState(attempt)
     var view by remember { mutableStateOf<WebView?>(null) }
-    val cookieOrigins = remember(startUrl) { seedOrigins(startUrl) }
+    val cookieOrigins = remember(startUrl, extraCookieOrigins) { seedOrigins(startUrl, extraCookieOrigins) }
     LaunchedEffect(attempt) {
         firesLeft = 2
         view?.reload()
@@ -347,22 +371,33 @@ fun CfBootstrapWebView(
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(page: WebView, url: String?) {
                         originOf(url)?.let { cookieOrigins += it }
-                        page.postDelayed({ dump(page) }, 4000)
-                        page.postDelayed({ dump(page) }, 9000)
+                        val scheduledFor = currentAttempt
+                        page.postDelayed({ dump(page, scheduledFor) }, 4000)
+                        page.postDelayed({ dump(page, scheduledFor) }, 9000)
                     }
 
-                    private fun dump(page: WebView) {
-                        if (firesLeft <= 0) return
+                    private fun dump(page: WebView, scheduledFor: Int) {
+                        // A timer queued by an older attempt must not consume the current
+                        // attempt's dump budget.
+                        if (scheduledFor != currentAttempt || firesLeft <= 0) return
                         firesLeft -= 1
-                        page.evaluateJavascript(INSTRUMENT_JS) {
+                        val dumpStorage: () -> Unit = {
                             page.evaluateJavascript(LOCAL_STORAGE_DUMP_JS) { raw ->
                                 onSession(cookieDump(cookieOrigins), parseJsonStringMap(raw))
                             }
                         }
+                        // Contract v22: the source's instrumentation; the legacy fallback
+                        // keeps pre-v22 APKs working until they opt in.
+                        val js = instrumentationJs ?: LEGACY_INSTRUMENT_JS
+                        if (js != null) page.evaluateJavascript(js) { dumpStorage() } else dumpStorage()
                     }
                 }
                 loadUrl(startUrl)
             }.also { view = it }
+        },
+        onRelease = { webViewRef ->
+            view = null
+            webViewRef.destroy()
         },
     )
 }
@@ -399,11 +434,12 @@ private fun originOf(url: String?): String? {
 
 /**
  * The start origin plus its "api." sibling: the SPA sets api-side session cookies through
- * fetch calls without ever navigating there, so page-visit tracking alone would miss them
- * (the pattern the redgifs hardcode used to cover).
+ * fetch calls without ever navigating there, so page-visit tracking alone would miss them.
+ * [extra] origins are merged on top (contract v22, source-supplied).
  */
-private fun seedOrigins(startUrl: String): MutableSet<String> {
+private fun seedOrigins(startUrl: String, extra: List<String> = emptyList()): MutableSet<String> {
     val origins = mutableSetOf<String>()
+    extra.forEach { origin -> if (origin.isNotBlank()) origins += origin }
     val uri = Uri.parse(startUrl)
     val scheme = uri.scheme ?: return origins
     val host = uri.host ?: return origins
@@ -438,10 +474,13 @@ private fun parseJsonStringMap(raw: String?): Map<String, String> {
 // answer is delivered through the window.prompt bridge (with a 4s timeout fallback).
 private const val DEEP_DUMP_MARKER = "__DUMP2__:"
 
+// LEGACY: the RedGIFs-specific instrumentation the host used to inject before contract v22.
+// Served ONLY as a fallback for pre-v22 plugin APKs; v22+ sources supply their own snippet via
+// AnimeFeedLoginInstrumentationSource, and this constant is removed once the plugins migrate.
 // Records the SPA's own api credentials into window globals for the dump: the live
 // Authorization bearer of api.redgifs.com calls and the /v2/auth/login handshake body
 // (which carries the session_id the api binds the account session to).
-private const val INSTRUMENT_JS =
+private val LEGACY_INSTRUMENT_JS: String? =
     "(function(){" +
         "  if(window.__rgInstr)return;window.__rgInstr=1;" +
         "  function hdrAuth(o){" +

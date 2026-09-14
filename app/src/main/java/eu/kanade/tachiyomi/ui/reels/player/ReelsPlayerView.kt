@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -100,6 +102,9 @@ fun ReelsPlayerView(
     onVideoLandscapeKnown: (Boolean) -> Unit = {},
     onPlaybackError: (String) -> Unit = {},
     onBufferingChanged: (Boolean) -> Unit = {},
+    // Actual playWhenReady changes of this player (audio-focus loss, lifecycle pause, preload
+    // transitions): the feed needs the REAL playback state, not only the intent flag.
+    onPlaybackRunningChanged: (Boolean) -> Unit = {},
     playbackSpeed: Float = 1f,
     headers: Map<String, String> = emptyMap(),
     // Item page URL (e.g. https://fikfap.com/post/123): origin used as the Referer fallback
@@ -126,6 +131,10 @@ fun ReelsPlayerView(
 
     // Playback position to restore after a quality (URL) switch within the same page.
     var restorePositionMs by remember { mutableLongStateOf(0L) }
+    // A seek request that arrived while the player was still cold (duration unknown) is
+    // parked here and applied by the listener at STATE_READY — otherwise the B3.1 resume
+    // seek is silently dropped on a directly activated (non-preloaded) clip.
+    var pendingSeekFraction by remember { mutableFloatStateOf(-1f) }
     // The media URL the current player instance was built for, so a URL change (quality
     // toggle) is handled explicitly inside the lifecycle effect instead of via the
     // DisposableEffect disposal order.
@@ -236,20 +245,29 @@ fun ReelsPlayerView(
                     } else {
                         headers
                     }
-                    val upstream = OkHttpDataSource.Factory(networkClient)
-                        .setDefaultRequestProperties(requestHeaders)
+                    // DefaultDataSource routes file:///content:// (B3.3 offline copies) to local readers and
+                    // delegates http(s) to the OkHttp factory — OkHttp alone rejects file:// URLs.
+                    val upstream = DefaultDataSource.Factory(
+                        context,
+                        OkHttpDataSource.Factory(networkClient)
+                            .setDefaultRequestProperties(requestHeaders),
+                    )
                     val dataSourceFactory = CacheDataSource.Factory()
                         .setCache(getReelsVideoCache(context.applicationContext))
                         .setUpstreamDataSourceFactory(upstream)
                         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                     // DefaultMediaSourceFactory infers the type (progressive today, HLS/DASH
                     // ready); customCacheKey keys the progressive cache by the stable reel id
-                    // instead of the signed CDN URL. Not valid for adaptive streams.
-                    // HLS manifests must keep the URL-derived key (media3 suffixes adaptive keys).
-                    val isAdaptiveStream = Uri.parse(videoUrl).lastPathSegment?.endsWith(".m3u8") == true
+                    // instead of the signed CDN URL. setCustomCacheKey is only valid for
+                    // progressive content — media3 rejects it for adaptive sources — so the
+                    // key applies only to a whitelist of container suffixes; everything else
+                    // (m3u8/mpd manifests, unknown containers) keeps the URL-derived key.
+                    val isProgressiveContainer = Uri.parse(videoUrl).lastPathSegment
+                        ?.substringAfterLast('.', "")
+                        ?.lowercase() in PROGRESSIVE_CONTAINER_EXTENSIONS
                     val mediaItem = MediaItem.Builder()
                         .setUri(videoUrl)
-                        .apply { if (cacheKey != null && !isAdaptiveStream) setCustomCacheKey(cacheKey) }
+                        .apply { if (cacheKey != null && isProgressiveContainer) setCustomCacheKey(cacheKey) }
                         .build()
                     setMediaSource(DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem))
                     playWhenReady = false
@@ -263,6 +281,11 @@ fun ReelsPlayerView(
                                     if (restorePositionMs > 0) {
                                         seekTo(restorePositionMs)
                                         restorePositionMs = 0L
+                                    }
+                                    // Apply a seek parked while the player was cold (resume-seek).
+                                    if (pendingSeekFraction >= 0f && duration > 0) {
+                                        seekTo((pendingSeekFraction * duration).toLong())
+                                        pendingSeekFraction = -1f
                                     }
                                 }
                                 Player.STATE_ENDED -> {
@@ -306,6 +329,10 @@ fun ReelsPlayerView(
                         override fun onRenderedFirstFrame() {
                             isFirstFrameRendered = true
                             if (firstFrameAtMs == 0L) firstFrameAtMs = SystemClock.elapsedRealtime()
+                        }
+
+                        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                            onPlaybackRunningChanged(playWhenReady)
                         }
 
                         override fun onPlayerError(error: PlaybackException) {
@@ -365,6 +392,8 @@ fun ReelsPlayerView(
             player?.let { p ->
                 if (p.duration > 0) {
                     p.seekTo((frac.coerceIn(0f, 1f) * p.duration).toLong())
+                } else {
+                    pendingSeekFraction = frac.coerceIn(0f, 1f)
                 }
             }
         }
@@ -543,6 +572,10 @@ fun ReelsPlayerView(
 }
 
 private const val REELS_CACHE_BYTES = 1024L * 1024 * 1024
+
+// Container suffixes the stable progressive cache key is safe for: adaptive manifests and
+// unknown containers keep the URL-derived key (media3 validates setCustomCacheKey usage).
+private val PROGRESSIVE_CONTAINER_EXTENSIONS = setOf("mp4", "m4v", "webm", "mov", "mkv", "ts", "m2ts", "3gp")
 
 private const val REELS_CACHE_DIR = "reels_video"
 

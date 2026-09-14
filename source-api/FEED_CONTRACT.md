@@ -1,6 +1,6 @@
 # Reels Feed Contract
 
-**Current version: 21** (`extensionLib` 12.0–21.0 accepted by the host) ·
+**Current version: 22** (`extensionLib` 12.0–22.0 accepted by the host) ·
 Owner module: [`:source-api`](build.gradle.kts) ·
 API surface: [`AnimeFeedSource`](src/commonMain/kotlin/eu/kanade/tachiyomi/animesource/AnimeFeedSource.kt),
 [`AnimeCreatorFeedSource`](src/commonMain/kotlin/eu/kanade/tachiyomi/animesource/AnimeCreatorFeedSource.kt),
@@ -144,6 +144,24 @@ NICHE mode and passes the selected `AnimeFilterList` into the four-arg `getCateg
 Instanceof-detected; sources without it keep the plain three-arg category feed and no filter
 sheet in NICHE mode.
 
+## Session instrumentation (v22 capability interface)
+
+`AnimeFeedLoginInstrumentationSource` moves the service-specific WebView session scraping OUT of
+the host: the source supplies its own idempotent `sessionInstrumentationJs()`, the extra
+cookie origins it needs (`extraSessionCookieOrigins()`, e.g. `api.` siblings) and the origins to
+purge on logout (`logoutCookieOrigins()`). The host evaluates the snippet before its generic
+cookie/DOM-storage dump and hands the dump to `AnimeFeedWebLoginSource.importWebSession` exactly
+as before. Sources without the capability keep the plain dump. Instanceof-detected, no default
+members on existing interfaces; each answer is optional (null/empty = generic fallback).
+
+## Video URL re-resolution (v22 capability interface)
+
+`AnimeFeedVideoResolverSource.resolveVideoUrl(itemId, hd)` gives the host a fresh playable URL
+for a stable item id, so saved favorites (CDN links captured at like-time) and the offline
+playlist can recover when those links expire. The host calls it lazily per item, keeps the
+stored URL on null/failure, and never surfaces resolver errors. Instanceof-detected; sources
+without it keep storing and replaying the original URLs.
+
 ## Pagination: the sticky protocol (the important part)
 
 Two modes. The mode is locked by the **host** for the whole feed *generation*
@@ -203,6 +221,15 @@ Rules for sources:
    bridge becomes `AbstractMethodError` on the old plugin at runtime (same class
    of incident as the v17 `ShortVideoItem` break). This is the established Mihon
    pattern (`is CatalogueSource`, `isStub`).
+   The same binary logic applies to default members on a **new** interface (v22
+   `AnimeFeedLoginInstrumentationSource` ships two): they are safe only while
+   host and plugin repos compile in the same jvm-default mode (both currently
+   emit `DefaultImpls`). A plugin built with `-Xjvm-default=all` that does not
+   override such a member would hit `AbstractMethodError` against a
+   `DefaultImpls`-mode API jar. Rule of thumb for plugin authors: **override
+   every member of every capability interface you implement** (RedGIFs does),
+   and for API authors: prefer abstract members; defaults on new interfaces are
+   a conscious, documented exception.
 
 ## Rebuilding a plugin against a new API (the chain)
 
@@ -252,6 +279,7 @@ class MyFeed : AnimeFeedSource {
 
 | Version | Change |
 |---|---|
+| 22 | Optional capability `AnimeFeedLoginInstrumentationSource` (source-supplied session instrumentation JS + extra dump origins + logout purge origins) and `AnimeFeedVideoResolverSource` (stable-id → playable URL re-resolution for favorites). Both instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep working; `LIB_VERSION_MAX` → 22.0 as the discipline stamp. |
 | 21 | Optional capability `AnimeCategoryFeedOrderSource` (`categoryFilters()` + four-arg `getCategoryFeed`): source-defined category-feed orders rendered by the host in NICHE mode. Instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep working; `LIB_VERSION_MAX` → 21.0 as the discipline stamp. |
 | 20 | Optional capabilities `AnimeFeedWebLoginSource` (hosted web login via WebView session import), `AnimeFeedBrowseSource` (category directory + per-category feeds) and `AnimeCategorizedSearchSource` (sectioned search hits with previews), plus models `FeedCategory`/`FeedCategoryPage`/`SearchSuggestion`/`SearchSuggestions`. All instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep working; `LIB_VERSION_MAX` → 20.0 as the discipline stamp. |
 | 19+ | v19 addendum: optional search-hints capability `AnimeSearchHintsSource.getSearchHints()` (instanceof-detected, no default members added to existing interfaces); the host renders the returned tags as chips in the reels search bar. Additive: `LIB_VERSION` untouched, existing feed plugins keep working. |

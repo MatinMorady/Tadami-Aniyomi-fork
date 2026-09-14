@@ -3,7 +3,9 @@ package eu.kanade.tachiyomi.ui.reels
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import eu.kanade.tachiyomi.animesource.AnimeFeedSource
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
@@ -48,5 +50,25 @@ class ReelsFavoritesScreenModel(
         screenModelScope.launch {
             repository.insert(favorite)
         }
+    }
+
+    /**
+     * User-initiated cleanup of rows whose source is no longer installed (or is no longer a
+     * feed source): the app never auto-deletes user data on extension uninstall. Returns the
+     * number of removed rows for the confirmation snackbar.
+     */
+    suspend fun cleanupMissingSources(): Int {
+        // Cold-start guard: the source map is EMPTY until the extension subsystem reports
+        // ready — proceeding immediately would classify every source as missing and wipe the
+        // whole favorites list on a confirmed cleanup.
+        sourceManager.isInitialized.first { it }
+        val favorites = repository.getAll()
+        val missingSourceIds = favorites.map { it.sourceId }.toSet().filter { sourceId ->
+            sourceManager.get(sourceId) !is AnimeFeedSource
+        }
+        if (missingSourceIds.isEmpty()) return 0
+        val removedCount = favorites.count { it.sourceId in missingSourceIds }
+        missingSourceIds.forEach { sourceId -> repository.deleteBySource(sourceId) }
+        return removedCount
     }
 }

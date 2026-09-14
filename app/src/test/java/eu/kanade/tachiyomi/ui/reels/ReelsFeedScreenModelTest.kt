@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.AnimeFeedBrowseSource
 import eu.kanade.tachiyomi.animesource.AnimeFeedLoginSource
 import eu.kanade.tachiyomi.animesource.AnimeFeedSource
 import eu.kanade.tachiyomi.animesource.AnimeFeedWebLoginSource
+import eu.kanade.tachiyomi.animesource.AnimeReelsFeedbackSource
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -29,7 +30,9 @@ import eu.kanade.tachiyomi.animesource.model.ShortVideoItem
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
@@ -51,10 +54,15 @@ import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.model.ReelsFollow
+import tachiyomi.domain.reels.anime.model.ReelsHiddenEntry
+import tachiyomi.domain.reels.anime.model.ReelsWatchEntry
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFollowRepository
+import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
+import tachiyomi.domain.reels.anime.repository.ReelsWatchRepository
 import tachiyomi.domain.source.anime.model.StubAnimeSource
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.i18n.MR
 import java.util.Date
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -164,6 +172,10 @@ class ReelsFeedScreenModelTest {
         override suspend fun delete(videoId: String, sourceId: Long) {
             favorites.remove(videoId to sourceId)
         }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            favorites.keys.filter { it.second == sourceId }.forEach { favorites.remove(it) }
+        }
     }
 
     @Test
@@ -261,6 +273,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -372,6 +387,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -435,6 +453,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = FakeReelsFavoriteRepository(),
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -481,6 +502,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -539,6 +563,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
         screenModel.state.value.items.shouldHaveSize(1)
@@ -602,6 +629,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -663,6 +693,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = FakeReelsFavoriteRepository(),
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
         screenModel.state.value.items.shouldHaveSize(1)
@@ -777,7 +810,8 @@ class ReelsFeedScreenModelTest {
         val screenModel = buildModel(sourceId = 999L, manager = sourceManagerOf(notAFeed))
         testDispatcher.scheduler.advanceUntilIdle()
 
-        screenModel.state.value.error shouldBe "Source is not a video feed source"
+        screenModel.state.value.error shouldBe null
+        screenModel.state.value.errorRes shouldBe MR.strings.reels_source_not_feed
         screenModel.state.value.isLoading shouldBe false
         screenModel.state.value.items.shouldHaveSize(0)
     }
@@ -810,6 +844,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = FakeReelsFavoriteRepository(),
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -891,6 +928,66 @@ class ReelsFeedScreenModelTest {
         source.requestedPages shouldBe listOf(1, 2)
     }
 
+    @Test
+    fun `a deliberate pause survives swipes until explicitly resumed`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9061L) { page ->
+            FeedPage((0 until 5).map { videoItem("pause-p$page-$it") }, hasNextPage = true)
+        }
+        val screenModel = buildModel(sourceId = 9061L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.togglePlayPause()
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.userPaused shouldBe true
+
+        // Auto-advance must not undo the deliberate pause.
+        screenModel.onPageChanged(2)
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.userPaused shouldBe true
+
+        // Only an explicit resume tap clears the sticky pause.
+        screenModel.togglePlayPause()
+        screenModel.onPageChanged(3)
+        screenModel.state.value.isPlaying shouldBe true
+        screenModel.state.value.userPaused shouldBe false
+    }
+
+    @Test
+    fun `player-reported pauses flip the actual state without touching the play intent`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9062L) { page -> FeedPage(emptyList(), hasNextPage = false) }
+        val screenModel = buildModel(sourceId = 9062L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.isActuallyPlaying shouldBe true
+
+        // Audio-focus loss pauses the player without the user asking for it.
+        screenModel.setPlaybackRunning(false)
+        screenModel.state.value.isActuallyPlaying shouldBe false
+        screenModel.state.value.isPlaying shouldBe true
+
+        // A swipe resumes: no deliberate pause was taken.
+        screenModel.onPageChanged(0)
+        screenModel.state.value.isActuallyPlaying shouldBe true
+        screenModel.state.value.isPlaying shouldBe true
+    }
+
+    @Test
+    fun `search suggestions debounce to the last typed query`() = runTest(testDispatcher) {
+        val source = FakeCategorizedSource(2305)
+        val screenModel = buildModel(sourceId = 2305, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.requestSearchSuggestions("d")
+        testDispatcher.scheduler.advanceTimeBy(150)
+        screenModel.requestSearchSuggestions("da")
+        testDispatcher.scheduler.advanceTimeBy(150)
+        screenModel.requestSearchSuggestions("dan")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        source.queries shouldBe listOf("dan")
+        screenModel.state.value.searchSuggestions?.tags?.size shouldBe 1
+    }
+
     private fun videoItem(id: String) = ShortVideoItem(
         id = id,
         videoUrl = "https://example.com/$id.mp4",
@@ -954,6 +1051,9 @@ class ReelsFeedScreenModelTest {
         manager: AnimeSourceManager,
         repository: ReelsFavoriteRepository = FakeReelsFavoriteRepository(),
         followRepository: ReelsFollowRepository = FakeReelsFollowRepository(),
+        watchRepository: ReelsWatchRepository = FakeReelsWatchRepository(),
+        hiddenRepository: ReelsHiddenRepository = FakeReelsHiddenRepository(),
+        offlineStore: ReelsOfflineStore = FakeReelsOfflineStore(),
         incognito: Boolean = false,
         offlinePlaylist: Boolean = false,
         playlistSort: FavoritesSort = FavoritesSort.DateDesc,
@@ -964,6 +1064,7 @@ class ReelsFeedScreenModelTest {
         customFeedName: String? = null,
         nicheId: String? = null,
         nicheName: String? = null,
+        resumeVideoId: String? = null,
         preferences: SourcePreferences = SourcePreferences(MapPreferenceStore()),
         sessionSound: ReelsSessionSoundState = ReelsSessionSoundState(),
     ) = ReelsFeedScreenModel(
@@ -977,6 +1078,7 @@ class ReelsFeedScreenModelTest {
         customFeedName = customFeedName,
         nicheId = nicheId,
         nicheName = nicheName,
+        resumeVideoId = resumeVideoId,
         sourceManager = manager,
         sourcePreferences = preferences,
         ioDispatcher = testDispatcher,
@@ -984,6 +1086,9 @@ class ReelsFeedScreenModelTest {
         sourceIconProvider = { null },
         reelsFavoriteRepository = repository,
         reelsFollowRepository = followRepository,
+        reelsWatchRepository = watchRepository,
+        reelsHiddenRepository = hiddenRepository,
+        offlineStore = offlineStore,
         sessionSound = sessionSound,
     )
 
@@ -1030,6 +1135,236 @@ class ReelsFeedScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         second.state.value.targetPageIndex shouldBe 0
+    }
+
+    @Test
+    fun `a left reel lands in the watch history with its position`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9081L) { FeedPage(listOf(videoItem("h-1")), hasNextPage = false) }
+        val watch = FakeReelsWatchRepository()
+        val screenModel = buildModel(sourceId = 9081L, manager = sourceManagerOf(source), watchRepository = watch)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.recordWatchHistory(screenModel.state.value.items.first(), 0.5f, 10f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val entry = watch.entries["h-1" to 9081L]
+        entry shouldNotBe null
+        entry?.positionMs?.shouldBe(5_000L)
+    }
+
+    @Test
+    fun `watch history is not written in incognito`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9082L) { FeedPage(listOf(videoItem("h-2")), hasNextPage = false) }
+        val watch = FakeReelsWatchRepository()
+        val screenModel = buildModel(
+            sourceId = 9082L,
+            manager = sourceManagerOf(source),
+            watchRepository = watch,
+            incognito = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.recordWatchHistory(screenModel.state.value.items.first(), 0.5f, 10f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        watch.entries.isEmpty() shouldBe true
+    }
+
+    @Test
+    fun `resume lookup arms the stored fraction for the requested clip`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9083L) { FeedPage(listOf(videoItem("h-3")), hasNextPage = false) }
+        val watch = FakeReelsWatchRepository()
+        watch.entries["h-3" to 9083L] = ReelsWatchEntry(
+            videoId = "h-3",
+            sourceId = 9083L,
+            title = null,
+            author = null,
+            posterUrl = null,
+            webUrl = null,
+            videoUrl = "https://example.com/h-3.mp4",
+            durationSec = 10.0,
+            positionMs = 5_000L,
+            watchedAt = Date(0),
+        )
+        val screenModel = buildModel(
+            sourceId = 9083L,
+            manager = sourceManagerOf(source),
+            watchRepository = watch,
+            resumeVideoId = "h-3",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.resumeVideoId shouldBe "h-3"
+        (screenModel.state.value.resumeFraction ?: 0f) shouldBe 0.5f
+    }
+
+    @Test
+    fun `a hidden video stays out of future pages`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9091L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(videoItem("seed-1"), videoItem("seed-2")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(videoItem("hidden-b"), videoItem("keep-b")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9091L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.hideVideo(videoItem("hidden-b"))
+        screenModel.onPageChanged(1)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.map { it.id }.shouldNotContain("hidden-b")
+        screenModel.state.value.items.map { it.id }.shouldContain("keep-b")
+    }
+
+    @Test
+    fun `hiding an author filters their items from future pages`() = runTest(testDispatcher) {
+        fun authored(id: String, author: String) = videoItem(id).copy(author = author)
+        val source = RecordingFeedSource(9092L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(authored("a-1", "alice"), authored("b-1", "bob")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(authored("a-2", "alice"), authored("b-2", "bob")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9092L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.hideAuthor("alice")
+        screenModel.onPageChanged(1)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.map { it.id }.shouldNotContain("a-2")
+        screenModel.state.value.items.map { it.id }.shouldContain("b-2")
+    }
+
+    @Test
+    fun `undo restores the hidden video locally and in the repository`() = runTest(testDispatcher) {
+        val hidden = FakeReelsHiddenRepository()
+        val source = RecordingFeedSource(9093L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(videoItem("undo-seed")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(videoItem("undo-v"), videoItem("undo-other")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9093L, manager = sourceManagerOf(source), hiddenRepository = hidden)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.hideVideo(videoItem("undo-v"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        hidden.entries.keys.shouldContain(Triple(9093L, "video", "undo-v"))
+
+        screenModel.undoHide(screenModel.lastHideToken())
+        testDispatcher.scheduler.advanceUntilIdle()
+        hidden.entries.isEmpty() shouldBe true
+
+        screenModel.onPageChanged(0)
+        testDispatcher.scheduler.advanceUntilIdle()
+        screenModel.state.value.items.map { it.id }.shouldContain("undo-v")
+    }
+
+    @Test
+    fun `persisted hides load on source switch and filter future pages`() = runTest(testDispatcher) {
+        val hidden = FakeReelsHiddenRepository()
+        hidden.entries[Triple(9094L, ReelsHiddenEntry.KIND_VIDEO, "seeded-v")] =
+            ReelsHiddenEntry(9094L, ReelsHiddenEntry.KIND_VIDEO, "seeded-v", Date(0))
+        val source = RecordingFeedSource(9094L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(videoItem("seed-s")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(videoItem("seeded-v")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9094L, manager = sourceManagerOf(source), hiddenRepository = hidden)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.onPageChanged(0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.map { it.id }.shouldNotContain("seeded-v")
+    }
+
+    @Test
+    fun `offline playlist prefers stored local copies`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["off-1" to 302L] = offlineFavorite("off-1").copy(sourceId = 302L)
+        val store = FakeReelsOfflineStore()
+        store.stored[302L to "off-1"] = "file:///offline/302_off-1.mp4"
+        val screenModel = buildModel(
+            sourceId = 302L,
+            manager = sourceManagerOf(),
+            repository = favorites,
+            offlineStore = store,
+            offlinePlaylist = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.first().videoUrl shouldBe "file:///offline/302_off-1.mp4"
+        screenModel.state.value.offlineStored.contains("302:off-1") shouldBe true
+    }
+
+    @Test
+    fun `toggleOfflineCopy downloads and rewrites the item URL`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["off-2" to 303L] = offlineFavorite("off-2").copy(sourceId = 303L)
+        val store = FakeReelsOfflineStore()
+        val screenModel = buildModel(
+            sourceId = 303L,
+            manager = sourceManagerOf(),
+            repository = favorites,
+            offlineStore = store,
+            offlinePlaylist = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val result = screenModel.toggleOfflineCopy(screenModel.state.value.items.first(), 0)
+        result shouldBe ReelsFeedScreenModel.OfflineCopyResult.SAVED
+
+        screenModel.state.value.items.first().videoUrl shouldBe "file:///offline/303_off-2.mp4"
+        screenModel.state.value.offlineStored.contains("303:off-2") shouldBe true
+    }
+
+    @Test
+    fun `toggleOfflineCopy removes a stored copy and restores the network URL`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["off-3" to 304L] = offlineFavorite("off-3").copy(sourceId = 304L)
+        val store = FakeReelsOfflineStore()
+        store.stored[304L to "off-3"] = "file:///offline/304_off-3.mp4"
+        val screenModel = buildModel(
+            sourceId = 304L,
+            manager = sourceManagerOf(),
+            repository = favorites,
+            offlineStore = store,
+            offlinePlaylist = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val result = screenModel.toggleOfflineCopy(screenModel.state.value.items.first(), 0)
+        result shouldBe ReelsFeedScreenModel.OfflineCopyResult.REMOVED
+
+        screenModel.state.value.offlineStored.contains("304:off-3") shouldBe false
+        store.stored.isEmpty() shouldBe true
+        screenModel.state.value.items.first().videoUrl shouldBe "https://example.com/off-3.mp4"
+    }
+
+    @Test
+    fun `pip toggle persists and defaults to off`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9095L) { FeedPage(emptyList(), false) }
+        val preferences = SourcePreferences(MapPreferenceStore())
+        val screenModel = buildModel(sourceId = 9095L, manager = sourceManagerOf(source), preferences = preferences)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.isPipEnabled shouldBe false
+
+        screenModel.togglePip()
+        screenModel.state.value.isPipEnabled shouldBe true
+        preferences.reelsPipEnabled().get() shouldBe true
+
+        screenModel.togglePip()
+        screenModel.state.value.isPipEnabled shouldBe false
+        preferences.reelsPipEnabled().get() shouldBe false
     }
 
     @Test
@@ -1150,6 +1485,9 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = repository,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1307,6 +1645,58 @@ class ReelsFeedScreenModelTest {
         }
     }
 
+    private class FakeReelsWatchRepository : ReelsWatchRepository {
+        val entries = mutableMapOf<Pair<String, Long>, ReelsWatchEntry>()
+
+        override fun subscribeAll(): Flow<List<ReelsWatchEntry>> = MutableStateFlow(entries.values.toList())
+
+        override suspend fun getByVideo(videoId: String, sourceId: Long): ReelsWatchEntry? =
+            entries[videoId to sourceId]
+
+        override suspend fun upsert(entry: ReelsWatchEntry) {
+            entries[entry.videoId to entry.sourceId] = entry
+        }
+
+        override suspend fun delete(videoId: String, sourceId: Long) {
+            entries.remove(videoId to sourceId)
+        }
+
+        override suspend fun deleteAll() = entries.clear()
+    }
+
+    private class FakeReelsHiddenRepository : ReelsHiddenRepository {
+        val entries = mutableMapOf<Triple<Long, String, String>, ReelsHiddenEntry>()
+
+        override suspend fun getBySource(sourceId: Long): List<ReelsHiddenEntry> =
+            entries.values.filter { it.sourceId == sourceId }
+
+        override suspend fun insert(entry: ReelsHiddenEntry) {
+            entries[Triple(entry.sourceId, entry.kind, entry.value)] = entry
+        }
+
+        override suspend fun delete(sourceId: Long, kind: String, value: String) {
+            entries.remove(Triple(sourceId, kind, value))
+        }
+    }
+
+    private class FakeReelsOfflineStore : ReelsOfflineStore {
+        val stored = mutableMapOf<Pair<Long, String>, String>()
+
+        override fun isStored(sourceId: Long, videoId: String): Boolean = (sourceId to videoId) in stored
+
+        override fun localUrl(sourceId: Long, videoId: String): String? = stored[sourceId to videoId]
+
+        override fun storedPairs(): Set<Pair<Long, String>> = stored.keys
+
+        override suspend fun download(item: ShortVideoItem, sourceId: Long): Boolean {
+            stored[sourceId to item.id] = "file:///offline/${sourceId}_${item.id}.mp4"
+            return true
+        }
+
+        override suspend fun delete(sourceId: Long, videoId: String): Boolean =
+            stored.remove(sourceId to videoId) != null
+    }
+
     private fun timedItem(id: String, createdAtSec: Long) = ShortVideoItem(
         id = id,
         videoUrl = "https://example.com/$id.mp4",
@@ -1331,6 +1721,27 @@ class ReelsFeedScreenModelTest {
         }
     }
 
+    private class FeedbackRecordingSource(
+        override val id: Long,
+        private val provider: (Int) -> FeedPage,
+    ) : AnimeFeedSource, AnimeReelsFeedbackSource {
+        override val name: String = "Feedback $id"
+        override val lang: String = "all"
+        val likedCalls = mutableListOf<Pair<String, Boolean>>()
+        val viewedCalls = mutableListOf<String>()
+
+        override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage =
+            provider(page)
+
+        override suspend fun onVideoLiked(itemId: String, liked: Boolean) {
+            likedCalls += itemId to liked
+        }
+
+        override suspend fun onVideoViewed(itemId: String, secondsWatched: Double, duration: Double) {
+            viewedCalls += itemId
+        }
+    }
+
     @Test
     fun `creator page on a non-capable source surfaces an error without touching getFeed`() = runTest(testDispatcher) {
         var feedCalls = 0
@@ -1347,7 +1758,8 @@ class ReelsFeedScreenModelTest {
         val screenModel = buildModel(sourceId = 1101L, manager = sourceManagerOf(plain), creator = "alice")
         testDispatcher.scheduler.advanceUntilIdle()
 
-        screenModel.state.value.error shouldBe "Source does not support creator feeds"
+        screenModel.state.value.error shouldBe null
+        screenModel.state.value.errorRes shouldBe MR.strings.reels_source_missing_creator_feeds
         screenModel.state.value.isLoading shouldBe false
         screenModel.state.value.items.shouldHaveSize(0)
         screenModel.state.value.isCreatorCapable shouldBe false
@@ -1440,6 +1852,46 @@ class ReelsFeedScreenModelTest {
             screenModel.state.value.followingCreators.contains("over-cap") shouldBe true
             follows.follows.size shouldBe 101
         }
+
+    @Test
+    fun `incognito blocks follow inserts but a removal still reaches the database`() = runTest(testDispatcher) {
+        val source = RecordingCreatorFeedSource(1109L) { _, _, _ -> FeedPage(emptyList(), false) }
+        val follows = FakeReelsFollowRepository()
+        follows.follows[1109L to "alice"] = ReelsFollow(1109L, "alice", Date(0))
+        val screenModel = buildModel(
+            sourceId = 1109L,
+            manager = sourceManagerOf(source),
+            followRepository = follows,
+            incognito = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // New follows are session-only while incognito.
+        screenModel.toggleFollow("bob")
+        testDispatcher.scheduler.advanceUntilIdle()
+        follows.follows.keys shouldBe setOf(1109L to "alice")
+
+        // Removing an existing follow must persist even in incognito (no resurrection later).
+        screenModel.toggleFollow("alice")
+        testDispatcher.scheduler.advanceUntilIdle()
+        follows.follows.isEmpty() shouldBe true
+    }
+
+    @Test
+    fun `incognito suppresses the remote like and view feedback`() = runTest(testDispatcher) {
+        val source =
+            FeedbackRecordingSource(907L) { page -> FeedPage(listOf(videoItem("fb-p$page")), hasNextPage = false) }
+        val screenModel = buildModel(sourceId = 907L, manager = sourceManagerOf(source), incognito = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val item = screenModel.state.value.items.first()
+        screenModel.toggleLike(item)
+        screenModel.reportVideoView(item.id, 3f, 6f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        source.likedCalls shouldBe emptyList()
+        source.viewedCalls shouldBe emptyList()
+    }
 
     @Test
     fun `following feed shuffles merged creator streams without same-author runs`() = runTest(testDispatcher) {
@@ -1703,7 +2155,8 @@ class ReelsFeedScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         model.state.value.loggedInAccount shouldBe null
-        model.state.value.loginError shouldBe ReelsFeedScreenModel.LOGIN_FAILED_MESSAGE
+        model.state.value.loginRejected shouldBe true
+        model.state.value.loginError shouldBe null
         model.state.value.isLoggingIn shouldBe false
     }
 
@@ -2119,7 +2572,8 @@ class ReelsFeedScreenModelTest {
         val model = buildModel(sourceId = 2005, manager = sourceManagerOf(source), customFeedId = "f1")
         testDispatcher.scheduler.advanceUntilIdle()
 
-        model.state.value.error shouldBe "Source does not support custom feeds"
+        model.state.value.error shouldBe null
+        model.state.value.errorRes shouldBe MR.strings.reels_source_missing_custom_feeds
         model.state.value.items.shouldHaveSize(0)
     }
 

@@ -19,8 +19,11 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -30,8 +33,12 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -39,6 +46,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,15 +102,30 @@ fun ReelsVideoPage(
     onTogglePlayPause: () -> Unit,
     onToggleLike: () -> Unit,
     onToggleMute: () -> Unit,
-    onShare: () -> Unit,
+    onShare: (secondsPlayed: Float) -> Unit = {},
+    // B3.2 "not interested": gated by the caller; the author variant needs a non-null author.
+    showHideAction: Boolean = false,
+    onHideVideo: () -> Unit = {},
+    onHideAuthor: (() -> Unit)? = null,
+    // B3.3 offline copy slot (offline playlist only).
+    showOfflineAction: Boolean = false,
+    isOfflineStored: Boolean = false,
+    onToggleOffline: () -> Unit = {},
     onTagClick: (String) -> Unit,
     onVideoCompleted: () -> Unit,
     // Second parameter retries the current video (snackbar "Retry" action).
     onPlaybackError: (String, retry: () -> Unit) -> Unit = { _, _ -> },
     onScrubStart: () -> Unit = {},
-    // Reported once when the clip is left (swipe/completion): actual watched seconds + full
-    // duration, so a feedback-capable feed source can adapt its recommendations.
-    onViewReported: (secondsWatched: Float, duration: Float) -> Unit = { _, _ -> },
+    // Reported once when the clip is left (swipe/completion): actual watched seconds, the full
+    // duration and the playback fraction — drives remote personalization and local history.
+    onViewReported: (secondsWatched: Float, duration: Float, positionFraction: Float) -> Unit = { _, _, _ -> },
+    // B3.1 resume-seek: when set, the page seeks here once on its first activation.
+    initialSeekFraction: Float? = null,
+    // Called once when the resume seek above was applied (the model clears the stored target).
+    onInitialSeekConsumed: () -> Unit = {},
+    // Actual playWhenReady of THIS page's player (audio-focus/lifecycle pauses stop the
+    // player without changing the feed-level play intent); forwarded only while active.
+    onPlayingStateChanged: (Boolean) -> Unit = {},
     headers: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier,
 ) {
@@ -112,8 +135,14 @@ fun ReelsVideoPage(
     val progressState = remember { mutableFloatStateOf(0f) }
     var durationSec by remember(item) { mutableFloatStateOf(item.durationSec ?: 0f) }
     var seekFraction by remember { mutableStateOf<Float?>(null) }
+    var initialSeekApplied by remember(item.id) { mutableStateOf(false) }
     var showHeartPop by remember { mutableStateOf(false) }
+    var showHideDialog by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(false) }
+    val currentIsActive by rememberUpdatedState(isActive)
+    // Real playback state of this page's player (audio-focus and lifecycle pauses stop the
+    // player without changing the feed-level play intent); gates watched-time accrual.
+    var actuallyPlaying by remember(item.id) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var retrySignal by remember { mutableIntStateOf(0) }
     val heartScale = remember { Animatable(0f) }
@@ -143,8 +172,10 @@ fun ReelsVideoPage(
     var watchedSeconds by remember(item.id) { mutableFloatStateOf(0f) }
     var wasActivated by remember(item.id) { mutableStateOf(false) }
     var viewReported by remember(item.id) { mutableStateOf(false) }
-    LaunchedEffect(item.id, isActive, isPlaying, isBuffering) {
-        while (isActive && isPlaying && !isBuffering) {
+    // The counter restarts on every key change, including the actual play state, so an
+    // audio-focus pause stops the accrual at once and a resume picks it up immediately.
+    LaunchedEffect(item.id, isActive, isPlaying, isBuffering, actuallyPlaying) {
+        while (isActive && isPlaying && actuallyPlaying && !isBuffering) {
             delay(1000)
             watchedSeconds += 1f
         }
@@ -155,16 +186,49 @@ fun ReelsVideoPage(
             viewReported = false
         } else if (wasActivated && !viewReported) {
             viewReported = true
-            onViewReported(watchedSeconds, durationSec)
+            onViewReported(watchedSeconds, durationSec, progressState.floatValue)
             watchedSeconds = 0f
         }
     }
+    // Leaving the SCREEN (back / dispose) never runs the deactivation branch above: report the
+    // watched clip on dispose too, so the last reel doesn't escape the watch history / feedback.
+    DisposableEffect(item.id) {
+        onDispose {
+            if (wasActivated && !viewReported) {
+                viewReported = true
+                onViewReported(watchedSeconds, durationSec, progressState.floatValue)
+            }
+        }
+    }
 
-    // The effective (data-saver aware) quality is re-read only when the page ACTIVATES:
-    // mid-playback network changes must not rebuild the player and interrupt the clip.
+    // B3.1 resume-seek: apply the stored history position exactly once, on first activation.
+    LaunchedEffect(isActive, initialSeekFraction) {
+        if (isActive && !initialSeekApplied && initialSeekFraction != null) {
+            initialSeekApplied = true
+            seekFraction = initialSeekFraction
+            onInitialSeekConsumed()
+        }
+    }
+
+    // The effective (data-saver aware) quality is pinned ONCE per item appearance, as soon as
+    // the page starts buffering for real (preload or active): a mid-preload network change
+    // must not buffer HD that the activation would re-pin to SD (double download), and an
+    // active clip never rebuilds its player mid-playback.
     var pinnedHd by remember(item.id) { mutableStateOf(isHdQuality) }
-    LaunchedEffect(isActive) {
-        if (isActive) pinnedHd = isHdQuality
+    var qualityPinned by remember(item.id) { mutableStateOf(false) }
+    LaunchedEffect(isActive, isPreload, isHdQuality) {
+        if (isActive || isPreload) {
+            if (!qualityPinned) {
+                qualityPinned = true
+                pinnedHd = isHdQuality
+            } else if (!isHdQuality && pinnedHd) {
+                // Data saver / SD toggle outranks the pin: a clip preloaded on Wi-Fi must
+                // never play HD after the device moved to a metered network. Downgrading
+                // rebuilds the player with position restore; upgrades wait for the next
+                // appearance (never mid-playback).
+                pinnedHd = false
+            }
+        }
     }
 
     val videoUrl = remember(item, pinnedHd) {
@@ -249,6 +313,10 @@ fun ReelsVideoPage(
             onVideoLandscapeKnown = { isLandscapeVideo = it },
             onPlaybackError = { msg -> onPlaybackError(msg) { retrySignal++ } },
             onBufferingChanged = { isBuffering = it },
+            onPlaybackRunningChanged = { playing ->
+                actuallyPlaying = playing
+                if (currentIsActive) onPlayingStateChanged(playing)
+            },
             playbackSpeed = playbackSpeed,
             retrySignal = retrySignal,
             headers = headers,
@@ -336,13 +404,25 @@ fun ReelsVideoPage(
                     onToggleLike()
                 },
                 onToggleMute = onToggleMute,
-                onShare = onShare,
+                // B3.6: share carries the current playback second for a timeline URL.
+                onShare = { onShare(progressState.floatValue * durationSec.coerceAtLeast(0f)) },
                 showFollow = showFollowAction,
                 isFollowing = isFollowingCreator,
                 onToggleFollow = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
                     onToggleFollowCreator()
                 },
+                onOpenHide = if (showHideAction) {
+                    { showHideDialog = true }
+                } else {
+                    null
+                },
+                onToggleOffline = if (showOfflineAction) {
+                    onToggleOffline
+                } else {
+                    null
+                },
+                isOfflineStored = isOfflineStored,
                 modifier = Modifier.padding(end = 12.dp, bottom = 48.dp),
             )
         }
@@ -406,6 +486,39 @@ fun ReelsVideoPage(
             },
             onScrubStart = onScrubStart,
             modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+
+    // B3.2 hide choice: reel only, or the author too when one is known.
+    if (showHideDialog) {
+        AlertDialog(
+            onDismissRequest = { showHideDialog = false },
+            title = { Text(stringResource(MR.strings.reels_hide_menu)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showHideDialog = false
+                            onHideVideo()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(MR.strings.reels_hide_video))
+                    }
+                    if (onHideAuthor != null) {
+                        TextButton(
+                            onClick = {
+                                showHideDialog = false
+                                onHideAuthor()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(MR.strings.reels_hide_author))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
         )
     }
 }

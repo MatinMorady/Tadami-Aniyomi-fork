@@ -1,8 +1,8 @@
 import java.util.Date;
 
--- Followed creators on Reels feed sources (contract v18). Explicit user data:
--- persists regardless of incognito. Keyed per source because a creator name is only
--- meaningful inside one source.
+-- Followed creators on Reels feed sources (contract v18). Inserts are suppressed in
+-- incognito sessions; removals always persist. Keyed per source because a creator name is
+-- only meaningful inside one source.
 CREATE TABLE reels_follows(
     source_id INTEGER NOT NULL,
     creator TEXT NOT NULL,

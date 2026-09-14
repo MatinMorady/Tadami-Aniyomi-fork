@@ -1,0 +1,26 @@
+import java.util.Date;
+
+CREATE TABLE reels_hidden(
+    source_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    hidden_value TEXT NOT NULL,
+    hidden_at INTEGER AS Date NOT NULL,
+    PRIMARY KEY (source_id, kind, hidden_value)
+);
+
+getBySource:
+SELECT *
+FROM reels_hidden
+WHERE source_id = :sourceId;
+
+insert:
+INSERT OR REPLACE INTO reels_hidden(source_id, kind, hidden_value, hidden_at)
+VALUES (?, ?, ?, ?);
+
+delete:
+DELETE FROM reels_hidden
+WHERE source_id = :sourceId AND kind = :kind AND hidden_value = :value;
+
+deleteBySource:
+DELETE FROM reels_hidden
+WHERE source_id = :sourceId;

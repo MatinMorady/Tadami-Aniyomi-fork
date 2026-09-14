@@ -60,7 +60,9 @@ fun ReelsBottomMeta(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val initial = item.author?.firstOrNull()?.uppercaseChar()?.toString() ?: "V"
+            // Initial derives from the actual author/title instead of a hardcoded letter;
+            // the "?" glyph is the language-neutral fallback for anonymous items.
+            val initial = (item.author ?: item.title).orEmpty().firstOrNull()?.uppercase() ?: "?"
             Box(
                 modifier = Modifier
                     .size(28.dp)

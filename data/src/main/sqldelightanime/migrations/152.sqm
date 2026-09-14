@@ -1,0 +1,10 @@
+-- B3.2 "not interested" (host-side, contract-independent): locally hidden reels/creators.
+-- kind = 'video' | 'author'; the composite PK keeps one row per hide decision.
+-- `hidden_value` (not `value`): SQLDelight mangles the bare reserved word in generated code.
+CREATE TABLE IF NOT EXISTS reels_hidden(
+    source_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    hidden_value TEXT NOT NULL,
+    hidden_at INTEGER NOT NULL,
+    PRIMARY KEY (source_id, kind, hidden_value)
+);

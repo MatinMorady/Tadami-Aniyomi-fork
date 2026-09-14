@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import tachiyomi.domain.source.anime.model.StubAnimeSource
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.i18n.MR
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReelsCustomFeedEditorScreenModelTest {
@@ -192,7 +193,8 @@ class ReelsCustomFeedEditorScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         model.state.value.isLoading shouldBe false
-        model.state.value.error shouldBe "Failed to load tags"
+        model.state.value.error shouldBe null
+        model.state.value.errorRes shouldBe MR.strings.reels_editor_tags_failed
         model.state.value.allTags.isEmpty() shouldBe true
     }
 }

@@ -111,7 +111,7 @@ fun ReelsCustomFeedsSheet(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    text = feed.name.firstOrNull()?.uppercaseChar()?.toString() ?: "#",
+                                    text = feed.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,

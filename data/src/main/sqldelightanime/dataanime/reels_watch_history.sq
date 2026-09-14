@@ -1,0 +1,49 @@
+import java.util.Date;
+
+CREATE TABLE reels_watch_history(
+    video_id TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    title TEXT,
+    author TEXT,
+    poster_url TEXT,
+    web_url TEXT,
+    video_url TEXT NOT NULL,
+    duration_sec REAL,
+    position_ms INTEGER NOT NULL DEFAULT 0,
+    watched_at INTEGER AS Date NOT NULL,
+    PRIMARY KEY (video_id, source_id)
+);
+
+CREATE INDEX reels_watch_history_watched_at_index ON reels_watch_history(watched_at DESC);
+
+getAll:
+SELECT *
+FROM reels_watch_history
+ORDER BY watched_at DESC;
+
+getByVideo:
+SELECT *
+FROM reels_watch_history
+WHERE video_id = :videoId AND source_id = :sourceId;
+
+upsert:
+INSERT OR REPLACE INTO reels_watch_history(
+    video_id, source_id, title, author, poster_url, web_url, video_url, duration_sec, position_ms, watched_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+delete:
+DELETE FROM reels_watch_history
+WHERE video_id = :videoId AND source_id = :sourceId;
+
+deleteAll:
+DELETE FROM reels_watch_history;
+
+prune:
+DELETE FROM reels_watch_history
+WHERE rowid NOT IN (
+    SELECT rowid
+    FROM reels_watch_history
+    ORDER BY watched_at DESC
+    LIMIT :keep
+);

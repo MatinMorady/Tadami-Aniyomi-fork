@@ -36,6 +36,7 @@ import eu.kanade.tachiyomi.data.backup.restore.restorers.NovelRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.NovelSeriesRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.PreferenceRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.ReelsFavoritesRestorer
+import eu.kanade.tachiyomi.data.backup.restore.restorers.ReelsFollowsRestorer
 import eu.kanade.tachiyomi.util.system.createFileInCacheDir
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
@@ -81,6 +82,7 @@ class BackupRestorer(
     private val novelSeriesRestorer: NovelSeriesRestorer = NovelSeriesRestorer(),
     private val feedRestorer: FeedRestorer = FeedRestorer(),
     private val reelsFavoritesRestorer: ReelsFavoritesRestorer = ReelsFavoritesRestorer(),
+    private val reelsFollowsRestorer: ReelsFollowsRestorer = ReelsFollowsRestorer(),
     private val discoveryRestorer: DiscoveryRestorer = DiscoveryRestorer(),
     private val extensionsRestorer: ExtensionsRestorer = ExtensionsRestorer(context),
     private val achievementRestorer: AchievementRestorer = AchievementRestorer(),
@@ -329,9 +331,12 @@ class BackupRestorer(
                 feedRestorer.restoreFeeds(backup.backupFeeds)
             }
 
-            // Restore reels favorites when the user kept the option enabled
+            // Restore reels favorites + creator follows when the user kept the options enabled
             if (options.reelsFavorites && backup.backupReelsFavorites.isNotEmpty()) {
                 reelsFavoritesRestorer.restoreReelsFavorites(backup.backupReelsFavorites)
+            }
+            if (options.reelsFollows && backup.backupReelsFollows.isNotEmpty()) {
+                reelsFollowsRestorer.restoreReelsFollows(backup.backupReelsFollows)
             }
 
             // Restore discovery «Для тебя» (hidden titles + tag blacklist), idempotent merge

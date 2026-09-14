@@ -49,6 +49,8 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.HighQuality
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material.icons.outlined.Tune
@@ -116,7 +118,10 @@ fun ReelsTopBar(
     // single entry would be pure indirection. Account & personal content (custom feeds,
     // Following) live in the account hub, which always has at least two entries.
     onOpenFavorites: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     onOpenFollows: () -> Unit = {},
+    isPipEnabled: Boolean = false,
+    onTogglePip: () -> Unit = {},
     // Account hub (contract v19): identity + personal content. The hub shows the login state,
     // the custom-feeds entry (enabled only while logged in), the followed-creators entry
     // (capability-gated) and login/logout.
@@ -308,29 +313,9 @@ fun ReelsTopBar(
                     }
                 }
 
-                if (!isOffline && showFilter) {
-                    // Filter / Sort button
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                            .clickable {
-                                onOpenFilterDialog()
-                                openHub = HubMenu.NONE
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.FilterList,
-                            contentDescription = stringResource(MR.strings.action_filter),
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
-
                 // Favorites — first-class circle in every mode (frequent local action).
+                // Filter/sort, watch history and the PiP toggle live in the More menu
+                // (declutter redesign): the top bar keeps only "where am I" + session actions.
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -482,12 +467,22 @@ fun ReelsTopBar(
                     }
                     if (openHub == HubMenu.MORE) {
                         ReelsMoreMenu(
+                            showFilterRow = !isOffline && showFilter,
                             isAutoAdvance = isAutoAdvance,
                             isCropMode = isCropMode,
                             isHdQuality = isHdQuality,
                             dataSaverEnabled = dataSaverEnabled,
                             preloadEnabled = preloadEnabled,
                             preloadWifiOnly = preloadWifiOnly,
+                            isPipEnabled = isPipEnabled,
+                            onOpenHistory = {
+                                onOpenHistory()
+                                openHub = HubMenu.NONE
+                            },
+                            onOpenFilter = {
+                                onOpenFilterDialog()
+                                openHub = HubMenu.NONE
+                            },
                             onToggleAutoAdvance = {
                                 onToggleAutoAdvance()
                                 openHub = HubMenu.NONE
@@ -506,6 +501,10 @@ fun ReelsTopBar(
                             },
                             onTogglePreload = {
                                 onTogglePreload()
+                                openHub = HubMenu.NONE
+                            },
+                            onTogglePip = {
+                                onTogglePip()
                                 openHub = HubMenu.NONE
                             },
                             onTogglePreloadWifiOnly = {
@@ -805,23 +804,29 @@ private fun SearchSuggestionTabs(
 }
 
 /**
- * Compact settings popup (auto-advance / aspect / quality / preload) anchored under the
- * "more" button.
+ * Compact settings popup anchored under the "more" button. Declutter redesign: also hosts
+ * the relocated watch-history and filter/sort entries (former top-bar circles) on top of
+ * the playback settings rows.
  */
 @Composable
 private fun ReelsMoreMenu(
+    showFilterRow: Boolean,
     isAutoAdvance: Boolean,
     isCropMode: Boolean,
     isHdQuality: Boolean,
     dataSaverEnabled: Boolean,
     preloadEnabled: Boolean,
     preloadWifiOnly: Boolean,
+    isPipEnabled: Boolean,
+    onOpenHistory: () -> Unit,
+    onOpenFilter: () -> Unit,
     onToggleAutoAdvance: () -> Unit,
     onToggleCropMode: () -> Unit,
     onToggleQuality: () -> Unit,
     onToggleDataSaver: () -> Unit,
     onTogglePreload: () -> Unit,
     onTogglePreloadWifiOnly: () -> Unit,
+    onTogglePip: () -> Unit,
     onClearVideoCache: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -840,6 +845,37 @@ private fun ReelsMoreMenu(
                 .padding(6.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            // Relocated from the top bar (declutter): local retrospective actions first.
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Outlined.History,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_history_title),
+                value = null,
+                checked = null,
+                onClick = onOpenHistory,
+            )
+            if (showFilterRow) {
+                MoreMenuRow(
+                    icon = {
+                        Icon(
+                            Icons.Filled.FilterList,
+                            null,
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    label = stringResource(MR.strings.action_filter),
+                    value = null,
+                    checked = null,
+                    onClick = onOpenFilter,
+                )
+            }
             MoreMenuRow(
                 icon = {
                     Icon(
@@ -923,6 +959,20 @@ private fun ReelsMoreMenu(
                 value = null,
                 checked = dataSaverEnabled,
                 onClick = onToggleDataSaver,
+            )
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Outlined.PictureInPictureAlt,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_pip),
+                value = stringResource(if (isPipEnabled) MR.strings.on else MR.strings.off),
+                checked = null,
+                onClick = onTogglePip,
             )
             MoreMenuRow(
                 icon = {

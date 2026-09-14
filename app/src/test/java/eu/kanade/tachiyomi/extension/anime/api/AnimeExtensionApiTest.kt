@@ -98,7 +98,7 @@ class AnimeExtensionApiTest {
     }
 
     @Test
-    fun `supported library versions accept the full 12-21 range including minor versions`() {
+    fun `supported library versions accept the full 12-22 range including minor versions`() {
         (12.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
         (14.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
         (14.4 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
@@ -109,11 +109,14 @@ class AnimeExtensionApiTest {
         (19.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
         (19.1 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
         (20.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
-        // The reels feed-contract v21 addendum raised LIB_VERSION_MAX to 21.0.
+        // The reels feed-contract v21 addendum raised LIB_VERSION_MAX to 21.0,
+        // the v22 addendum (login instrumentation + video resolver) to 22.0.
         (20.1 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
         (21.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
+        (21.1 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
+        (22.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe true
         (11.0 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe false
-        (21.1 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe false
+        (22.1 in AnimeExtensionLoader.SUPPORTED_LIB_VERSIONS) shouldBe false
     }
 
     @Test

@@ -11,7 +11,7 @@ CREATE TABLE reels_favorites(
     poster_url_vertical TEXT,
     web_url TEXT,
     duration_sec REAL,
-    has_audio INTEGER NOT NULL,
+    has_audio INTEGER NOT NULL DEFAULT 0,
     added_at INTEGER AS Date NOT NULL,
     PRIMARY KEY (video_id, source_id)
 );
@@ -48,3 +48,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 delete:
 DELETE FROM reels_favorites
 WHERE video_id = :videoId AND source_id = :sourceId;
+
+deleteBySource:
+DELETE FROM reels_favorites
+WHERE source_id = :sourceId;

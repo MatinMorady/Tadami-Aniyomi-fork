@@ -18,4 +18,10 @@ interface ReelsFavoriteRepository {
     suspend fun insertAll(favorites: List<ReelsFavorite>)
 
     suspend fun delete(videoId: String, sourceId: Long)
+
+    /**
+     * Removes every saved reel of one source. Used for the user-initiated cleanup of rows
+     * whose source was uninstalled (the app keeps user data, so nothing is auto-deleted).
+     */
+    suspend fun deleteBySource(sourceId: Long)
 }

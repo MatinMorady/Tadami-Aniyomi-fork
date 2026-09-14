@@ -99,7 +99,7 @@ class ReelsFavoritesBackupRoundTripTest {
     }
 
     @Test
-    fun `restore replaces same-key favorites instead of duplicating`() {
+    fun `restore never overwrites same-key favorites - local state is authoritative`() {
         val repo = RecordingReelsRepository()
         val restorer = ReelsFavoritesRestorer(repo)
         val staleTs = Date(1_000L)
@@ -111,8 +111,26 @@ class ReelsFavoritesBackupRoundTripTest {
             restorer.restoreReelsFavorites(listOf(backupFavorite.toBackupReelsFavorite()))
         }
 
+        // A like removed locally must not resurrect from the backup: the local row is kept.
         repo.favorites.size shouldBe 1
-        repo.favorites["dup" to 101L]!!.addedAt shouldBe freshTs
+        repo.favorites["dup" to 101L]!!.addedAt shouldBe staleTs
+    }
+
+    @Test
+    fun `restore keeps favorites of sources that are not installed yet`() {
+        // Extension restore only launches the SYSTEM installer (manual confirmation, finishes
+        // after the restore job), so the source manager is empty here. Filtering on it would
+        // silently drop every favorite on a fresh install — rows must survive unconditionally;
+        // dangling rows are removed later by the user-initiated cleanup action.
+        val repo = RecordingReelsRepository()
+        val restorer = ReelsFavoritesRestorer(repo)
+        val orphan = favorite.copy(sourceId = 999L, videoId = "orphan")
+
+        runBlocking {
+            restorer.restoreReelsFavorites(listOf(orphan.toBackupReelsFavorite()))
+        }
+
+        repo.favorites.keys shouldBe setOf("orphan" to 999L)
     }
 }
 
@@ -143,5 +161,9 @@ private class RecordingReelsRepository : ReelsFavoriteRepository {
 
     override suspend fun delete(videoId: String, sourceId: Long) {
         favorites.remove(videoId to sourceId)
+    }
+
+    override suspend fun deleteBySource(sourceId: Long) {
+        favorites.keys.filter { it.second == sourceId }.forEach { favorites.remove(it) }
     }
 }

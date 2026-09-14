@@ -124,6 +124,7 @@ import eu.kanade.tachiyomi.ui.more.OnboardingScreen
 import eu.kanade.tachiyomi.ui.player.ExternalIntents
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
+import eu.kanade.tachiyomi.ui.reels.ReelsPip
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
 import eu.kanade.tachiyomi.util.system.isPreviewBuildType
@@ -629,6 +630,14 @@ class MainActivity : BaseActivity() {
             }
         }
         appSessionStartTime = null
+    }
+
+    // Reels picture-in-picture (declutter redesign): the HOME gesture during playback enters
+    // PiP when the feed screen registered its handler (feature toggle + actual playback are
+    // gated inside the handler). No-op for every other screen.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        ReelsPip.handler?.invoke()
     }
 
     override fun onStop() {
