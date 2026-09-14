@@ -137,10 +137,20 @@ suspend fun Call.awaitSuccess(): Response {
     return response
 }
 
-fun OkHttpClient.newCachelessCallWithProgress(request: Request, listener: ProgressListener): Call {
+/**
+ * @param callTimeoutMinutes whole-call cap. The 30-hour default keeps the historical
+ *   "effectively never" behaviour for large media (anime episodes, update APKs). Small
+ *   single-file payloads like manga page images should pass a tighter cap: one stalled
+ *   connection otherwise blocks the caller (a page loader worker) indefinitely.
+ */
+fun OkHttpClient.newCachelessCallWithProgress(
+    request: Request,
+    listener: ProgressListener,
+    callTimeoutMinutes: Long = DEFAULT_CACHELESS_CALL_TIMEOUT_MINUTES,
+): Call {
     val progressClient = newBuilder()
         .cache(null)
-        .callTimeout(30, java.util.concurrent.TimeUnit.HOURS)
+        .callTimeout(callTimeoutMinutes, java.util.concurrent.TimeUnit.MINUTES)
         .addNetworkInterceptor { chain ->
             val originalResponse = chain.proceed(chain.request())
             originalResponse.newBuilder()
@@ -151,6 +161,8 @@ fun OkHttpClient.newCachelessCallWithProgress(request: Request, listener: Progre
 
     return progressClient.newCall(request)
 }
+
+const val DEFAULT_CACHELESS_CALL_TIMEOUT_MINUTES = 30 * 60L
 
 /**
  * Cover-sized timeouts for image fetchers. Covers are small and latency-bound;

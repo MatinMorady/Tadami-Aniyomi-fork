@@ -66,15 +66,22 @@ internal class HttpPageLoader(
     // SY <--
 
     init {
-        scope.launchIO {
-            while (true) {
-                val queuedPage = runInterruptible { queue.take() }
-                try {
-                    if (queuedPage.page.status == Page.State.QUEUE) {
-                        internalLoadPage(queuedPage.page)
+        // Bounded parallelism: a single sequential worker let one slow or hung image block the
+        // whole chapter queue - the visible page could not overtake in-flight preloads, and a
+        // stalled connection froze everything until the (30h) call timeout. Workers share the
+        // priority queue, so ordering semantics are unchanged; 3 keeps connection pressure
+        // modest while a stalled worker no longer starves the rest.
+        repeat(PAGE_DOWNLOAD_WORKERS) {
+            scope.launchIO {
+                while (true) {
+                    val queuedPage = runInterruptible { queue.take() }
+                    try {
+                        if (queuedPage.page.status == Page.State.QUEUE) {
+                            internalLoadPage(queuedPage.page)
+                        }
+                    } finally {
+                        removeQueuedPage(queuedPage)
                     }
-                } finally {
-                    removeQueuedPage(queuedPage)
                 }
             }
         }
@@ -296,3 +303,9 @@ private class PriorityPage(
         return if (p != 0) p else identifier.compareTo(other.identifier)
     }
 }
+
+/**
+ * Concurrent page-download workers per chapter loader. 3 balances visible-page latency
+ * (a stalled worker no longer starves the queue) against connection pressure on sources.
+ */
+private const val PAGE_DOWNLOAD_WORKERS = 3

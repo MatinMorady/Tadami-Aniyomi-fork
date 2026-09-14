@@ -202,6 +202,81 @@ object ImageUtil {
         return output
     }
 
+    /**
+     * Bitmap-returning variants of the dual-page operations. They skip the lossy JPEG q=100
+     * re-encode round trip (full bitmap -> crop -> compress -> buffer -> SSIV re-decode) that
+     * the [BufferedSource] variants perform; holders hand the bitmap straight to the image view.
+     * Return null when decoding fails so callers can fall back to the stream variant.
+     */
+    fun splitInHalfBitmap(imageSource: BufferedSource, side: Side): Bitmap? {
+        return try {
+            // Region-decode only the kept half: halves both decode cost and peak memory
+            // (no full-size bitmap is ever materialized).
+            val decoder = newRegionDecoder(imageSource.inputStream()) ?: return null
+            try {
+                val width = decoder.width
+                val height = decoder.height
+                if (width <= 0 || height <= 0) return null
+                val halfWidth = width / 2
+                val part = when (side) {
+                    Side.RIGHT -> Rect(width - halfWidth, 0, width, height)
+                    Side.LEFT -> Rect(0, 0, halfWidth, height)
+                }
+                decoder.decodeRegion(part, null)
+            } finally {
+                decoder.recycle()
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "splitInHalfBitmap failed, falling back" }
+            null
+        }
+    }
+
+    fun rotateImageBitmap(imageSource: BufferedSource, degrees: Float): Bitmap? {
+        return try {
+            rotateBitMap(decodeBitmap(imageSource), degrees)
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "rotateImageBitmap failed, falling back" }
+            null
+        }
+    }
+
+    fun splitAndMergeBitmap(imageSource: BufferedSource, upperSide: Side): Bitmap? {
+        return try {
+            val imageBitmap = decodeBitmap(imageSource)
+            val height = imageBitmap.height
+            val width = imageBitmap.width
+            if (width <= 0 || height <= 0) return null
+            createBitmap(width / 2, height * 2).applyCanvas {
+                // right -> upper
+                val rightPart = when (upperSide) {
+                    Side.RIGHT -> Rect(width - width / 2, 0, width, height)
+                    Side.LEFT -> Rect(0, 0, width / 2, height)
+                }
+                val upperPart = Rect(0, 0, width / 2, height)
+                drawBitmap(imageBitmap, rightPart, upperPart, null)
+                // left -> bottom
+                val leftPart = when (upperSide) {
+                    Side.LEFT -> Rect(width - width / 2, 0, width, height)
+                    Side.RIGHT -> Rect(0, 0, width / 2, height)
+                }
+                val bottomPart = Rect(0, height, width / 2, height * 2)
+                drawBitmap(imageBitmap, leftPart, bottomPart, null)
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "splitAndMergeBitmap failed, falling back" }
+            null
+        }
+    }
+
+    private fun newRegionDecoder(stream: InputStream): BitmapRegionDecoder? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            BitmapRegionDecoder.newInstance(stream)
+        } else {
+            @Suppress("DEPRECATION")
+            BitmapRegionDecoder.newInstance(stream, false)
+        }
+
     enum class Side {
         RIGHT,
         LEFT,

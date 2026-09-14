@@ -465,7 +465,13 @@ abstract class HttpSource : CatalogueSource {
      */
     open suspend fun getImage(page: Page): Response {
         triggerNextPagePrefetch(page)
-        return client.newCachelessCallWithProgress(imageRequest(page), page)
+        return client.newCachelessCallWithProgress(
+            imageRequest(page),
+            page,
+            // A single manga image is small; the large-media default (30h) let one stalled CDN
+            // connection block a page-loader worker indefinitely.
+            callTimeoutMinutes = IMAGE_CALL_TIMEOUT_MINUTES,
+        )
             .awaitSuccess()
     }
 
@@ -545,12 +551,18 @@ abstract class HttpSource : CatalogueSource {
     }
 
     companion object {
-        private val chapterListCache = ConcurrentHashMap<String, List<SChapter>>()
-        private val pageListCache = ConcurrentHashMap<String, List<Page>>()
-        private val chapterToMangaUrl = ConcurrentHashMap<String, String>()
-        private val mangaToChapters = ConcurrentHashMap<String, List<SChapter>>()
-        private val pageToNextPage = ConcurrentHashMap<String, Page>()
+        // Bounded, insertion-order-evicting caches: these live for the whole process and used to
+        // grow without limit (chapter/page lists of every manga opened in a session) while also
+        // keeping stale signed image URLs alive forever. Every consumer treats a miss as
+        // "fetch from network", so eviction is safe.
+        private val chapterListCache = BoundedCache<String, List<SChapter>>(maxSize = 25)
+        private val pageListCache = BoundedCache<String, List<Page>>(maxSize = 100)
+        private val chapterToMangaUrl = BoundedCache<String, String>(maxSize = 2000)
+        private val mangaToChapters = BoundedCache<String, List<SChapter>>(maxSize = 25)
+        private val pageToNextPage = BoundedCache<String, Page>(maxSize = 2000)
         private val inFlightPrefetches = ConcurrentHashMap<String, Boolean>()
+
+        private const val IMAGE_CALL_TIMEOUT_MINUTES = 15L
 
         private val prefetchScope = CoroutineScope(
             Dispatchers.IO + SupervisorJob(),
@@ -633,4 +645,26 @@ abstract class HttpSource : CatalogueSource {
      * Returns the list of filters for the source.
      */
     override fun getFilterList() = FilterList()
+}
+
+/**
+ * Insertion-order bounded map used by the process-lifetime static caches in [HttpSource].
+ * Evicts the eldest entry once [maxSize] is exceeded; all operations are lock-guarded because
+ * prefetch coroutines and reader threads hit the caches concurrently.
+ */
+private class BoundedCache<K, V>(private val maxSize: Int) {
+
+    private val map = object : LinkedHashMap<K, V>(16, 0.75f, false) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, V>?): Boolean = size > maxSize
+    }
+
+    private val lock = Any()
+
+    operator fun get(key: K): V? = synchronized(lock) { map[key] }
+
+    operator fun set(key: K, value: V) {
+        synchronized(lock) { map[key] = value }
+    }
+
+    fun containsKey(key: K): Boolean = synchronized(lock) { map.containsKey(key) }
 }

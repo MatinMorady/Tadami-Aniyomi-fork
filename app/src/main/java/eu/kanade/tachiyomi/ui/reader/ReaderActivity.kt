@@ -110,6 +110,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer
+import eu.kanade.tachiyomi.ui.reader.viewer.pager.R2LPagerViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
@@ -681,7 +682,8 @@ class ReaderActivity : BaseActivity() {
                         onOpenInBrowser = ::openChapterInBrowser.takeIf { isHttpSource },
                         onShare = ::shareChapter.takeIf { isHttpSource },
 
-                        viewer = state.viewer,
+                        isRtlViewer = state.viewer is R2LPagerViewer,
+                        isPagerViewer = state.viewer is PagerViewer,
 
                         onNextChapter = ::loadNextChapter,
                         enabledNext = state.viewerChapters?.nextChapter != null,

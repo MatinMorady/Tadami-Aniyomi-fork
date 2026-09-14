@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
+import android.graphics.drawable.BitmapDrawable
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -13,6 +14,7 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.tadami.aurora.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.viewer.ProcessedPageImage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -216,28 +218,54 @@ class WebtoonPageHolder(
         val streamFn = page?.stream ?: return
 
         try {
-            val (source, isAnimated, isTall, canUseHardware) = withIOContext {
-                val source = streamFn().use { process(Buffer().readFrom(it)) }
-                val isAnimated = ImageUtil.isAnimatedAndSupported(source)
-                // Sniff image headers here so the UI thread does not have to instantiate
-                // native decoders per page while the user is scrolling.
-                val isTall = !isAnimated && ImageUtil.isTallImage(source)
-                val canUseHardware = !isAnimated && ImageUtil.canUseHardwareBitmap(source)
-                PageImageData(source, isAnimated, isTall, canUseHardware)
+            val prepared = withIOContext {
+                when (val processed = streamFn().use { process(Buffer().readFrom(it)) }) {
+                    is ProcessedPageImage.Decoded -> PageImageData.Decoded(processed.bitmap)
+                    is ProcessedPageImage.Encoded -> {
+                        val source = processed.source
+                        val isAnimated = ImageUtil.isAnimatedAndSupported(source)
+                        // Sniff image headers here so the UI thread does not have to instantiate
+                        // native decoders per page while the user is scrolling.
+                        val isTall = !isAnimated && ImageUtil.isTallImage(source)
+                        val canUseHardware = !isAnimated && ImageUtil.canUseHardwareBitmap(source)
+                        PageImageData.Encoded(source, isAnimated, isTall, canUseHardware)
+                    }
+                }
             }
             withUIContext {
-                frame.setImage(
-                    source,
-                    isAnimated,
-                    ReaderPageImageView.Config(
-                        zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
-                        cropBorders = viewer.config.imageCropBorders,
-                        webtoonSmartFit = viewer.config.webtoonSmartFit,
-                        isTallImage = isTall,
-                        canUseHardwareBitmap = canUseHardware,
-                    ),
-                )
+                when (prepared) {
+                    is PageImageData.Encoded -> {
+                        frame.setImage(
+                            prepared.source,
+                            prepared.isAnimated,
+                            ReaderPageImageView.Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                cropBorders = viewer.config.imageCropBorders,
+                                webtoonSmartFit = viewer.config.webtoonSmartFit,
+                                isTallImage = prepared.isTall,
+                                canUseHardwareBitmap = prepared.canUseHardware,
+                            ),
+                        )
+                    }
+                    is PageImageData.Decoded -> {
+                        // Split-and-merge/rotate results arrive pre-decoded: hand the bitmap
+                        // straight to the image view instead of a JPEG q=100 re-encode plus
+                        // second decode on the scroll path.
+                        val bitmap = prepared.bitmap
+                        frame.setImage(
+                            BitmapDrawable(frame.resources, bitmap),
+                            ReaderPageImageView.Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                cropBorders = viewer.config.imageCropBorders,
+                                webtoonSmartFit = viewer.config.webtoonSmartFit,
+                                isTallImage = bitmap.width > 0 &&
+                                    bitmap.height.toFloat() / bitmap.width.toFloat() > 3F,
+                            ),
+                        )
+                    }
+                }
                 removeErrorLayout()
             }
         } catch (e: Throwable) {
@@ -248,7 +276,7 @@ class WebtoonPageHolder(
         }
     }
 
-    private fun process(imageSource: BufferedSource): BufferedSource {
+    private fun process(imageSource: BufferedSource): ProcessedPageImage {
         if (viewer.config.dualPageRotateToFit) {
             return rotateDualPage(imageSource)
         }
@@ -257,21 +285,26 @@ class WebtoonPageHolder(
             val isDoublePage = ImageUtil.isWideImage(imageSource)
             if (isDoublePage) {
                 val upperSide = if (viewer.config.dualPageInvert) ImageUtil.Side.LEFT else ImageUtil.Side.RIGHT
-                return ImageUtil.splitAndMerge(imageSource, upperSide)
+                // peek() keeps the source intact so the stream variant remains a viable fallback.
+                ImageUtil.splitAndMergeBitmap(imageSource.peek(), upperSide)?.let {
+                    return ProcessedPageImage.Decoded(it)
+                }
+                return ProcessedPageImage.Encoded(ImageUtil.splitAndMerge(imageSource, upperSide))
             }
         }
 
-        return imageSource
+        return ProcessedPageImage.Encoded(imageSource)
     }
 
-    private fun rotateDualPage(imageSource: BufferedSource): BufferedSource {
+    private fun rotateDualPage(imageSource: BufferedSource): ProcessedPageImage {
         val isDoublePage = ImageUtil.isWideImage(imageSource)
-        return if (isDoublePage) {
-            val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
-            ImageUtil.rotateImage(imageSource, rotation)
-        } else {
-            imageSource
+        if (!isDoublePage) {
+            return ProcessedPageImage.Encoded(imageSource)
         }
+        val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
+        return ImageUtil.rotateImageBitmap(imageSource.peek(), rotation)
+            ?.let { ProcessedPageImage.Decoded(it) }
+            ?: ProcessedPageImage.Encoded(ImageUtil.rotateImage(imageSource, rotation))
     }
 
     /**
@@ -360,9 +393,13 @@ class WebtoonPageHolder(
     }
 }
 
-private data class PageImageData(
-    val source: BufferedSource,
-    val isAnimated: Boolean,
-    val isTall: Boolean,
-    val canUseHardware: Boolean,
-)
+private sealed interface PageImageData {
+    data class Encoded(
+        val source: BufferedSource,
+        val isAnimated: Boolean,
+        val isTall: Boolean,
+        val canUseHardware: Boolean,
+    ) : PageImageData
+
+    data class Decoded(val bitmap: android.graphics.Bitmap) : PageImageData
+}

@@ -557,3 +557,14 @@ open class ReaderPageImageView @JvmOverloads constructor(
 }
 
 private const val MAX_ZOOM_SCALE = 5F
+
+/**
+ * Result of a holder's page-image preprocessing (dual-page split / rotate-to-fit).
+ * [Decoded] lets those operations hand a bitmap directly to the image view, skipping the
+ * historical JPEG q=100 re-encode plus second decode round trip; [Encoded] is the untouched
+ * (or re-encoded fallback) byte stream.
+ */
+internal sealed interface ProcessedPageImage {
+    data class Encoded(val source: BufferedSource) : ProcessedPageImage
+    data class Decoded(val bitmap: android.graphics.Bitmap) : ProcessedPageImage
+}
