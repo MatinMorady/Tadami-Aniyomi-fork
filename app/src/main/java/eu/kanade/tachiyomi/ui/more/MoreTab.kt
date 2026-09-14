@@ -16,6 +16,7 @@ import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import com.tadami.aurora.BuildConfig
 import com.tadami.aurora.R
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.source.service.SourcePreferences
@@ -111,9 +112,29 @@ data object MoreTab : Tab {
         }
         val showReelsEntry = showReelsVideoFeed && targetReelsSource != null
 
+        // «More» menu customization: which entries exist right now, and how the user ordered them.
+        val moreMenuOrder by uiPreferences.moreMenuOrder().preferenceCollectAsState()
+        val moreMenuHidden by uiPreferences.moreMenuHidden().preferenceCollectAsState()
+        val moreEntryAvailability = remember(showReelsEntry, latticeGridAvailable) {
+            availableMoreEntryIds(
+                showReelsEntry = showReelsEntry,
+                latticeGridAvailable = latticeGridAvailable,
+                isDebugBuild = BuildConfig.DEBUG,
+            )
+        }
+        val moreMenuVisibleIds = remember(moreEntryAvailability, moreMenuOrder, moreMenuHidden) {
+            resolveMoreMenuLayout(
+                available = moreEntryAvailability,
+                savedOrderRaw = moreMenuOrder,
+                hiddenRaw = moreMenuHidden,
+            ).visible
+        }
+
         if (theme.isAuroraStyle) {
             val downloadedOnly by screenModel.downloadedOnlyFlow.collectAsStateWithLifecycle()
             val incognitoMode by screenModel.incognitoModeFlow.collectAsStateWithLifecycle()
+            // Resolved here because `navStyle.moreTab.options` is only readable inside the tab navigator.
+            val movedTabTitle = navStyle.moreTab.options.title
 
             MoreScreenAurora(
                 navStyle = navStyle,
@@ -172,6 +193,15 @@ data object MoreTab : Tab {
                 },
                 showReelsEntry = showReelsEntry,
                 onReelsClick = { targetReelsSource?.let { navigator.push(ReelsFeedScreen(it.id)) } },
+                visibleEntryIds = moreMenuVisibleIds,
+                onCustomizeMenuClick = {
+                    navigator.push(
+                        MoreMenuCustomizeScreen(
+                            availableIds = moreEntryAvailability,
+                            movedTabTitle = movedTabTitle,
+                        ),
+                    )
+                },
             )
         } else {
             MoreScreen(

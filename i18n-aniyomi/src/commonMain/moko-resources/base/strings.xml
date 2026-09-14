@@ -1646,6 +1646,13 @@
     <string name="aurora_chapter_number">Chapter %s</string>
     <string name="aurora_recently_added">Recently Added</string>
     <string name="aurora_more">More</string>
+    <string name="aurora_more_menu_customize">Customize menu</string>
+    <string name="aurora_more_menu_customize_title">Menu customization</string>
+    <string name="aurora_more_menu_hint">Drag a row by its handle to change the order. The eye hides an entry from the More screen — restore it at any time from the Hidden group below.</string>
+    <string name="aurora_more_menu_hidden_count">Hidden (%1$d)</string>
+    <string name="aurora_more_menu_hidden_empty">Nothing is hidden yet</string>
+    <string name="aurora_more_menu_pinned_summary">Pinned · this tab was moved here</string>
+    <string name="aurora_more_menu_show">Show</string>
     <string name="aurora_change_nickname">Change Nickname</string>
     <string name="aurora_nickname_field_label">Nickname</string>
     <string name="aurora_nickname_preview">Preview</string>

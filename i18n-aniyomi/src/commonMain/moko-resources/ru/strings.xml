@@ -1297,6 +1297,13 @@
     <string name="aurora_chapter_number">Глава %s</string>
     <string name="aurora_recently_added">Недавно добавленные</string>
     <string name="aurora_more">Ещё</string>
+    <string name="aurora_more_menu_customize">Настроить меню</string>
+    <string name="aurora_more_menu_customize_title">Настройка меню</string>
+    <string name="aurora_more_menu_hint">Тяните строку за ручку, чтобы поменять порядок. Глаз скрывает пункт с экрана «Ещё» — вернуть его можно в группе «Скрытые» ниже.</string>
+    <string name="aurora_more_menu_hidden_count">Скрытые (%1$d)</string>
+    <string name="aurora_more_menu_hidden_empty">Пока ничего не скрыто</string>
+    <string name="aurora_more_menu_pinned_summary">Закреплено · вкладка перенесена сюда</string>
+    <string name="aurora_more_menu_show">Вернуть</string>
     <string name="aurora_change_nickname">Изменить имя</string>
     <string name="aurora_nickname_field_label">Никнейм</string>
     <string name="aurora_nickname_preview">Предпросмотр</string>
