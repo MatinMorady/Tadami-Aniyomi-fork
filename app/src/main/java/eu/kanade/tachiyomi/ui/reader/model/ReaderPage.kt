@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.model
 
 import eu.kanade.tachiyomi.source.model.Page
+import tachiyomi.core.common.util.system.ImageUtil
 import java.io.InputStream
 
 open class ReaderPage(
@@ -13,4 +14,17 @@ open class ReaderPage(
     open lateinit var chapter: ReaderChapter
 
     var isWide: Boolean = false
+
+    /**
+     * Pixel size of the page image, sniffed once on IO by the webtoon holder. The holder reserves
+     * the page's final rendered height from it before the image is decoded, so the item does not
+     * resize under the reader's finger.
+     */
+    var imageDimensions: ImageUtil.ImageDimensions? = null
+
+    /**
+     * Whether the image is an animated format. Animated pages change height between frames, so
+     * their holders keep the viewport-sized placeholder.
+     */
+    var isAnimatedImage: Boolean = false
 }

@@ -18,8 +18,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
+import okio.Buffer
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.system.ImageUtil
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.PriorityBlockingQueue
@@ -272,6 +274,23 @@ internal class HttpPageLoader(
                 page.status = Page.State.DOWNLOAD_IMAGE
                 val imageResponse = source.getImage(page, dataSaver)
                 chapterCache.putImageToCache(imageUrl, imageResponse)
+            }
+
+            // Sniff the pixel size while the file is still hot in the page cache: preloaded
+            // pages then bind with a correct placeholder height and do not relayout on decode.
+            // Animated pages are skipped: their height comes from the decoded drawable, and a
+            // pre-set size would route them into the non-animated image path.
+            if (page.imageDimensions == null) {
+                page.imageDimensions = runCatching {
+                    chapterCache.getImageFile(imageUrl).inputStream().use { stream ->
+                        val source = Buffer().readFrom(stream)
+                        if (ImageUtil.isAnimatedAndSupported(source)) {
+                            null
+                        } else {
+                            ImageUtil.getImageDimensions(source)
+                        }
+                    }
+                }.getOrNull()
             }
 
             page.stream = { chapterCache.getImageFile(imageUrl).inputStream() }

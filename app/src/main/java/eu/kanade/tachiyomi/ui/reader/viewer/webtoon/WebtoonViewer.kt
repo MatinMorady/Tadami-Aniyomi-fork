@@ -38,6 +38,7 @@ import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Implementation of a [Viewer] to display pages with a [RecyclerView].
@@ -82,6 +83,28 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
      * Currently active item. It can be a chapter page or a chapter transition.
      */
     private var currentPage: Any? = null
+
+    /**
+     * Until this uptime timestamp a programmatic chapter switch is still settling: relayouts caused
+     * by decoding page heights can re-anchor the RecyclerView onto the retained neighbour-chapter
+     * pages, and reports from there must re-anchor back instead of bouncing the switch (see
+     * [onScrolled]). Cleared when the new chapter's first page is decoded, the user scrolls, or the
+     * cap expires.
+     */
+    private var switchSettleUntilMs = 0L
+    private var switchSettleReanchorMs = 0L
+
+    /**
+     * Scroll compensation queued by holders when the height of the page at the top of the viewport
+     * changes; applied in [WebtoonRecyclerView.dispatchDraw], i.e. still inside the same frame.
+     */
+    private var pendingHeightCompensationPx = 0
+
+    /**
+     * True while that compensation moves the scroll: the scroll listener must not treat it as a
+     * user scroll (no menu hiding, no progress report - the visible position did not change).
+     */
+    private var compensatingLayoutChange = false
     private var pendingRelativeRestore: PendingRelativeRestore? = null
     private val pendingRelativeRestoreRunnable = object : Runnable {
         override fun run() {
@@ -131,6 +154,7 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
         recycler.itemAnimator = null
         recycler.layoutManager = layoutManager
         recycler.adapter = adapter
+        recycler.onBeforeDrawChildren = { applyPendingHeightCompensation() }
         recycler.addOnScrollListener(
             object : RecyclerView.OnScrollListener() {
                 // Progress tracking is throttled: computing the scroll progress and
@@ -145,6 +169,9 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
                 private var scrollStartedAtEndOfChapter = false
 
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                    // A position-preserving compensation is not a user scroll: the visible content
+                    // did not move, so the bookkeeping (and menu hiding) is skipped for it.
+                    if (compensatingLayoutChange) return
                     onScrolled()
                     applyPendingRelativeRestore(clearWhenApplied = false)
                     val now = SystemClock.uptimeMillis()
@@ -185,6 +212,8 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
                 override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                     when (newState) {
                         RecyclerView.SCROLL_STATE_DRAGGING -> {
+                            // The user took over: a programmatic switch is no longer settling.
+                            switchSettleUntilMs = 0L
                             // User took over the scroll: stop re-anchoring every frame against
                             // the drag ("rubber band") and let the pending restore go.
                             if (pendingRelativeRestore != null) {
@@ -461,6 +490,10 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
         // (loadNewChapter) and preload refreshes arrive with the flag false.
         val isProgrammaticSwitch = adapter.currentChapter != chapters.currChapter &&
             activity.viewModel.state.value.isLoadingAdjacentChapter
+        if (isProgrammaticSwitch) {
+            switchSettleUntilMs = SystemClock.uptimeMillis() + PROGRAMMATIC_SWITCH_SETTLE_CAP_MS
+            switchSettleReanchorMs = 0L
+        }
         adapter.setChapters(chapters, forceTransition)
 
         if (recycler.isGone) {
@@ -538,6 +571,10 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
     }
 
     internal fun onPageImageReady(page: ReaderPage) {
+        if (switchSettleUntilMs != 0L && page.index == 0 && page.chapter == adapter.currentChapter) {
+            // The new chapter's first page has its final height: the switch is settled.
+            switchSettleUntilMs = 0L
+        }
         val pending = pendingRelativeRestore ?: return
         if (pending.pageIndex != page.index) return
         if (pending.chapterId != null && pending.chapterId != page.chapter.chapter.id) return
@@ -635,6 +672,39 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
         return pendingChapterId == null || pendingChapterId == page.chapter.chapter.id
     }
 
+    /**
+     * Queues a scroll compensation for the page whose height just changed. RecyclerView pins the
+     * top of the first visible item when it relayouts, so a height change of THAT item pushes
+     * every page below it by the height difference - the content the reader is looking at jumps
+     * away while a page is still being decoded. The visible fraction of the page is preserved
+     * instead, the same way long page progress is stored.
+     */
+    internal fun schedulePositionPreservation(view: View, oldHeight: Int, newHeight: Int) {
+        if (oldHeight <= 0 || newHeight <= 0 || oldHeight == newHeight) return
+        val position = recycler.getChildAdapterPosition(view)
+        if (position == RecyclerView.NO_POSITION) return
+        if (layoutManager.findFirstVisibleItemPosition() != position) return
+
+        val offsetInPage = (-view.top).coerceAtLeast(0)
+        if (offsetInPage == 0) return
+
+        pendingHeightCompensationPx +=
+            (offsetInPage * (newHeight.toFloat() / oldHeight)).roundToInt() - offsetInPage
+    }
+
+    private fun applyPendingHeightCompensation() {
+        val compensation = pendingHeightCompensationPx
+        pendingHeightCompensationPx = 0
+        if (compensation == 0) return
+
+        compensatingLayoutChange = true
+        try {
+            recycler.scrollBy(0, compensation)
+        } finally {
+            compensatingLayoutChange = false
+        }
+    }
+
     internal fun getCurrentScrollProgress(): WebtoonScrollProgress? {
         val firstVisible = layoutManager.findFirstVisibleItemPosition()
         if (firstVisible == RecyclerView.NO_POSITION) return null
@@ -665,6 +735,13 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
         val position = pos ?: layoutManager.findLastEndVisibleItemPosition()
         val item = adapter.items.getOrNull(position)
         val allowPreload = checkAllowPreload(item as? ReaderPage)
+        if (item is ReaderPage && isSwitchSettling() && item.chapter != adapter.currentChapter) {
+            // A stale boundary report while a programmatic switch settles: the view was placed by
+            // moveToPage, not by the user. Propagating it would make the VM bounce back to the
+            // reported chapter ("the previous chapter stayed"); re-anchor instead.
+            reanchorDuringSwitchSettle()
+            return
+        }
         if (item != null && currentPage != item) {
             currentPage = item
             when (item) {
@@ -672,6 +749,16 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
                 is ChapterTransition -> onTransitionSelected(item)
             }
         }
+    }
+
+    private fun isSwitchSettling(): Boolean =
+        switchSettleUntilMs != 0L && SystemClock.uptimeMillis() < switchSettleUntilMs
+
+    private fun reanchorDuringSwitchSettle() {
+        val now = SystemClock.uptimeMillis()
+        if (now - switchSettleReanchorMs < SWITCH_SETTLE_REANCHOR_INTERVAL_MS) return
+        switchSettleReanchorMs = now
+        adapter.currentChapter?.pages?.firstOrNull()?.let(::moveToPage)
     }
 
     /**
@@ -779,3 +866,10 @@ private const val SCROLL_PROGRESS_UPDATE_INTERVAL_MS = 150L
 private const val MIN_STABLE_HEIGHT_FRAMES = 2
 private const val RESTORE_SETTLE_TOLERANCE_PX = 2
 private const val MIN_READY_STATE_FRAMES_FALLBACK = 30
+
+// How long a programmatic chapter switch suppresses stale boundary reports (capped; ends earlier
+// when the new first page is decoded or the user scrolls).
+private const val PROGRAMMATIC_SWITCH_SETTLE_CAP_MS = 3000L
+
+// Minimum interval between re-anchors while a programmatic switch settles.
+private const val SWITCH_SETTLE_REANCHOR_INTERVAL_MS = 400L

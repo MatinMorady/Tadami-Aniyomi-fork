@@ -26,6 +26,16 @@ data class ReaderChapter(val chapter: Chapter) {
 
     var requestedPageOffsetRatioPpm: Int? = null
 
+    private val pageRatios = PageRatioTracker()
+
+    /** Median of this chapter's known page ratios; estimates placeholder heights. Main thread. */
+    val typicalPageRatio: Float?
+        get() = pageRatios.typical
+
+    fun notePageRatio(ratio: Float) {
+        pageRatios.note(ratio)
+    }
+
     private var references = 0
 
     constructor(chapter: tachiyomi.domain.items.chapter.model.Chapter) : this(chapter.toDbChapter())

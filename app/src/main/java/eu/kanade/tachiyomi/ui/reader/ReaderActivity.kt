@@ -400,6 +400,7 @@ class ReaderActivity : BaseActivity() {
         (viewModel.state.value.viewer as? WebtoonViewer)?.let(viewModel::saveWebtoonScrollProgressOnExit)
         viewModel.flushReadTimer()
         viewModel.pauseAutoScroll()
+        restoreDisplayMode()
         super.onPause()
     }
 
@@ -411,7 +412,36 @@ class ReaderActivity : BaseActivity() {
         super.onResume()
         viewModel.restartReadTimer()
         setMenuVisibility(viewModel.state.value.menuVisible)
+        requestMaxRefreshRate()
     }
+
+    /**
+     * Reading is motion-sensitive: OEM refresh-rate policies often cap the app below the panel
+     * maximum, which reads as stepping during fling deceleration (measured on device: bimodal
+     * 11.1/16.7 ms frame deltas while capped vs steady 8.3 ms at the maximum rate). While the
+     * reader is in the foreground prefer the fastest mode with the same physical size; the mode is
+     * picked once per resume, so no switch happens mid-gesture.
+     */
+    private fun requestMaxRefreshRate() {
+        if (isEInkMode()) return
+        val currentDisplay = display ?: return
+        val current = currentDisplay.mode
+        val fastest = currentDisplay.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .maxByOrNull { it.refreshRate }
+            ?: return
+        if (fastest.modeId == current.modeId) return
+        savedDisplayModeId = current.modeId
+        window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
+    }
+
+    private fun restoreDisplayMode() {
+        if (savedDisplayModeId == 0) return
+        window.attributes = window.attributes.apply { preferredDisplayModeId = savedDisplayModeId }
+        savedDisplayModeId = 0
+    }
+
+    private var savedDisplayModeId = 0
 
     /**
      * Called when the window focus changes. It sets the menu visibility to the last known state

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 import android.animation.AnimatorSet
 import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Canvas
 import android.util.AttributeSet
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -75,6 +76,19 @@ class WebtoonRecyclerView @JvmOverloads constructor(
         val layoutManager = layoutManager as? LinearLayoutManager ?: return
         lastVisibleItemPosition = layoutManager.findLastVisibleItemPosition()
         firstVisibleItemPosition = layoutManager.findFirstVisibleItemPosition()
+    }
+
+    /**
+     * Invoked after the children have been laid out and before they are drawn. The viewer uses it
+     * to apply a queued scroll compensation for a page whose height changed during this layout
+     * pass: applying it here lands in the same frame (no visible jump) and, unlike a call from a
+     * layout listener, does not re-enter the layout manager while it is filling children.
+     */
+    var onBeforeDrawChildren: (() -> Unit)? = null
+
+    override fun dispatchDraw(canvas: Canvas) {
+        onBeforeDrawChildren?.invoke()
+        super.dispatchDraw(canvas)
     }
 
     override fun onScrollStateChanged(state: Int) {

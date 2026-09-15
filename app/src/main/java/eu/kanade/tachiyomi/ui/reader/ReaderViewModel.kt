@@ -36,6 +36,7 @@ import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.loader.ChapterLoader
 import eu.kanade.tachiyomi.ui.reader.loader.DownloadPageLoader
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
+import eu.kanade.tachiyomi.ui.reader.model.PageRatioTracker
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderFinaleState
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
@@ -156,6 +157,20 @@ class ReaderViewModel @JvmOverloads constructor(
     private val autoWebtoonPageIndexes = mutableSetOf<Int>()
     private val autoWebtoonPageDimensions = mutableListOf<MangaReaderPageDimensions>()
     private var autoWebtoonPromptedMangaId: Long? = null
+
+    /**
+     * Cross-chapter page-ratio median for this reading session: estimates placeholder heights in
+     * chapters where nothing is known yet (right after crossing into a not-yet-downloaded
+     * chapter). Main thread only.
+     */
+    private val sessionPageRatios = PageRatioTracker()
+
+    val sessionTypicalPageRatio: Float?
+        get() = sessionPageRatios.typical
+
+    fun noteSessionPageRatio(ratio: Float) {
+        sessionPageRatios.note(ratio)
+    }
     private var foregroundIncognitoJob: Job? = null
 
     /**
