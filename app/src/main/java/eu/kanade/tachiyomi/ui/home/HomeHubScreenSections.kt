@@ -184,7 +184,10 @@ internal fun AnimeHomeHub(
             tabNavigator.current = BrowseTab
             BrowseTab.showAnimeExtension()
         },
-        onHistoryClick = { tabNavigator.current = HistoriesTab },
+        onHistoryClick = {
+            HistoriesTab.showAnimeSection()
+            navigator.push(HistoriesTab)
+        },
         onLibraryClick = { tabNavigator.current = AnimeLibraryTab },
         onForYouMoreClick = { navigator.push(DiscoveryFeedScreen(DiscoveryMediaType.ANIME.key)) },
         onDiscoveryRefreshClick = { screenModel.rotateOrRefreshDiscovery() },
@@ -290,7 +293,10 @@ internal fun MangaHomeHub(
             tabNavigator.current = BrowseTab
             BrowseTab.showExtension()
         },
-        onHistoryClick = { tabNavigator.current = HistoriesTab },
+        onHistoryClick = {
+            HistoriesTab.showMangaSection()
+            navigator.push(HistoriesTab)
+        },
         onLibraryClick = {
             scope.launch { AnimeLibraryTab.showMangaSection() }
             tabNavigator.current = AnimeLibraryTab
@@ -402,7 +408,10 @@ internal fun NovelHomeHub(
             tabNavigator.current = BrowseTab
             BrowseTab.showNovelExtension()
         },
-        onHistoryClick = { tabNavigator.current = HistoriesTab },
+        onHistoryClick = {
+            HistoriesTab.showNovelSection()
+            navigator.push(HistoriesTab)
+        },
         onLibraryClick = {
             scope.launch { AnimeLibraryTab.showNovelSection() }
             tabNavigator.current = AnimeLibraryTab

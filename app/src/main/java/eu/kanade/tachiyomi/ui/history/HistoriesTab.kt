@@ -16,7 +16,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.Navigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
 import com.tadami.aurora.R
@@ -53,6 +55,18 @@ import java.util.Locale
 
 data object HistoriesTab : Tab {
 
+    fun showAnimeSection() {
+        Injekt.get<UserProfilePreferences>().historyLastSection().set("anime")
+    }
+
+    fun showMangaSection() {
+        Injekt.get<UserProfilePreferences>().historyLastSection().set("manga")
+    }
+
+    fun showNovelSection() {
+        Injekt.get<UserProfilePreferences>().historyLastSection().set("novel")
+    }
+
     override val options: TabOptions
         @Composable
         get() {
@@ -77,6 +91,13 @@ data object HistoriesTab : Tab {
     @Composable
     override fun Content() {
         val context = LocalContext.current
+        val navigator = LocalNavigator.currentOrThrow
+        val canNavigateUp = remember(navigator) { navigator.canPop }
+        val navigateUp: (() -> Unit)? = if (canNavigateUp) {
+            { navigator.pop() }
+        } else {
+            null
+        }
         val fromMore = currentNavigationStyle() == NavStyle.MOVE_HISTORY_TO_MORE
         val uiPreferences = Injekt.get<UiPreferences>()
         val theme by uiPreferences.appTheme().collectAsStateWithLifecycle()
@@ -95,11 +116,12 @@ data object HistoriesTab : Tab {
         val sectionTabs = historyContentTabs(showAnimeSection, showMangaSection, showNovelSection)
         val tabs = sectionTabs
             .map { tab ->
-                when (tab) {
+                val content = when (tab) {
                     HistoryContentTab.ANIME -> animeHistoryTab(context, fromMore)
                     HistoryContentTab.MANGA -> mangaHistoryTab(context, fromMore)
                     HistoryContentTab.NOVEL -> novelHistoryTab(context, fromMore)
                 }
+                content.copy(navigateUp = navigateUp)
             }
             .toPersistentList()
 

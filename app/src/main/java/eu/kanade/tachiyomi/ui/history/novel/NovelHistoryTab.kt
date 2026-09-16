@@ -7,7 +7,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
@@ -19,12 +18,10 @@ import eu.kanade.presentation.history.HistoryDeleteAllDialog
 import eu.kanade.presentation.history.HistoryDeleteDialog
 import eu.kanade.presentation.history.novel.NovelHistoryScreen
 import eu.kanade.tachiyomi.ui.entries.novel.NovelScreen
-import eu.kanade.tachiyomi.ui.home.HomeScreen
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
@@ -40,15 +37,8 @@ fun Screen.novelHistoryTab(
     val screenModel = rememberScreenModel { NovelHistoryScreenModel() }
     val state by screenModel.state.collectAsStateWithLifecycle()
 
-    val scope = rememberCoroutineScope()
-    val navigateUp: (() -> Unit)? = if (fromMore) {
-        {
-            if (navigator.lastItem == HomeScreen) {
-                scope.launch { HomeScreen.openTab(HomeScreen.Tab.NovelLib()) }
-            } else {
-                navigator.pop()
-            }
-        }
+    val navigateUp: (() -> Unit)? = if (navigator.canPop) {
+        { navigator.pop() }
     } else {
         null
     }
