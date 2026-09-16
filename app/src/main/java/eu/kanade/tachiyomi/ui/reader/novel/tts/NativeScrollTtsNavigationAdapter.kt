@@ -8,7 +8,10 @@ class NativeScrollTtsNavigationAdapter(
     private val navigator: NativeScrollTtsNavigator,
 ) : NovelTtsNavigationAdapter {
     override suspend fun syncToSegment(segment: NovelTtsSegment) {
-        navigator.scrollToBlock(segment.sourceBlockIndex)
+        // The chapter-title segment carries the sourceBlockIndex = -1 sentinel: it has no content
+        // block to scroll to. Follow it at the top of the chapter, matching the WebView surface
+        // (title maps to 0% progress). LazyListState.scrollToItem throws on a negative index.
+        navigator.scrollToBlock(segment.sourceBlockIndex.coerceAtLeast(0))
     }
 
     override fun captureManualAnchor(
