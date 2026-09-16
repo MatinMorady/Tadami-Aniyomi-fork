@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.data.backup
 
 import eu.kanade.tachiyomi.data.backup.lnreader.LNReaderBackup
-import eu.kanade.tachiyomi.data.backup.models.MihonBackup
 import eu.kanade.tachiyomi.data.backup.models.TadamiSisterManifest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -106,9 +105,11 @@ object BackupDetector {
     private fun hasConfirmedSisterManifest(bytes: ByteArray, fields: Set<Int>): Boolean {
         if (TadamiSisterManifest.PROTO_FIELD !in fields) return false
         return try {
-            ProtoBuf.decodeFromByteArray(MihonBackup.serializer(), bytes)
-                .tadamiManifest
-                ?.isValid == true
+            // Decode only the manifest field's own bytes: pulling the whole MihonBackup into RAM
+            // just to read field 20000 materializes the entire library next to the payload that is
+            // being verified, which exhausted the heap on small-heap devices.
+            val manifest = lastFieldPayload(bytes, TadamiSisterManifest.PROTO_FIELD) ?: return false
+            ProtoBuf.decodeFromByteArray(TadamiSisterManifest.serializer(), manifest).isValid
         } catch (_: Exception) {
             false
         }
@@ -129,12 +130,77 @@ object BackupDetector {
     private const val TACHIYOMI_SY_SAVED_SEARCH_FIELD = 600
     private const val KOMIKKU_FEED_FIELD = 610
 
+    // Native Backup schema (models/Backup.kt). Legacy Aniyomi/Tadami keeps anime/novel at 3/5,
+    // the native format moved them to the 500 range; contentSummary counts the native numbers.
+    private const val NATIVE_MANGA_FIELD = 1
+    private const val NATIVE_CATEGORY_FIELD = 2
+    private const val NATIVE_ANIME_FIELD = 501
+    private const val NATIVE_ANIME_CATEGORY_FIELD = 502
+    private const val NATIVE_NOVEL_FIELD = 508
+    private const val NATIVE_NOVEL_CATEGORY_FIELD = 509
+
+    /**
+     * Per media type counts of a payload, read straight from the wire format without decoding it.
+     *
+     * Field numbers mirror the native [eu.kanade.tachiyomi.data.backup.models.Backup] schema:
+     * 1 manga, 2 categories, 501 anime, 502 anime categories, 508 novel, 509 novel categories. A
+     * sister export is Mihon shaped, so its flattened manga and novels both land on field 1 while
+     * the anime/novel counters read zero — exactly what the writer expects for that format.
+     *
+     * A repeated message field occurs once per element, so counting top level occurrences is
+     * equivalent to the decoded list sizes, at O(1) memory instead of a full object graph.
+     */
+    fun contentSummary(bytes: ByteArray): BackupContentSummary {
+        val counts = topLevelFieldCounts(bytes)
+        return BackupContentSummary(
+            mangaCount = counts[NATIVE_MANGA_FIELD] ?: 0,
+            animeCount = counts[NATIVE_ANIME_FIELD] ?: 0,
+            novelCount = counts[NATIVE_NOVEL_FIELD] ?: 0,
+            categoriesCount = (counts[NATIVE_CATEGORY_FIELD] ?: 0) +
+                (counts[NATIVE_ANIME_CATEGORY_FIELD] ?: 0) +
+                (counts[NATIVE_NOVEL_CATEGORY_FIELD] ?: 0),
+        )
+    }
+
     /**
      * Walk the top level of a protobuf message and collect the field numbers present.
      * Nested messages are skipped wholesale (not recursed into).
      */
     private fun topLevelFieldNumbers(bytes: ByteArray): Set<Int> {
         val fields = mutableSetOf<Int>()
+        forEachTopLevelField(bytes) { number, _, _ -> fields += number }
+        return fields
+    }
+
+    /** How many times each top level field occurs. A repeated message field occurs once per element. */
+    private fun topLevelFieldCounts(bytes: ByteArray): Map<Int, Int> {
+        val counts = HashMap<Int, Int>()
+        forEachTopLevelField(bytes) { number, _, _ -> counts[number] = (counts[number] ?: 0) + 1 }
+        return counts
+    }
+
+    /**
+     * Bytes of the last occurrence of [fieldNumber], or null when the field is absent. Last wins to
+     * match protobuf semantics for repeated fields, so origin detection and a later full decode of
+     * the same payload can never disagree about which occurrence is authoritative.
+     */
+    private fun lastFieldPayload(bytes: ByteArray, fieldNumber: Int): ByteArray? {
+        var payload: ByteArray? = null
+        forEachTopLevelField(bytes) { number, start, length ->
+            if (number == fieldNumber) payload = bytes.copyOfRange(start, start + length)
+        }
+        return payload
+    }
+
+    /**
+     * Single allocation-free pass over the top level of a protobuf message. Nested messages are
+     * skipped wholesale (not recursed into); [action] receives each field number together with the
+     * byte range of its payload.
+     */
+    private inline fun forEachTopLevelField(
+        bytes: ByteArray,
+        action: (number: Int, payloadStart: Int, payloadLength: Int) -> Unit,
+    ) {
         var pos = 0
         while (pos < bytes.size) {
             val (tag, afterTag) = readVarint(bytes, pos)
@@ -142,20 +208,21 @@ object BackupDetector {
             val fieldNumber = (tag ushr 3).toInt()
             val wireType = (tag and 0x7L).toInt()
             if (fieldNumber == 0) throw SerializationException("Invalid protobuf field number 0")
-            fields += fieldNumber
+            var payloadStart = pos
             pos = when (wireType) {
                 0 -> readVarint(bytes, pos).second // varint
                 1 -> pos + 8 // 64-bit
                 2 -> { // length-delimited
                     val (len, afterLen) = readVarint(bytes, pos)
+                    payloadStart = afterLen
                     afterLen + len.toInt()
                 }
                 5 -> pos + 4 // 32-bit
                 else -> throw SerializationException("Unsupported protobuf wire type $wireType")
             }
             if (pos > bytes.size) throw SerializationException("Truncated protobuf message")
+            action(fieldNumber, payloadStart, pos - payloadStart)
         }
-        return fields
     }
 
     /** Reads a base-128 varint. Returns (value, indexAfterVarint). */

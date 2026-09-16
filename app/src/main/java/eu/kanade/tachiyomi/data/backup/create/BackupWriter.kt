@@ -3,11 +3,10 @@ package eu.kanade.tachiyomi.data.backup.create
 import android.content.Context
 import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.data.backup.BackupContentSummary
-import eu.kanade.tachiyomi.data.backup.BackupDecoder
+import eu.kanade.tachiyomi.data.backup.BackupDetector
 import eu.kanade.tachiyomi.data.backup.BackupDiagnosticLog
 import eu.kanade.tachiyomi.data.backup.BackupOrigin
 import eu.kanade.tachiyomi.data.backup.BackupWriteReceipt
-import eu.kanade.tachiyomi.data.backup.contentSummary
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -20,11 +19,15 @@ import java.util.zip.GZIPOutputStream
 /**
  * Writes a backup so that a half-written or silently truncated file can never replace a good one.
  *
- * The bytes are compressed and fully verified in the cache directory first, and only a file that
- * decodes back into exactly the expected content is copied over the destination. The destination is
- * then compared against the staged bytes with a streaming digest, because a SAF provider is free
- * to accept a write and store something else (or nothing at all). Everything streams: no second
- * compressed copy and no second full decode ever sit in RAM next to the payload.
+ * The bytes are compressed in the cache directory first and verified there at the wire level: the
+ * staged artifact must decompress back to exactly the serialized payload (streaming digest), and
+ * the payload must still declare the expected origin and content counts (top level protobuf field
+ * scan, no objects materialized). A full decode is deliberately not used: a second object graph
+ * does not fit in RAM next to the payload and the creator's own graph, and it exhausted the 256 MB
+ * heap on small-heap devices (OutOfMemoryError). The destination is then compared against the
+ * staged bytes with a streaming digest, because a SAF provider is free to accept a write and store
+ * something else (or nothing at all). Everything streams: no second compressed copy, no full
+ * payload copy and no decoded object graph ever sit in RAM next to the payload.
  */
 class BackupWriter(
     private val context: Context,
@@ -53,7 +56,7 @@ class BackupWriter(
 
             // Verify the staged bytes before touching the user's existing backup.
             BackupDiagnosticLog.measure(context, "verify_staged") {
-                verify(staging, expected, expectedOrigin, stage = "staged file")
+                verifyStagedBackup(staging, payload, expected, expectedOrigin)
             }
 
             BackupDiagnosticLog.measure(context, "write_destination") {
@@ -148,43 +151,72 @@ class BackupWriter(
         }
     }
 
-    /** Decode the staged file again and assert it describes exactly what we meant to store. */
-    private fun verify(
-        staged: File,
-        expected: BackupContentSummary,
-        expectedOrigin: BackupOrigin,
-        stage: String,
-    ) {
-        val payload = GZIPInputStream(FileInputStream(staged)).use { it.readBytes() }
-        val decoded = BackupDecoder(context).decodeBytes(payload)
-
-        if (decoded.origin != expectedOrigin) {
-            throw IOException(
-                "Backup $stage was written as $expectedOrigin but reads back as ${decoded.origin}",
-            )
-        }
-        val actual = decoded.backup.contentSummary()
-        if (actual != expected) {
-            throw IOException(
-                "Backup $stage is incomplete: expected $expected but it contains $actual",
-            )
-        }
-    }
-
     private fun sha256(file: File): String = FileInputStream(file).use { sha256(it) }
+}
 
-    private fun sha256(input: InputStream): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(DIGEST_CHUNK)
-        while (true) {
-            val read = input.read(buffer)
-            if (read <= 0) break
-            digest.update(buffer, 0, read)
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+/**
+ * Proof that [staged] holds exactly the bytes that were serialized, and that those bytes still
+ * declare the origin and content counts the caller meant to store.
+ *
+ * Wire level on purpose. The previous implementation decompressed the staged file into a second
+ * full payload copy and decoded it into a complete object graph; on a 256 MB heap that did not fit
+ * next to the payload and the creator's own graph, and backup creation died with
+ * OutOfMemoryError (verify_staged stage) exactly on large libraries. Byte identity is now proven
+ * with streaming digests, origin and counts are read from the top level protobuf fields without
+ * materializing anything.
+ */
+internal fun verifyStagedBackup(
+    staged: File,
+    payload: ByteArray,
+    expected: BackupContentSummary,
+    expectedOrigin: BackupOrigin,
+) {
+    // The staged artifact must decompress to exactly the serialized payload: this is the link that
+    // ties the destination digest check (destination == staged) back to what was serialized.
+    val payloadDigest = sha256(payload)
+    val stagedDigest = GZIPInputStream(FileInputStream(staged)).use { sha256(it) }
+    if (stagedDigest != payloadDigest) {
+        throw IOException(
+            "Backup staged file does not contain the bytes that were serialized " +
+                "(sha256 $stagedDigest instead of $payloadDigest)",
+        )
     }
 
-    companion object {
-        private const val DIGEST_CHUNK = 64 * 1024
+    val actualOrigin = BackupDetector.detectOrigin(payload)
+    if (actualOrigin != expectedOrigin) {
+        throw IOException(
+            "Backup staged file was written as $expectedOrigin but reads back as $actualOrigin",
+        )
     }
+
+    val actual = BackupDetector.contentSummary(payload)
+    if (actual != expected) {
+        throw IOException(
+            "Backup staged file is incomplete: expected $expected but it contains $actual",
+        )
+    }
+}
+
+private const val DIGEST_CHUNK = 64 * 1024
+
+private fun sha256(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    var offset = 0
+    while (offset < bytes.size) {
+        val length = minOf(DIGEST_CHUNK, bytes.size - offset)
+        digest.update(bytes, offset, length)
+        offset += length
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+private fun sha256(input: InputStream): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteArray(DIGEST_CHUNK)
+    while (true) {
+        val read = input.read(buffer)
+        if (read <= 0) break
+        digest.update(buffer, 0, read)
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
 }

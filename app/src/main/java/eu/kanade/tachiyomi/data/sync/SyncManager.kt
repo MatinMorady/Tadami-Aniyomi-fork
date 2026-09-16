@@ -168,6 +168,14 @@ class SyncManager(
             // Never swallow cancellation: sync must stop instead of reporting a backup error.
             BackupDiagnosticLog.log(context, "sync_backup_cancelled", "source=cloud_sync")
             throw e
+        } catch (e: OutOfMemoryError) {
+            // Heap exhaustion is an Error, not an Exception: without this branch it escapes both
+            // this catch and syncData's (Exception-only) one and kills the app — that is how the
+            // cloud-sync OOM became a fatal crash. The backup Worker already reports OOM as a
+            // backup failure instead of crashing; sync does the same.
+            BackupDiagnosticLog.logError(context, "sync_backup_failed", e)
+            this.logcat(LogPriority.ERROR, e) { "Failed to create local backup for sync" }
+            null
         } catch (e: Exception) {
             this.logcat(LogPriority.ERROR, e) { "Failed to create local backup for sync" }
             null
