@@ -61,6 +61,7 @@ data class NovelReaderSettings(
     val theme: NovelReaderTheme,
     val backgroundColor: String?,
     val textColor: String?,
+    val globalTextColor: String = "",
     val backgroundTexture: NovelReaderBackgroundTexture,
     val nativeTextureStrengthPercent: Int,
     val appearanceMode: NovelReaderAppearanceMode,
@@ -345,6 +346,7 @@ data class NovelReaderOverride(
     val theme: NovelReaderTheme? = null,
     val backgroundColor: String? = null,
     val textColor: String? = null,
+    val globalTextColor: String? = null,
     val backgroundTexture: NovelReaderBackgroundTexture? = null,
     val nativeTextureStrengthPercent: Int? = null,
     val appearanceMode: NovelReaderAppearanceMode? = null,
@@ -549,6 +551,8 @@ class NovelReaderPreferences(
     fun backgroundColor() = preferenceStore.getString("novel_reader_bg_color", "")
 
     fun textColor() = preferenceStore.getString("novel_reader_text_color", "")
+
+    fun globalTextColor() = preferenceStore.getString("novel_reader_global_text_color", "")
 
     fun backgroundTexture() =
         preferenceStore.getEnum("novel_reader_background_texture", NovelReaderBackgroundTexture.PAPER_GRAIN)
@@ -1286,6 +1290,7 @@ class NovelReaderPreferences(
             theme = override?.theme ?: theme().get(),
             backgroundColor = override?.backgroundColor ?: backgroundColor().get(),
             textColor = override?.textColor ?: textColor().get(),
+            globalTextColor = override?.globalTextColor ?: globalTextColor().get(),
             backgroundTexture = override?.backgroundTexture ?: backgroundTexture().get(),
             nativeTextureStrengthPercent =
             override?.nativeTextureStrengthPercent ?: nativeTextureStrengthPercent().get(),
@@ -1523,6 +1528,7 @@ class NovelReaderPreferences(
             customBackgroundId().changes(),
             oledEdgeGradient().changes(),
             customThemes().changes(),
+            globalTextColor().changes(),
         ) { values: Array<Any?> ->
             @Suppress("UNCHECKED_CAST")
             val colorThemes = values[11] as List<NovelReaderColorTheme>
@@ -1539,6 +1545,7 @@ class NovelReaderPreferences(
                 values[9] as String,
                 values[10] as Boolean,
                 colorThemes,
+                values[12] as String,
             )
         }.distinctUntilChanged()
 
@@ -1840,6 +1847,7 @@ class NovelReaderPreferences(
                 theme = override?.theme ?: theme.theme,
                 backgroundColor = override?.backgroundColor ?: theme.backgroundColor,
                 textColor = override?.textColor ?: theme.textColor,
+                globalTextColor = override?.globalTextColor ?: theme.globalTextColor,
                 backgroundTexture = override?.backgroundTexture ?: theme.backgroundTexture,
                 nativeTextureStrengthPercent =
                 override?.nativeTextureStrengthPercent ?: theme.nativeTextureStrengthPercent,
@@ -2005,6 +2013,7 @@ class NovelReaderPreferences(
         val customBackgroundId: String,
         val oledEdgeGradient: Boolean,
         val customThemes: List<NovelReaderColorTheme>,
+        val globalTextColor: String,
     )
 
     private data class NavigationSettings(

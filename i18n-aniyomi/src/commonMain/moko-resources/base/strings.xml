@@ -566,6 +566,8 @@
     <string name="novel_reader_theme_preset_none">None</string>
     <string name="novel_reader_background_color">Background color</string>
     <string name="novel_reader_text_color">Text color</string>
+    <string name="novel_reader_global_text_color">Global text color</string>
+    <string name="novel_reader_global_text_color_summary">Overrides text color in theme and background modes (empty = automatic)</string>
     <string name="novel_reader_color_input_hint">Use #RRGGBB or #AARRGGBB</string>
     <string name="novel_reader_save_custom_theme">Save custom theme</string>
     <string name="novel_reader_delete_custom_theme">Delete custom theme</string>

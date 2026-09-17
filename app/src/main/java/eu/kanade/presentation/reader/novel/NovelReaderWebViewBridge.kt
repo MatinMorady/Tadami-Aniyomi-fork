@@ -917,6 +917,16 @@ internal fun resolveReaderTextColorForBackgroundMode(averageLuminance: Float): C
     }
 }
 
+internal fun resolveEffectiveReaderTextColor(
+    globalTextColor: Color?,
+    isBackgroundMode: Boolean,
+    backgroundModeTextColor: Color,
+    themeModeTextColor: Color,
+): Color {
+    if (globalTextColor != null) return globalTextColor
+    return if (isBackgroundMode) backgroundModeTextColor else themeModeTextColor
+}
+
 internal fun resolveReaderWebViewBackgroundColor(
     isBackgroundMode: Boolean,
     backgroundColor: Color,

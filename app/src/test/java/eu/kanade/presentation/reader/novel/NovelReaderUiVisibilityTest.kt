@@ -95,6 +95,50 @@ class NovelReaderUiVisibilityTest {
     }
 
     @Test
+    fun `global text color overrides background mode auto color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = Color(0xFFFF3333),
+            isBackgroundMode = true,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFFFF3333), resolved)
+    }
+
+    @Test
+    fun `global text color overrides theme mode color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = Color(0xFF33FF33),
+            isBackgroundMode = false,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFF33FF33), resolved)
+    }
+
+    @Test
+    fun `without global override background mode keeps luminance color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = null,
+            isBackgroundMode = true,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFF111111), resolved)
+    }
+
+    @Test
+    fun `without global override theme mode keeps theme color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = null,
+            isBackgroundMode = false,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFFEDEDED), resolved)
+    }
+
+    @Test
     fun `background mode falls back to preset when custom file is missing`() {
         val selection = resolveReaderBackgroundSelection(
             backgroundSource = NovelReaderBackgroundSource.CUSTOM,

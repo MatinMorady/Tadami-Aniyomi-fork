@@ -840,10 +840,15 @@ internal fun NovelReaderContentHost(
     val themeModeBackground = parseReaderColor(state.readerSettings.backgroundColor)
         .takeIf { state.readerSettings.backgroundColor?.isNotBlank() == true }
         ?: fallbackBackground
+    val globalTextColorOverride = parseReaderColor(state.readerSettings.globalTextColor)
     val textColor = when {
         isEInkMode -> AuroraTheme.colors.textPrimary
-        isBackgroundMode -> backgroundModeTextColor
-        else -> themeModeTextColor
+        else -> resolveEffectiveReaderTextColor(
+            globalTextColor = globalTextColorOverride,
+            isBackgroundMode = isBackgroundMode,
+            backgroundModeTextColor = backgroundModeTextColor,
+            themeModeTextColor = themeModeTextColor,
+        )
     }
     val chapterTitleTextColor = textColor
     val textBackground = when {
