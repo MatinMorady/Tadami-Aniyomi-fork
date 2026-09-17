@@ -1792,4 +1792,5 @@
     <string name="reels_menu_section_data">Данные</string>
     <string name="reels_on_short">Вкл.</string>
     <string name="reels_off_short">Выкл.</string>
+    <string name="reels_incognito">Инкогнито (Reels)</string>
 </resources>

@@ -1990,4 +1990,5 @@
     <string name="reels_menu_section_data">Data</string>
     <string name="reels_on_short">On</string>
     <string name="reels_off_short">Off</string>
+    <string name="reels_incognito">Incognito (Reels)</string>
 </resources>

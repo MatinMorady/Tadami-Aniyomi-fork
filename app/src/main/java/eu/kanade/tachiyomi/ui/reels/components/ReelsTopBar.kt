@@ -144,6 +144,12 @@ fun ReelsTopBar(
     // B3 touch lock: blocks every gesture; unlock is a long-press on the full-screen overlay.
     isTouchLocked: Boolean = false,
     onToggleTouchLock: () -> Unit = {},
+    // Reels-only incognito (product decision): the global switch does not apply to the feed.
+    isReelsIncognito: Boolean = false,
+    onToggleReelsIncognito: () -> Unit = {},
+    // Device UX: reports the ⋮ settings block visibility so the screen can hold playback
+    // and pin the chrome while it is open.
+    onMoreMenuOpenChanged: (Boolean) -> Unit = {},
     // Audit H9: incognito must be visible — writes are silently suppressed while it is on.
     isIncognito: Boolean = false,
     // Account hub (contract v19): identity + personal content. The hub shows the login state,
@@ -202,6 +208,9 @@ fun ReelsTopBar(
         }
     }
     var openHub by remember { mutableStateOf(HubMenu.NONE) }
+    // Device UX: the screen holds playback and pins the chrome while the settings block is
+    // open, and resumes both when it closes.
+    LaunchedEffect(openHub) { onMoreMenuOpenChanged(openHub == HubMenu.MORE) }
     var confirmLogout by remember { mutableStateOf(false) }
     var sleepDialogOpen by remember { mutableStateOf(false) }
 
@@ -513,6 +522,7 @@ fun ReelsTopBar(
                             offlineUsedBytes = offlineUsedBytes,
                             sleepTimerValue = sleepTimerValue,
                             isTouchLocked = isTouchLocked,
+                            isReelsIncognito = isReelsIncognito,
                             onOpenHistory = {
                                 onOpenHistory()
                                 openHub = HubMenu.NONE
@@ -531,6 +541,10 @@ fun ReelsTopBar(
                             },
                             onToggleTouchLock = {
                                 onToggleTouchLock()
+                                openHub = HubMenu.NONE
+                            },
+                            onToggleReelsIncognito = {
+                                onToggleReelsIncognito()
                                 openHub = HubMenu.NONE
                             },
                             onClearOfflineStorage = {
@@ -928,11 +942,13 @@ private fun ReelsMoreMenu(
     offlineUsedBytes: Long,
     sleepTimerValue: String,
     isTouchLocked: Boolean,
+    isReelsIncognito: Boolean,
     onOpenHistory: () -> Unit,
     onOpenHidden: () -> Unit,
     onOpenFilter: () -> Unit,
     onOpenSleepDialog: () -> Unit,
     onToggleTouchLock: () -> Unit,
+    onToggleReelsIncognito: () -> Unit,
     onClearOfflineStorage: () -> Unit,
     onToggleAutoAdvance: () -> Unit,
     onToggleCropMode: () -> Unit,
@@ -1105,6 +1121,22 @@ private fun ReelsMoreMenu(
                 onClick = onToggleDataSaver,
             )
             MoreMenuSection(stringResource(MR.strings.reels_menu_section_session))
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Filled.PrivacyTip,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_incognito),
+                value = stringResource(
+                    if (isReelsIncognito) MR.strings.reels_on_short else MR.strings.reels_off_short,
+                ),
+                checked = null,
+                onClick = onToggleReelsIncognito,
+            )
             MoreMenuRow(
                 icon = {
                     Icon(

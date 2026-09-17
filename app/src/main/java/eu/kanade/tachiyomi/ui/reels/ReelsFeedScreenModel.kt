@@ -9,7 +9,6 @@ import androidx.core.graphics.drawable.toBitmap
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import dev.icerock.moko.resources.StringResource
-import eu.kanade.domain.source.anime.interactor.GetAnimeIncognitoState
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.animesource.AnimeBlockedTagsSource
 import eu.kanade.tachiyomi.animesource.AnimeCategorizedSearchSource
@@ -118,10 +117,12 @@ class ReelsFeedScreenModel(
     private val sourceManager: AnimeSourceManager = Injekt.get(),
     private val sourcePreferences: SourcePreferences = Injekt.get(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    // Injectable for tests; resolves the real per-extension incognito state by default
-    // (global mode, NSFW policy and the per-extension incognito set — see GetAnimeIncognitoState).
-    private val isIncognito: (Long) -> Boolean = { sourceId ->
-        Injekt.get<GetAnimeIncognitoState>().await(sourceId)
+    // Injectable for tests; resolves the reels-only incognito toggle by default. Product
+    // decision: the global incognito switch, the NSFW auto policy and the per-extension
+    // incognito set do NOT apply inside the feed — the reels toggle in the More menu is the
+    // single source of truth here (the player/readers keep respecting the global switch).
+    private val isIncognito: (Long) -> Boolean = { _ ->
+        Injekt.get<SourcePreferences>().reelsIncognitoMode().get()
     },
     // Injectable for tests; resolves extension icons by default.
     private val sourceIconProvider: (Long) -> ImageBitmap? = { sourceId ->
@@ -469,6 +470,10 @@ class ReelsFeedScreenModel(
             rateLimitRetryJob?.cancel()
             rateLimitRetries = 0
             persistUnlessIncognito(newSourceId) { sourcePreferences.lastUsedReelsSource().set(newSourceId) }
+            // Device report: under an incognito policy the disk write above is skipped and the
+            // entry point fell back to the first installed source. The session holder keeps the
+            // choice for re-entries within this process without a disk trace.
+            ReelsSessionSource.lastSourceId = newSourceId
             baseItems = persistentListOf()
             baseNextPageIndex = 1
             baseNextCursor = null
@@ -1567,6 +1572,17 @@ class ReelsFeedScreenModel(
         mutableState.update { it.copy(isPipEnabled = next) }
     }
 
+    /**
+     * Reels-only incognito (product decision): the global incognito switch, the NSFW auto
+     * policy and the per-extension set do not apply inside the feed — this toggle is the
+     * single source of truth for history/position/last-source writes here. The badge and the
+     * write gates react through the preference's change flow / live reads.
+     */
+    fun toggleReelsIncognito() {
+        val next = !sourcePreferences.reelsIncognitoMode().get()
+        sourcePreferences.reelsIncognitoMode().set(next)
+    }
+
     // --- B2 sleep timer ---
 
     enum class SleepTimerOption { OFF, END_OF_VIDEO, M15, M30, M60 }
@@ -2117,6 +2133,27 @@ class ReelsFeedScreenModel(
         // A tap is the ONLY playback decision: it sets or clears the sticky pause intent
         // that survives swipes (auto-advance must not undo a deliberate pause).
         mutableState.update { it.copy(isPlaying = next, userPaused = !next) }
+    }
+
+    // Device UX: the open ⋮ settings block holds playback; closing resumes it.
+    private var settingsHoldActive = false
+
+    /**
+     * Temporary playback hold for the open ⋮ settings block (device UX): pause WITHOUT
+     * touching [State.userPaused] — the sticky pause stays the user's own decision — and on
+     * release resume only when that sticky pause is not set (a user who paused before opening
+     * the menu must stay paused after closing it).
+     */
+    fun setSettingsHold(hold: Boolean) {
+        if (hold == settingsHoldActive) return
+        settingsHoldActive = hold
+        mutableState.update { current ->
+            if (hold) {
+                if (current.isPlaying) current.copy(isPlaying = false) else current
+            } else {
+                if (!current.userPaused) current.copy(isPlaying = true) else current
+            }
+        }
     }
 
     /**

@@ -71,7 +71,7 @@ import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import eu.kanade.domain.source.anime.interactor.GetAnimeIncognitoState
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.tachiyomi.animesource.model.CustomFeedRef
 import eu.kanade.tachiyomi.animesource.model.SearchSuggestionKind
@@ -184,12 +184,14 @@ data class ReelsFeedScreen(
         var pendingDeleteFeed by remember { mutableStateOf<CustomFeedRef?>(null) }
         val retryLabel = stringResource(MR.strings.action_retry)
         // Audit H9: incognito must be VISIBLE — every like/follow/history write for this
-        // source is silently suppressed while it is on.
-        val incognitoFlow = remember(state.currentSourceId, state.isOffline) {
+        // source is silently suppressed while it is on. Reels owns its incognito: only the
+        // reels-only toggle applies here — the global switch, the NSFW auto policy and the
+        // per-extension set deliberately do not (product decision).
+        val incognitoFlow = remember(state.isOffline) {
             if (state.isOffline) {
                 flowOf(false)
             } else {
-                Injekt.get<GetAnimeIncognitoState>().subscribe(state.currentSourceId)
+                Injekt.get<SourcePreferences>().reelsIncognitoMode().changes()
             }
         }
         val isIncognito by incognitoFlow.collectAsStateWithLifecycle(false)
@@ -269,6 +271,8 @@ data class ReelsFeedScreen(
         // so playback never rebuilds mid-clip when connectivity changes.
         val effectiveHd = if (state.dataSaverMetered && !isOnWifi) false else state.isHdQuality
         var chromeVisible by remember { mutableStateOf(true) }
+        // Device UX: the ⋮ settings block holds playback and pins the chrome while open.
+        var moreMenuOpen by remember { mutableStateOf(false) }
         // Landscape fullscreen (software-rotated overlay, see ReelsVideoPage): entered from
         // the expand button on landscape reels, left via the button or system back. The intent
         // is sticky: an auto-exit on a portrait reel keeps it armed so the next landscape reel
@@ -357,11 +361,50 @@ data class ReelsFeedScreen(
             }
         }
 
-        // Immersive: auto-hide the top bar after 3s of playback; any tap reveals it.
-        LaunchedEffect(chromeVisible, state.isPlaying) {
-            if (chromeVisible && state.isPlaying) {
+        // Immersive: auto-hide the top bar after 3s of ACTUAL playback; any tap reveals it.
+        // Device report: gating on the play INTENT (state.isPlaying, true by default) hid the
+        // chrome while the feed was errored or stalled — with nothing playing the user could
+        // not reach retry or the source switcher and had to re-enter the screen, racing the
+        // next hide. Only hide while a reel really plays and the feed is healthy.
+        LaunchedEffect(
+            chromeVisible,
+            state.isActuallyPlaying,
+            state.isLoading,
+            state.error,
+            state.errorRes,
+            state.items.size,
+            moreMenuOpen,
+        ) {
+            // Device UX: an open settings block never auto-hides the chrome (the hide timer
+            // must not race the user reading the menu); closing restarts the countdown.
+            if (moreMenuOpen) return@LaunchedEffect
+            if (
+                reelsChromeShouldAutoHide(
+                    visible = chromeVisible,
+                    actuallyPlaying = state.isActuallyPlaying,
+                    hasItems = state.items.isNotEmpty(),
+                    hasError = state.error != null || state.errorRes != null,
+                    isLoading = state.isLoading,
+                )
+            ) {
                 delay(3000)
                 chromeVisible = false
+            }
+        }
+
+        // Device UX: opening the ⋮ settings block pauses playback and pins the chrome;
+        // closing resumes playback (unless the user paused deliberately) and the auto-hide
+        // countdown starts again on the next effect pass.
+        LaunchedEffect(moreMenuOpen) {
+            screenModel.setSettingsHold(moreMenuOpen)
+            if (moreMenuOpen) chromeVisible = true
+        }
+
+        // A fresh full-feed error surfaces the chrome immediately: retry and the source
+        // switcher must be reachable without guessing taps on a hidden bar.
+        LaunchedEffect(state.error, state.errorRes) {
+            if ((state.error != null || state.errorRes != null) && state.items.isEmpty()) {
+                chromeVisible = true
             }
         }
 
@@ -786,7 +829,7 @@ data class ReelsFeedScreen(
                     (
                         chromeVisible || state.isSearchBarOpen || state.isFilterDialogOpen ||
                             state.isSourcePickerOpen || state.isLoginDialogOpen || state.isCustomFeedsOpen ||
-                            state.isWebLoginDialogOpen
+                            state.isWebLoginDialogOpen || moreMenuOpen
                         ),
                 modifier = Modifier.align(Alignment.TopCenter),
             ) {
@@ -906,6 +949,9 @@ data class ReelsFeedScreen(
                     },
                     isTouchLocked = touchLocked,
                     onToggleTouchLock = { touchLocked = !touchLocked },
+                    isReelsIncognito = isIncognito,
+                    onToggleReelsIncognito = screenModel::toggleReelsIncognito,
+                    onMoreMenuOpenChanged = { moreMenuOpen = it },
                     onClearVideoCache = {
                         coroutineScope.launch {
                             val freed = withContext(Dispatchers.IO) { clearReelsVideoCache(context) }
@@ -1168,3 +1214,18 @@ private fun Context.isOnWifi(): Boolean {
     val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
     return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
 }
+
+/**
+ * Chrome auto-hide policy (device report): immersive hiding is only allowed while a reel is
+ * ACTUALLY playing in a healthy feed. Errors, empty feeds and initial/stalled loads keep the
+ * top bar reachable — hiding the bar there stranded the user without retry or source switch
+ * (the play INTENT flag stayed true with nothing playing, so the old gate hid the chrome on
+ * every non-playing state and every tap only revealed it for three seconds).
+ */
+internal fun reelsChromeShouldAutoHide(
+    visible: Boolean,
+    actuallyPlaying: Boolean,
+    hasItems: Boolean,
+    hasError: Boolean,
+    isLoading: Boolean,
+): Boolean = visible && actuallyPlaying && hasItems && !hasError && !isLoading

@@ -40,6 +40,7 @@ import eu.kanade.tachiyomi.ui.libraryUpdateError.LibraryUpdateErrorScreen
 import eu.kanade.tachiyomi.ui.more.DebugAppUpdatePreviewScreen
 import eu.kanade.tachiyomi.ui.more.DebugUpdatedChangelogPreviewScreen
 import eu.kanade.tachiyomi.ui.reels.ReelsFeedScreen
+import eu.kanade.tachiyomi.ui.reels.ReelsSessionSource
 import eu.kanade.tachiyomi.ui.setting.PlayerSettingsScreen
 import eu.kanade.tachiyomi.ui.setting.SettingsScreen
 import eu.kanade.tachiyomi.ui.stats.StatsTab
@@ -105,10 +106,18 @@ data object MoreTab : Tab {
         val lastUsedReelsSourceId by sourcePreferences.lastUsedReelsSource().preferenceCollectAsState()
         // Respect the Browse sources toggle: a disabled feed source must not be reachable here.
         val disabledSources by sourcePreferences.disabledAnimeSources().preferenceCollectAsState()
-        val targetReelsSource = remember(animeSources, lastUsedReelsSourceId, disabledSources) {
+        // The session choice wins over the disk preference: under an incognito policy the
+        // disk write is skipped on purpose, and re-entering the feed must still return to
+        // the source the user picked in this process (device report: it opened the first
+        // installed source instead). Read outside remember so the snapshot state registers
+        // as a recomposition dependency and the memo below re-runs on every selection change.
+        val sessionReelsSourceId = ReelsSessionSource.lastSourceId
+        val targetReelsSource = remember(animeSources, lastUsedReelsSourceId, disabledSources, sessionReelsSourceId) {
             val feeds = animeSources.filterIsInstance<AnimeFeedSource>()
                 .filterNot { it.id.toString() in disabledSources }
-            feeds.firstOrNull { it.id == lastUsedReelsSourceId } ?: feeds.firstOrNull()
+            feeds.firstOrNull { it.id == sessionReelsSourceId }
+                ?: feeds.firstOrNull { it.id == lastUsedReelsSourceId }
+                ?: feeds.firstOrNull()
         }
         val showReelsEntry = showReelsVideoFeed && targetReelsSource != null
 

@@ -1486,6 +1486,77 @@ class ReelsFeedScreenModelTest {
     }
 
     @Test
+    fun `session remembers the source when incognito blocks the disk write`() = runTest(testDispatcher) {
+        ReelsSessionSource.lastSourceId = null
+        try {
+            val source = RecordingFeedSource(9104L) { FeedPage(emptyList(), false) }
+            val preferences = SourcePreferences(MapPreferenceStore())
+            val before = preferences.lastUsedReelsSource().get()
+            buildModel(
+                sourceId = 9104L,
+                manager = sourceManagerOf(source),
+                preferences = preferences,
+                incognito = true,
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // Incognito policy: no disk trace…
+            preferences.lastUsedReelsSource().get() shouldBe before
+            // …but re-entering the feed within the process returns to the picked source
+            // (device report: the entry point fell back to the first installed source).
+            ReelsSessionSource.lastSourceId shouldBe 9104L
+
+            // Without incognito the disk preference keeps working as before.
+            val open = SourcePreferences(MapPreferenceStore())
+            buildModel(sourceId = 9104L, manager = sourceManagerOf(source), preferences = open)
+            testDispatcher.scheduler.advanceUntilIdle()
+            open.lastUsedReelsSource().get() shouldBe 9104L
+        } finally {
+            ReelsSessionSource.lastSourceId = null
+        }
+    }
+
+    @Test
+    fun `reels incognito toggle persists and defaults to off`() = runTest(testDispatcher) {
+        val preferences = SourcePreferences(MapPreferenceStore())
+        preferences.reelsIncognitoMode().get() shouldBe false
+        val source = RecordingFeedSource(9105L) { FeedPage(emptyList(), false) }
+        val model = buildModel(sourceId = 9105L, manager = sourceManagerOf(source), preferences = preferences)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.toggleReelsIncognito()
+        preferences.reelsIncognitoMode().get() shouldBe true
+
+        model.toggleReelsIncognito()
+        preferences.reelsIncognitoMode().get() shouldBe false
+    }
+
+    @Test
+    fun `settings block holds playback and resumes on close unless the user paused`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9106L) { FeedPage(listOf(videoItem("sb-1")), hasNextPage = false) }
+        val model = buildModel(sourceId = 9106L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+        model.state.value.isPlaying shouldBe true
+
+        // Open: temporary pause, sticky pause untouched.
+        model.setSettingsHold(true)
+        model.state.value.isPlaying shouldBe false
+        model.state.value.userPaused shouldBe false
+
+        // Close: playback resumes on its own.
+        model.setSettingsHold(false)
+        model.state.value.isPlaying shouldBe true
+
+        // A deliberate pause before opening survives the open/close cycle.
+        model.togglePlayPause()
+        model.state.value.userPaused shouldBe true
+        model.setSettingsHold(true)
+        model.setSettingsHold(false)
+        model.state.value.isPlaying shouldBe false
+        model.state.value.userPaused shouldBe true
+    }
+
+    @Test
     fun `pip toggle persists and defaults to off`() = runTest(testDispatcher) {
         val source = RecordingFeedSource(9095L) { FeedPage(emptyList(), false) }
         val preferences = SourcePreferences(MapPreferenceStore())
