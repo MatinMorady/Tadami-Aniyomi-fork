@@ -2319,7 +2319,17 @@
     <string name="novel_reader_background_color">Цвет фона</string>
     <string name="novel_reader_text_color">Цвет текста</string>
     <string name="novel_reader_global_text_color">Глобальный цвет текста</string>
-    <string name="novel_reader_global_text_color_summary">Переопределяет цвет текста в режиме темы и на подложке (пусто = автоматически)</string>
+    <string name="novel_reader_global_text_color_summary">Работает в теме и на подложке; «Авто» выбирает цвет по яркости фона</string>
+    <string name="novel_reader_text_swatch_auto">Авто</string>
+    <string name="novel_reader_text_swatch_white">Белый</string>
+    <string name="novel_reader_text_swatch_cream">Кремовый</string>
+    <string name="novel_reader_text_swatch_amber">Янтарь</string>
+    <string name="novel_reader_text_swatch_sky">Голубой</string>
+    <string name="novel_reader_text_swatch_gray">Серый</string>
+    <string name="novel_reader_text_swatch_black">Чёрный</string>
+    <string name="novel_reader_text_swatch_custom">Любой</string>
+    <string name="novel_reader_text_swatch_custom_set">Мой цвет</string>
+    <string name="novel_reader_text_color_picker_title">Любой цвет</string>
     <string name="novel_reader_color_input_hint">Используйте #RRGGBB или #AARRGGBB</string>
     <string name="novel_reader_save_custom_theme">Сохранить свою тему</string>
     <string name="novel_reader_delete_custom_theme">Удалить свою тему</string>

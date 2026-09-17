@@ -139,6 +139,32 @@ class NovelReaderUiVisibilityTest {
     }
 
     @Test
+    fun `swatch selection resolves auto for blank value`() {
+        val selection = resolveTextColorSwatchSelection("", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.AUTO, selection.kind)
+    }
+
+    @Test
+    fun `swatch selection matches preset hex`() {
+        val selection = resolveTextColorSwatchSelection("#FFB74D", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.PRESET, selection.kind)
+        assertEquals(novelReaderTextColorPresetHexes.indexOf("#FFB74D"), selection.presetIndex)
+    }
+
+    @Test
+    fun `swatch selection matches picker argb output to preset`() {
+        val selection = resolveTextColorSwatchSelection("#FFFFFFFF", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.PRESET, selection.kind)
+        assertEquals(0, selection.presetIndex)
+    }
+
+    @Test
+    fun `swatch selection falls back to custom for unknown color`() {
+        val selection = resolveTextColorSwatchSelection("#123456", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.CUSTOM, selection.kind)
+    }
+
+    @Test
     fun `background mode falls back to preset when custom file is missing`() {
         val selection = resolveReaderBackgroundSelection(
             backgroundSource = NovelReaderBackgroundSource.CUSTOM,
