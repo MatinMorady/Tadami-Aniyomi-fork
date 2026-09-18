@@ -493,6 +493,10 @@
     <string name="pref_library_update_refresh_metadata">Обновлять метаданные</string>
     <string name="action_display_comfortable_grid">Удобная сетка</string>
     <string name="action_notes">Заметки</string>
+    <string name="notes_show_more">Показать ещё</string>
+    <string name="notes_collapse">Свернуть</string>
+    <string name="notes_editor_placeholder">Заметка…</string>
+    <string name="notes_editor_hint">Поддерживается Markdown: **жирный**, - список, [текст](ссылка)</string>
     <string name="action_migrate">Перенести</string>
     <string name="tabs_header">Вкладки</string>
     <string name="action_display_show_tabs">Показать вкладки категорий</string>

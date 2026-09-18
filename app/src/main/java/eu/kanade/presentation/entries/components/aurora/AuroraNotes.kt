@@ -1,5 +1,7 @@
 package eu.kanade.presentation.entries.components.aurora
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.view.WindowManager
@@ -18,8 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +45,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -48,7 +54,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindowProvider
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.applyAuroraSheetWindowFx
+import eu.kanade.presentation.entries.components.NoteBlocks
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.tachiyomi.util.system.copyToClipboard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -119,14 +127,12 @@ fun AuroraNotePreviewCard(
                 )
             }
 
-            Text(
-                text = note,
-                color = colors.textPrimary,
-                fontSize = 14.sp,
-                lineHeight = 18.sp,
+            var expanded by rememberSaveable(note) { mutableStateOf(false) }
+            NoteBlocks(
+                note = note,
+                expanded = expanded,
+                onToggleExpanded = { expanded = !expanded },
                 modifier = Modifier.padding(start = 2.dp),
-                maxLines = 3,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
     }
@@ -146,6 +152,8 @@ fun AuroraNoteEditorDialog(
     val focusRequester = remember { FocusRequester() }
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
+    val context = LocalContext.current
+    val notesLabel = stringResource(MR.strings.action_notes)
     val accent = if (colors.isEInk) colors.textPrimary else colors.accent
     val supportsBlurBehind = eu.kanade.presentation.util.rememberSupportsBlurBehind(colors.isEInk)
     var sheetReveal by remember { mutableFloatStateOf(0f) }
@@ -272,7 +280,7 @@ fun AuroraNoteEditorDialog(
                     Box(modifier = Modifier.fillMaxWidth()) {
                         if (text.isEmpty()) {
                             Text(
-                                text = stringResource(MR.strings.information_required_plain),
+                                text = stringResource(MR.strings.notes_editor_placeholder),
                                 color = colors.textSecondary.copy(alpha = 0.7f),
                                 fontSize = 16.sp,
                                 lineHeight = 22.sp,
@@ -283,14 +291,57 @@ fun AuroraNoteEditorDialog(
                 },
             )
 
-            Text(
-                text = text.length.toString(),
-                color = colors.textSecondary,
-                fontSize = 11.sp,
+            Row(
                 modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(top = 4.dp, bottom = 12.dp, end = 4.dp),
-            )
+                    .fillMaxWidth()
+                    .padding(top = 4.dp, bottom = 8.dp, start = 4.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(MR.strings.notes_editor_hint),
+                    color = colors.textSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.weight(1f),
+                )
+
+                Text(
+                    text = text.length.toString(),
+                    color = colors.textSecondary,
+                    fontSize = 11.sp,
+                )
+
+                IconButton(
+                    onClick = {
+                        appHaptics.tap()
+                        context.copyToClipboard(notesLabel, text)
+                    },
+                    enabled = text.isNotEmpty(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = stringResource(MR.strings.action_copy_to_clipboard),
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        appHaptics.tap()
+                        shareNoteText(context, text)
+                    },
+                    enabled = text.isNotEmpty(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Share,
+                        contentDescription = stringResource(MR.strings.action_share),
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         }
     }
 
@@ -298,4 +349,12 @@ fun AuroraNoteEditorDialog(
         delay(100.milliseconds)
         focusRequester.requestFocus()
     }
+}
+
+private fun shareNoteText(context: Context, text: String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(Intent.createChooser(intent, null))
 }
