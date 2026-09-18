@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.home
 
+import eu.kanade.domain.ui.model.HomeHeroMode
 import io.kotest.matchers.shouldBe
 import org.junit.jupiter.api.Test
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
@@ -62,6 +63,15 @@ class HomeHubForYouCompositionTest {
             dummy
         resolveForYouItems(eu.kanade.domain.ui.model.HomeHeroMode.Hybrid, hasHero = false, discovery = dummy) shouldBe
             dummy
+    }
+
+    @Test
+    fun `for you items suppressed in stage regardless of hero presence`() {
+        val dummy = listOf(
+            composeTeaserItems(listOf(suggestion(DiscoveryRowType.LIKE, "Title", 0)), 1).first(),
+        )
+        resolveForYouItems(HomeHeroMode.Stage, hasHero = true, discovery = dummy) shouldBe emptyList()
+        resolveForYouItems(HomeHeroMode.Stage, hasHero = false, discovery = dummy) shouldBe emptyList()
     }
 
     @Test

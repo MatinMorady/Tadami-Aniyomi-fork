@@ -547,6 +547,7 @@ private fun HomeHubScreen(
         state.history,
         state.recommendations,
         state.discovery,
+        state.discoveryPool,
         trimmedQuery,
     ) {
         resolveHomeHubFilteredContent(
@@ -554,6 +555,7 @@ private fun HomeHubScreen(
             history = state.history,
             recommendations = state.recommendations,
             discovery = state.discovery,
+            discoveryPool = state.discoveryPool,
             query = trimmedQuery,
         )
     }
@@ -670,6 +672,15 @@ private fun HomeHubScreen(
                 ) {
                     item(key = "hero", contentType = "home_hub_hero") {
                         when {
+                            // Ветка stage идёт первой: при наличии hero она обязана перебивать HeroSection,
+                            // иначе режим не отрисуется никогда.
+                            heroPresentation == HomeHeroMode.Stage -> DiscoveryHeroStage(
+                                items = resolveStageItems(filteredContent.discoveryPool, discovery),
+                                coverMediaType = section.toDiscoveryMediaType(),
+                                onMoreClick = onForYouMoreClick,
+                                onItemClick = { previewItem = it },
+                                onLongClick = { longPressItem = it },
+                            )
                             heroPresentation == HomeHeroMode.Collage -> DiscoveryHeroCollage(
                                 items = discovery,
                                 coverMediaType = section.toDiscoveryMediaType(),
@@ -735,6 +746,7 @@ private fun HomeHubScreen(
                 if (
                     shouldShowForYouSection(state.discoveryEnabled) &&
                     heroPresentation != HomeHeroMode.Collage &&
+                    heroPresentation != HomeHeroMode.Stage &&
                     (forYouItems.isNotEmpty() || discovery.isEmpty())
                 ) {
                     item(key = "for_you", contentType = "home_hub_for_you") {
@@ -933,6 +945,7 @@ internal data class HomeHubFilteredContent(
     val history: List<HomeHubHistory>,
     val recommendations: List<HomeHubRecommendation>,
     val discovery: List<HomeHubDiscoveryItem> = emptyList(),
+    val discoveryPool: List<HomeHubDiscoveryItem> = emptyList(),
     val isFiltering: Boolean,
 )
 
@@ -942,6 +955,7 @@ internal fun resolveHomeHubFilteredContent(
     recommendations: List<HomeHubRecommendation>,
     query: String,
     discovery: List<HomeHubDiscoveryItem> = emptyList(),
+    discoveryPool: List<HomeHubDiscoveryItem> = emptyList(),
 ): HomeHubFilteredContent {
     if (query.isEmpty()) {
         return HomeHubFilteredContent(
@@ -949,6 +963,7 @@ internal fun resolveHomeHubFilteredContent(
             history = history,
             recommendations = recommendations,
             discovery = discovery,
+            discoveryPool = discoveryPool,
             isFiltering = false,
         )
     }
@@ -958,9 +973,16 @@ internal fun resolveHomeHubFilteredContent(
         history = history.filter { it.title.contains(query, ignoreCase = true) },
         recommendations = recommendations.filter { it.title.contains(query, ignoreCase = true) },
         discovery = discovery.filter { it.title.contains(query, ignoreCase = true) },
+        discoveryPool = discoveryPool.filter { it.title.contains(query, ignoreCase = true) },
         isFiltering = true,
     )
 }
+
+/** Источник карточек для hero-карусели: полный пул подборки, а при его отсутствии — тизерное окно. */
+internal fun resolveStageItems(
+    discoveryPool: List<HomeHubDiscoveryItem>,
+    discovery: List<HomeHubDiscoveryItem>,
+): List<HomeHubDiscoveryItem> = discoveryPool.ifEmpty { discovery }
 
 internal fun shouldRenderHomeHubHeroSlot(
     heroPresentation: HomeHeroMode,
@@ -968,7 +990,9 @@ internal fun shouldRenderHomeHubHeroSlot(
     reserveHeroSlot: Boolean,
     hasDiscovery: Boolean,
 ): Boolean {
-    if (heroPresentation == HomeHeroMode.Collage && hasDiscovery) return true
+    if ((heroPresentation == HomeHeroMode.Collage || heroPresentation == HomeHeroMode.Stage) && hasDiscovery) {
+        return true
+    }
     return hasHero || reserveHeroSlot
 }
 
@@ -1002,6 +1026,7 @@ internal fun resolveForYouItems(
     discovery: List<HomeHubDiscoveryItem>,
 ): List<HomeHubDiscoveryItem> = when {
     heroPresentation == HomeHeroMode.Collage -> emptyList()
+    heroPresentation == HomeHeroMode.Stage -> emptyList()
     heroPresentation == HomeHeroMode.Hybrid && hasHero -> emptyList()
     else -> discovery
 }

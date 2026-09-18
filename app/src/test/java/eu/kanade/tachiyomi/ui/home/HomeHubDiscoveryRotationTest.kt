@@ -111,6 +111,30 @@ class HomeHubDiscoveryRotationTest {
     }
 
     @Test
+    fun `shouldRenderHomeHubHeroSlot renders stage even when hero is null and not reserved`() {
+        shouldRenderHomeHubHeroSlot(
+            heroPresentation = HomeHeroMode.Stage,
+            hasHero = false,
+            reserveHeroSlot = false,
+            hasDiscovery = true,
+        ) shouldBe true
+
+        shouldRenderHomeHubHeroSlot(
+            heroPresentation = HomeHeroMode.Stage,
+            hasHero = false,
+            reserveHeroSlot = false,
+            hasDiscovery = false,
+        ) shouldBe false
+
+        shouldRenderHomeHubHeroSlot(
+            heroPresentation = HomeHeroMode.Stage,
+            hasHero = true,
+            reserveHeroSlot = false,
+            hasDiscovery = false,
+        ) shouldBe true
+    }
+
+    @Test
     fun `resolveCollageSlotTransition produces instant transitions on EInk and animated on standard display`() {
         val eInkTransition = resolveCollageSlotTransition(delayMillis = 0, isEInk = true)
         (eInkTransition != null) shouldBe true

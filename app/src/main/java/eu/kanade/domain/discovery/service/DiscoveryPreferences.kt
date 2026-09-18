@@ -52,4 +52,9 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
     fun collageAnimationSpeed(): Preference<String> = preferenceStore.getString("collage_animation_speed", "normal")
     fun collageLastRotationTime(): Preference<Long> = preferenceStore.getLong("collage_last_rotation_time", 0L)
     fun collageOffset(): Preference<Int> = preferenceStore.getInt("collage_offset", 0)
+
+    fun stageRotationIntervalHours(): Preference<Int> = preferenceStore.getInt("stage_rotation_interval_hours", 2)
+    fun stageAnimationSpeed(): Preference<String> = preferenceStore.getString("stage_animation_speed", "normal")
+    fun stageLastRotationTime(): Preference<Long> = preferenceStore.getLong("stage_last_rotation_time", 0L)
+    fun stageOffset(): Preference<Int> = preferenceStore.getInt("stage_offset", 0)
 }

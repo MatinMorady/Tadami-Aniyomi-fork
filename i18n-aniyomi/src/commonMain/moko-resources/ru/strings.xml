@@ -1800,11 +1800,14 @@
     <string name="pref_home_hero_mode_continue">Продолжить</string>
     <string name="pref_home_hero_mode_collage">Коллаж «Для тебя»</string>
     <string name="pref_home_hero_mode_hybrid">Гибрид (продолжить + подборка)</string>
+    <string name="pref_home_hero_mode_stage">Кинематографичный фокус</string>
     <string name="aurora_for_you">Для тебя</string>
     <string name="for_you_reason_similar">Похоже на «%1$s»</string>
     <string name="for_you_reason_trending">В тренде</string>
     <string name="for_you_reason_season_next">Следующий сезон</string>
     <string name="for_you_all_picks">Все подборки</string>
+    <string name="for_you_stage_prev">Предыдущая подборка</string>
+    <string name="for_you_stage_next">Следующая подборка</string>
     <string name="for_you_updated_minutes">Обновлено %1$d мин назад</string>
     <string name="for_you_updated_hours">Обновлено %1$d ч назад</string>
     <string name="for_you_updated_never">Ещё не обновлялось</string>
@@ -1845,6 +1848,8 @@
     <string name="backup_discovery_data">Скрытые тайтлы и теги «Для тебя»</string>
     <string name="pref_home_hero_mode">Вид главного баннера</string>
     <string name="pref_collage_rotation_interval">Интервал смены плиток</string>
+    <string name="pref_stage_rotation_interval">Интервал смены фокуса</string>
+    <string name="pref_stage_animation_speed">Скорость анимации фокуса</string>
     <string name="pref_collage_rotation_interval_0">Отключено</string>
     <string name="pref_collage_rotation_interval_1">1 час</string>
     <string name="pref_collage_rotation_interval_2">2 часа</string>

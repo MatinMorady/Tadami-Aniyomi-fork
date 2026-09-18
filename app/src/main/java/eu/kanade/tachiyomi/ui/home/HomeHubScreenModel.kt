@@ -230,10 +230,16 @@ internal class HomeHubScreenModel(
                         eu.kanade.tachiyomi.data.discovery.isBlacklisted(it, expandedBlacklist)
                     }
                     cachedDiscoveryPool = eu.kanade.tachiyomi.data.discovery.dedupeCrossRow(filtered)
+                    // Полный пул для hero-карусели: без тизерного окна, чтобы листать всю подборку.
+                    mutableState.update {
+                        it.copy(discoveryPool = cachedDiscoveryPool.map { item -> item.toHomeHubDiscoveryItem() })
+                    }
                     if (enabled) {
                         updateDiscoveryTeaser(advanceOffset = false)
                     } else {
-                        mutableState.update { it.copy(discovery = emptyList(), discoveryEnabled = false) }
+                        mutableState.update {
+                            it.copy(discovery = emptyList(), discoveryEnabled = false, discoveryPool = emptyList())
+                        }
                     }
                 }
         }

@@ -1,10 +1,13 @@
 package eu.kanade.tachiyomi.ui.home
 
+import android.animation.ValueAnimator
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -14,13 +17,16 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -39,6 +45,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.LabelOff
 import androidx.compose.material.icons.filled.Refresh
@@ -49,10 +57,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -67,22 +79,32 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import eu.kanade.domain.discovery.service.DiscoveryPreferences
 import eu.kanade.domain.ui.model.HomeHeroMode
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.AuroraCoverPlaceholderVariant
 import eu.kanade.presentation.components.AuroraSheetWindowFx
+import eu.kanade.presentation.components.StageFocusGlowShader
 import eu.kanade.presentation.components.buildAuroraCoverImageRequest
 import eu.kanade.presentation.components.rememberCoverReloadTick
 import eu.kanade.presentation.components.rememberThemeAwareCoverErrorPainter
+import eu.kanade.presentation.components.shouldAnimateAuroraBackground
 import eu.kanade.presentation.entries.components.aurora.AuroraGlassCtaSurface
 import eu.kanade.presentation.entries.components.aurora.AuroraHeroCtaMode
 import eu.kanade.presentation.entries.components.aurora.rememberAuroraPosterColorFilter
@@ -111,6 +133,8 @@ import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import kotlin.math.abs
+import kotlin.math.floor
 
 // ============================ Чистые функции (тестируются) ============================
 
@@ -250,6 +274,8 @@ internal fun resolveHeroPresentation(
         if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Collage else HomeHeroMode.Continue
     HomeHeroMode.Hybrid ->
         if (discoveryEnabled && discoveryCount > 0) HomeHeroMode.Hybrid else HomeHeroMode.Continue
+    HomeHeroMode.Stage ->
+        if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Stage else HomeHeroMode.Continue
 }
 
 internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem(
@@ -1289,6 +1315,598 @@ internal fun resolveCollageSlotTransition(
         val exit = fadeOut(animationSpec = tween(durationMillis = exitDuration)) +
             scaleOut(targetScale = 1.02f, animationSpec = tween(durationMillis = exitDuration))
         enter togetherWith exit
+    }
+}
+
+// ==================== Hero «Кинематографичный фокус» (stage) ====================
+
+/** Сколько слотов держим по каждую сторону от фокуса: 5 видимых (−2..+2) + 2 буфера (±3). */
+private const val STAGE_BUFFER = 3
+
+/** Поза слота карусели: только числа — держим её чистой и тестируемой. */
+@androidx.compose.runtime.Immutable
+internal data class StageSlotPose(
+    val scale: Float,
+    val alpha: Float,
+    val dimAlpha: Float,
+    val translationXPercent: Float,
+    val rotationYDeg: Float,
+)
+
+/**
+ * Поза по расстоянию до фокуса: фокус → соседи (±1) → дальние (±2) → невидимый буфер (|rel| ≥ 3).
+ * Затемнение выражено [StageSlotPose.dimAlpha], потому что brightness в graphicsLayer недоступен.
+ */
+internal fun resolveStageSlotPose(rel: Int): StageSlotPose {
+    val sign = if (rel < 0) -1f else 1f
+    return when (abs(rel)) {
+        0 -> StageSlotPose(scale = 1f, alpha = 1f, dimAlpha = 0f, translationXPercent = 0f, rotationYDeg = 0f)
+        1 -> StageSlotPose(
+            scale = 0.82f,
+            alpha = 1f,
+            dimAlpha = 0.38f,
+            translationXPercent = 42f * sign,
+            rotationYDeg = -15f * sign,
+        )
+        2 -> StageSlotPose(
+            scale = 0.7f,
+            alpha = 0.72f,
+            dimAlpha = 0.6f,
+            translationXPercent = 76f * sign,
+            rotationYDeg = -24f * sign,
+        )
+        else -> StageSlotPose(
+            scale = 0.62f,
+            alpha = 0f,
+            dimAlpha = 0.7f,
+            translationXPercent = 104f * sign,
+            rotationYDeg = -28f * sign,
+        )
+    }
+}
+
+/** Линейная интерполяция позы: карусель движется плавно между целыми позициями. */
+internal fun lerpStageSlotPose(from: StageSlotPose, to: StageSlotPose, fraction: Float): StageSlotPose {
+    val f = fraction.coerceIn(0f, 1f)
+    fun mix(a: Float, b: Float) = a + (b - a) * f
+    return StageSlotPose(
+        scale = mix(from.scale, to.scale),
+        alpha = mix(from.alpha, to.alpha),
+        dimAlpha = mix(from.dimAlpha, to.dimAlpha),
+        translationXPercent = mix(from.translationXPercent, to.translationXPercent),
+        rotationYDeg = mix(from.rotationYDeg, to.rotationYDeg),
+    )
+}
+
+/** Данные слота берутся по модулю: у ленты нет ни начала, ни конца. */
+internal fun stageItemIndex(center: Int, slot: Int, size: Int): Int {
+    if (size <= 0) return 0
+    return ((center + slot) % size + size) % size
+}
+
+/** Длительности перехода карусели: e-ink и выключенные системные анимации дают мгновенную смену кадра. */
+internal data class StageMotionSpec(val settleMillis: Int, val fadeMillis: Int)
+
+internal fun resolveStageMotionSpec(speed: String, isEInk: Boolean, animationsEnabled: Boolean): StageMotionSpec {
+    if (isEInk || !animationsEnabled) return StageMotionSpec(settleMillis = 0, fadeMillis = 0)
+    return when (speed) {
+        "fast" -> StageMotionSpec(settleMillis = 250, fadeMillis = 200)
+        "smooth" -> StageMotionSpec(settleMillis = 700, fadeMillis = 500)
+        else -> StageMotionSpec(settleMillis = 420, fadeMillis = 300)
+    }
+}
+
+/** Авто-ротация: та же политика, что у фоновых анимаций Aurora (e-ink, lifecycle, системные анимации). */
+internal fun shouldAutoRotateStage(
+    isEInk: Boolean,
+    intervalHours: Int,
+    isLifecycleResumed: Boolean,
+    systemAnimationsEnabled: Boolean,
+): Boolean = shouldAnimateAuroraBackground(
+    userEnabled = !isEInk && intervalHours > 0,
+    isLifecycleResumed = isLifecycleResumed,
+    systemAnimationsEnabled = systemAnimationsEnabled,
+)
+
+/** Свечение доступно только на API 33+ (RuntimeShader) и бессмысленно в e-ink. */
+internal fun shouldUseStageGlowShader(sdkInt: Int, isEInk: Boolean): Boolean =
+    sdkInt >= Build.VERSION_CODES.TIRAMISU && !isEInk
+
+/**
+ * Hero «Кинематографичный фокус»: бесконечная карусель подборки — один постер в фокусе,
+ * соседи уходят в перспективу. Слоты живут в окне ±3 от непрерывного центра, данные берутся
+ * по модулю, поэтому листание идёт по кругу в обе стороны.
+ */
+@Composable
+internal fun DiscoveryHeroStage(
+    items: List<HomeHubDiscoveryItem>,
+    coverMediaType: DiscoveryMediaType,
+    onMoreClick: () -> Unit,
+    onItemClick: (HomeHubDiscoveryItem) -> Unit,
+    onLongClick: ((HomeHubDiscoveryItem) -> Unit)? = null,
+) {
+    if (items.isEmpty()) return
+    val colors = AuroraTheme.colors
+    val appHaptics = LocalAppHaptics.current
+    val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
+    val intervalHours by discoveryPreferences.stageRotationIntervalHours().collectAsStateWithLifecycle()
+    val speed by discoveryPreferences.stageAnimationSpeed().collectAsStateWithLifecycle()
+    var offset by rememberSaveable { mutableIntStateOf(discoveryPreferences.stageOffset().get()) }
+    var userInteractionToken by remember { mutableIntStateOf(0) }
+    var center by rememberSaveable { mutableIntStateOf(0) }
+
+    val ordered = remember(items, offset) { items.shuffled(kotlin.random.Random(offset)) }
+    val systemAnimationsEnabled = ValueAnimator.areAnimatorsEnabled()
+    val motionSpec = remember(speed, colors.isEInk, systemAnimationsEnabled) {
+        resolveStageMotionSpec(speed = speed, isEInk = colors.isEInk, animationsEnabled = systemAnimationsEnabled)
+    }
+    val animatedCenter = animateFloatAsState(
+        targetValue = center.toFloat(),
+        // Позднее чтение: значение используется только внутри graphicsLayer, рекомпозиции на кадр нет.
+        animationSpec = tween(durationMillis = motionSpec.settleMillis),
+        label = "stage_center",
+    )
+    // Ken-burns у фокуса: состояние читается внутри graphicsLayer, поэтому кадры не рекомпозируют слоты.
+    val kenBurnsTransition = rememberInfiniteTransition(label = "stage_ken_burns")
+    val kenBurnsScale = kenBurnsTransition.animateFloat(
+        initialValue = 1.04f,
+        targetValue = 1.14f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 20_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "stage_ken_burns_scale",
+    )
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isLifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            isLifecycleResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
+    val contentMaxWidthDp = auroraAdaptiveSpec.updatesMaxWidthDp ?: auroraAdaptiveSpec.entryMaxWidthDp
+    val outerShape = RoundedCornerShape(20.dp)
+
+    // Авто-ротация по кругу: выключается в e-ink, при нулевом интервале, на паузе и без системных анимаций.
+    if (ordered.size > 1) {
+        if (shouldAutoRotateStage(colors.isEInk, intervalHours, isLifecycleResumed, systemAnimationsEnabled)) {
+            LaunchedEffect(ordered.size, intervalHours, userInteractionToken) {
+                val intervalMillis = intervalHours * 3600_000L
+                while (isActive) {
+                    val last = discoveryPreferences.stageLastRotationTime().get()
+                    val elapsed = if (last == 0L) 0L else System.currentTimeMillis() - last
+                    delay(if (last == 0L) intervalMillis else (intervalMillis - elapsed).coerceAtLeast(1000L))
+                    discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
+                    center += 1
+                }
+            }
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .auroraCenteredMaxWidth(contentMaxWidthDp)
+            .height(440.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .clip(outerShape)
+            .background(colors.cardBackground)
+            .then(
+                if (colors.isDark || colors.isEInk) {
+                    Modifier.border(1.dp, colors.divider, outerShape)
+                } else {
+                    Modifier
+                },
+            ),
+    ) {
+        // Акцентное свечение под фокус-постером: отдельный слой под карточками (не RenderEffect на сцене).
+        if (!colors.isEInk) {
+            val glowIntensity = if (colors.isDark) 1f else 0.5f
+            val glowModifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.74f)
+                .height(170.dp)
+            val glowShader = remember {
+                if (shouldUseStageGlowShader(Build.VERSION.SDK_INT, isEInk = false)) {
+                    StageFocusGlowShader()
+                } else {
+                    null
+                }
+            }
+            if (glowShader?.isAvailable == true) {
+                Canvas(glowModifier) {
+                    with(glowShader) { drawStageGlow(accent = colors.accent, intensity = glowIntensity) }
+                }
+            } else {
+                Box(
+                    glowModifier.background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                colors.accent.copy(alpha = 0.28f * glowIntensity),
+                                Color.Transparent,
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 5.dp, vertical = 10.dp)
+                .pointerInput(ordered.size) {
+                    // Свайп коммитится только на onDragEnd: ключ не зависит от center и не рвёт жест.
+                    var dragAccumulator = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragAccumulator = 0f },
+                        onDragCancel = { dragAccumulator = 0f },
+                        onHorizontalDrag = { change, dragAmount ->
+                            if (!change.isConsumed) {
+                                dragAccumulator += dragAmount
+                                change.consume()
+                            }
+                        },
+                        onDragEnd = {
+                            if (abs(dragAccumulator) > 45.dp.toPx()) {
+                                appHaptics.tap()
+                                center += if (dragAccumulator < 0) 1 else -1
+                                userInteractionToken++
+                            }
+                            dragAccumulator = 0f
+                        },
+                    )
+                },
+        ) {
+            for (absIndex in (center - STAGE_BUFFER)..(center + STAGE_BUFFER)) {
+                val item = ordered[stageItemIndex(absIndex, 0, ordered.size)]
+                val rel = absIndex - center
+                key(absIndex) {
+                    StageSlot(
+                        item = item,
+                        rel = rel,
+                        absIndex = absIndex,
+                        distanceToFocus = abs(rel),
+                        isFocus = rel == 0,
+                        animatedCenter = animatedCenter,
+                        kenBurnsScale = kenBurnsScale,
+                        useKenBurns = !colors.isEInk,
+                        coverMediaType = coverMediaType,
+                        onClick = {
+                            appHaptics.tap()
+                            if (rel == 0) {
+                                onItemClick(item)
+                            } else {
+                                // Шаг всегда один: слоты живут окном вокруг центра, переброс не нужен.
+                                center += if (rel > 0) 1 else -1
+                                userInteractionToken++
+                            }
+                        },
+                        onLongClick = onLongClick?.let { callback -> { callback(item) } },
+                    )
+                }
+            }
+        }
+
+        // Счётчик позиции: у ленты нет конца, поэтому показываем место в подборке.
+        val position = stageItemIndex(center, 0, ordered.size) + 1
+        Text(
+            text = "${position.toString().padStart(2, '0')} / ${ordered.size.toString().padStart(2, '0')}",
+            color = if (colors.isDark && !colors.isEInk) Color.White else colors.textPrimary,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+                .clip(RoundedCornerShape(7.dp))
+                .background(if (colors.isEInk) colors.cardBackground else Color.Black.copy(alpha = 0.5f))
+                .border(1.dp, colors.divider, RoundedCornerShape(7.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+
+        // Стрелки: у ленты нет конца, поэтому обе кнопки всегда активны.
+        StageNavButton(
+            icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = stringResource(AYMR.strings.for_you_stage_prev),
+            onClick = {
+                appHaptics.tap()
+                center -= 1
+                userInteractionToken++
+            },
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+        )
+        StageNavButton(
+            icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = stringResource(AYMR.strings.for_you_stage_next),
+            onClick = {
+                appHaptics.tap()
+                center += 1
+                userInteractionToken++
+            },
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+        )
+
+        // Реролл: новый порядок подборки, позиция сохраняется (без «проезда» через всю ленту).
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp)
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    if (colors.isEInk) {
+                        colors.cardBackground
+                    } else if (colors.isDark) {
+                        Color.Black.copy(alpha = 0.75f)
+                    } else {
+                        Color.White.copy(alpha = 0.90f)
+                    },
+                )
+                .border(
+                    BorderStroke(
+                        width = 1.dp,
+                        color = if (colors.isEInk) colors.divider else Color.White.copy(alpha = 0.22f),
+                    ),
+                    CircleShape,
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(bounded = false, radius = 20.dp),
+                    onClick = {
+                        appHaptics.tap()
+                        offset += 1
+                        discoveryPreferences.stageOffset().set(offset)
+                        discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
+                        userInteractionToken++
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = stringResource(AYMR.strings.for_you_collage_reroll),
+                tint = if (colors.isDark && !colors.isEInk) colors.accent else colors.textPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) {
+            val buttonInteractionSource = remember { MutableInteractionSource() }
+            AuroraGlassCtaSurface(
+                mode = AuroraHeroCtaMode.Aurora,
+                onClick = {
+                    appHaptics.tap()
+                    onMoreClick()
+                },
+                modifier = Modifier.height(44.dp),
+                isHome = true,
+                shape = CircleShape,
+                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+                interactionSource = buttonInteractionSource,
+            ) { contentColor ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(AYMR.strings.for_you_all_picks),
+                        color = contentColor,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StageNavButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = AuroraTheme.colors
+    Box(
+        modifier = modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(
+                if (colors.isEInk) {
+                    colors.cardBackground
+                } else if (colors.isDark) {
+                    Color.Black.copy(alpha = 0.55f)
+                } else {
+                    Color.White.copy(alpha = 0.85f)
+                },
+            )
+            .border(
+                1.dp,
+                if (colors.isEInk) colors.divider else Color.White.copy(alpha = 0.20f),
+                CircleShape,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = false, radius = 16.dp),
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (colors.isDark && !colors.isEInk) Color.White else colors.textPrimary,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+/**
+ * Слот карусели. Обложка создаётся только для слотов внутри окна (|rel| ≤ 2), буферные слоты
+ * остаются пустыми — так 7 загрузок Coil не плодятся на каждый переброс.
+ */
+@Composable
+private fun BoxScope.StageSlot(
+    item: HomeHubDiscoveryItem,
+    rel: Int,
+    absIndex: Int,
+    distanceToFocus: Int,
+    isFocus: Boolean,
+    animatedCenter: State<Float>,
+    kenBurnsScale: State<Float>,
+    useKenBurns: Boolean,
+    coverMediaType: DiscoveryMediaType,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    val colors = AuroraTheme.colors
+    val context = LocalContext.current
+    val coverReloadTick = rememberCoverReloadTick()
+    val coverRequest = remember(context, item.coverUrl, coverMediaType, item.provider, coverReloadTick) {
+        buildAuroraCoverImageRequest(context, discoveryCoverData(coverMediaType, item.provider, item.coverUrl))
+    }
+    val fallbackPainter = rememberThemeAwareCoverErrorPainter(variant = AuroraCoverPlaceholderVariant.Wide)
+    val tileShape = RoundedCornerShape(18.dp)
+    val focusReason = if (isFocus) discoveryReasonOrNull(item) else null
+
+    Box(
+        Modifier
+            .align(Alignment.Center)
+            .fillMaxHeight(0.92f)
+            .fillMaxWidth(0.6f)
+            .zIndex(10f - distanceToFocus)
+            .graphicsLayer {
+                val relFloat = absIndex - animatedCenter.value
+                val base = floor(relFloat).toInt()
+                val pose = lerpStageSlotPose(
+                    from = resolveStageSlotPose(base),
+                    to = resolveStageSlotPose(base + 1),
+                    fraction = relFloat - base,
+                )
+                translationX = size.width * pose.translationXPercent / 100f
+                scaleX = pose.scale
+                scaleY = pose.scale
+                rotationY = pose.rotationYDeg
+                cameraDistance = 12f * density
+                alpha = pose.alpha
+            }
+            .then(
+                if (isFocus) {
+                    Modifier.semantics {
+                        contentDescription = listOfNotNull(item.title, focusReason).joinToString(", ")
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            .clip(tileShape)
+            .background(colors.cardBackground)
+            .then(
+                if (colors.isDark || colors.isEInk) {
+                    Modifier.border(1.dp, colors.divider, tileShape)
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                },
+            ),
+    ) {
+        if (distanceToFocus <= 2) {
+            // Нейтральная подложка на время загрузки: тематическая Aurora-заглушка слишком яркая для hero-слота.
+            val neutralCoverBrush = remember(colors) {
+                Brush.verticalGradient(
+                    listOf(
+                        colors.cardBackground,
+                        colors.divider.copy(alpha = if (colors.isEInk) 0.30f else 0.22f),
+                    ),
+                )
+            }
+            Box(Modifier.fillMaxSize().background(neutralCoverBrush))
+            AsyncImage(
+                model = coverRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = rememberAuroraPosterColorFilter(),
+                // Ken-burns живёт только на обложке: раньше он масштабировал весь слот вместе с подписью.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val kenBurns = if (useKenBurns && isFocus) kenBurnsScale.value else 1f
+                        scaleX = kenBurns
+                        scaleY = kenBurns
+                    },
+                error = fallbackPainter,
+                fallback = fallbackPainter,
+            )
+            // Затемнение соседей: brightness в graphicsLayer нет, поэтому кладём scrim-слой.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val relFloat = absIndex - animatedCenter.value
+                        val base = floor(relFloat).toInt()
+                        alpha = lerpStageSlotPose(
+                            from = resolveStageSlotPose(base),
+                            to = resolveStageSlotPose(base + 1),
+                            fraction = relFloat - base,
+                        ).dimAlpha
+                    }
+                    .background(if (colors.isEInk) Color.White else Color.Black),
+            )
+            if (isFocus) {
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            0.55f to Color.Transparent,
+                            1.0f to if (colors.isEInk) Color.White.copy(alpha = 0.95f) else Color(0xCC04060A),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        if (isFocus) {
+            Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = 70.dp)) {
+                Text(
+                    item.title,
+                    color = if (colors.isEInk) Color.Black else Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 22.sp,
+                )
+                discoveryReasonOrNull(item)?.let { reason ->
+                    Text(
+                        reason,
+                        color = colors.accent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

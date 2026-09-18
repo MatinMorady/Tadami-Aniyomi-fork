@@ -674,6 +674,11 @@ internal data class HomeHubUiState(
     val history: List<HomeHubHistory> = emptyList(),
     val recommendations: List<HomeHubRecommendation> = emptyList(),
     val discovery: List<HomeHubDiscoveryItem> = emptyList(),
+    /**
+     * Полный пул подборки (без тизерного окна). Hero-карусель «Кинематографичный фокус» листает его,
+     * обычный ряд «Для тебя» по-прежнему берёт окно [discovery].
+     */
+    val discoveryPool: List<HomeHubDiscoveryItem> = emptyList(),
     val discoveryEnabled: Boolean = false,
     val isDiscoveryRefreshing: Boolean = false,
     val userName: String,

@@ -80,6 +80,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
         val seedActive14 by discoveryPreferences.seedActive14().collectAsStateWithLifecycle()
         val homeHeroMode by discoveryPreferences.homeHeroMode().collectAsStateWithLifecycle()
         val isCollageMode = homeHeroMode == "collage"
+        val isStageMode = homeHeroMode == "stage"
 
         if (showResetHiddenDialog) {
             AlertDialog(
@@ -197,16 +198,23 @@ object SettingsDiscoveryScreen : SearchableSettings {
                                 "continue" to stringResource(AYMR.strings.pref_home_hero_mode_continue),
                                 "collage" to stringResource(AYMR.strings.pref_home_hero_mode_collage),
                                 "hybrid" to stringResource(AYMR.strings.pref_home_hero_mode_hybrid),
+                                "stage" to stringResource(AYMR.strings.pref_home_hero_mode_stage),
                             ),
                             title = stringResource(AYMR.strings.pref_home_hero_mode),
                             subtitleProvider = { value, entries -> entries[value] },
                             enabled = enabled,
                         ),
                     )
-                    if (isCollageMode) {
+                    if (isCollageMode || isStageMode) {
+                        // Значения (интервалы и скорости) общие с коллажом — переиспользуем строки,
+                        // различаются только префы и заголовки.
                         add(
                             Preference.PreferenceItem.ListPreference(
-                                preference = discoveryPreferences.collageRotationIntervalHours(),
+                                preference = if (isStageMode) {
+                                    discoveryPreferences.stageRotationIntervalHours()
+                                } else {
+                                    discoveryPreferences.collageRotationIntervalHours()
+                                },
                                 entries = persistentMapOf(
                                     0 to stringResource(AYMR.strings.pref_collage_rotation_interval_0),
                                     1 to stringResource(AYMR.strings.pref_collage_rotation_interval_1),
@@ -216,20 +224,32 @@ object SettingsDiscoveryScreen : SearchableSettings {
                                     12 to stringResource(AYMR.strings.pref_collage_rotation_interval_12),
                                     24 to stringResource(AYMR.strings.pref_collage_rotation_interval_24),
                                 ),
-                                title = stringResource(AYMR.strings.pref_collage_rotation_interval),
+                                title = if (isStageMode) {
+                                    stringResource(AYMR.strings.pref_stage_rotation_interval)
+                                } else {
+                                    stringResource(AYMR.strings.pref_collage_rotation_interval)
+                                },
                                 subtitleProvider = { value, entries -> entries[value] },
                                 enabled = enabled,
                             ),
                         )
                         add(
                             Preference.PreferenceItem.ListPreference(
-                                preference = discoveryPreferences.collageAnimationSpeed(),
+                                preference = if (isStageMode) {
+                                    discoveryPreferences.stageAnimationSpeed()
+                                } else {
+                                    discoveryPreferences.collageAnimationSpeed()
+                                },
                                 entries = persistentMapOf(
                                     "fast" to stringResource(AYMR.strings.pref_collage_animation_speed_fast),
                                     "normal" to stringResource(AYMR.strings.pref_collage_animation_speed_normal),
                                     "smooth" to stringResource(AYMR.strings.pref_collage_animation_speed_smooth),
                                 ),
-                                title = stringResource(AYMR.strings.pref_collage_animation_speed),
+                                title = if (isStageMode) {
+                                    stringResource(AYMR.strings.pref_stage_animation_speed)
+                                } else {
+                                    stringResource(AYMR.strings.pref_collage_animation_speed)
+                                },
                                 subtitleProvider = { value, entries -> entries[value] },
                                 enabled = enabled,
                             ),

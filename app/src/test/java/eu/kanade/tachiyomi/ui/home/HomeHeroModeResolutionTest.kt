@@ -35,4 +35,16 @@ class HomeHeroModeResolutionTest {
         resolveHeroPresentation(HomeHeroMode.Collage, discoveryEnabled = false, discoveryCount = 5) shouldBe
             HomeHeroMode.Continue
     }
+
+    @Test
+    fun `stage requires enabled discovery with at least three items`() {
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = true, discoveryCount = 3) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = true, discoveryCount = 8) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = true, discoveryCount = 2) shouldBe
+            HomeHeroMode.Continue
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = false, discoveryCount = 5) shouldBe
+            HomeHeroMode.Continue
+    }
 }
