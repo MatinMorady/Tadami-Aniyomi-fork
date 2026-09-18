@@ -120,7 +120,15 @@ fun AuroraCard(
             null // Light mode: no border, shadow provides depth
         },
         elevation = CardDefaults.cardElevation(
-            defaultElevation = resolveAuroraElevation(colors, AuroraSurfaceLevel.Glass),
+            // Dark/E-Ink: translucent glass container + border. An elevation shadow behind a
+            // transparent surface shows through and halos the text zone - the same defect fixed
+            // elsewhere by the floating-surface migration (auroraFloatingSurface is a no-op in
+            // dark, CoverOnlyCard zeroes elevation); this card was missed there.
+            defaultElevation = if (colors.isDark || colors.isEInk) {
+                0.dp
+            } else {
+                resolveAuroraElevation(colors, AuroraSurfaceLevel.Glass)
+            },
         ),
     ) {
         Column(
