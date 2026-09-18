@@ -35,7 +35,7 @@ class DiscoveryLikeRowBuilder(
                 author = seed.author,
                 genres = seed.genres.ifEmpty { null },
             )
-            val result = suggestionCoordinator.fetchSuggestions(suggestionSeed, limit = 10)
+            val result = suggestionCoordinator.fetchSuggestions(suggestionSeed, limit = 25)
             if (result.items.isEmpty() && result.attemptedSources > 0 &&
                 result.failedSources == result.attemptedSources
             ) {
@@ -87,10 +87,8 @@ class DiscoveryTrendRowBuilder(
         // B2: жанры из tag-blacklist не проходят в ряд (best-effort: без жанров — без фильтра).
         val expandedBlacklist = expandGenreSet(context.blacklistedTags.toList())
 
-        // Для новелл приоритет отдаём установленному источнику пользователя (InkStory, Ranobe и др.),
-        // где новеллы реально можно читать прямо в приложении.
-        if (context.mediaType == DiscoveryMediaType.NOVEL && preferredSourceId > 0) {
-            val fromSource = runCatching {
+        val fromSource = if (context.mediaType == DiscoveryMediaType.NOVEL && preferredSourceId > 0) {
+            runCatching {
                 catalog.latest(context.mediaType, preferredSourceId, page = context.pageOffset)
             }.getOrNull().orEmpty().map { item ->
                 item.copy(
@@ -98,9 +96,8 @@ class DiscoveryTrendRowBuilder(
                     score = 0.0,
                 )
             }
-            if (fromSource.isNotEmpty()) {
-                return fromSource
-            }
+        } else {
+            emptyList()
         }
 
         val fromTrending = runCatching {
@@ -125,23 +122,30 @@ class DiscoveryTrendRowBuilder(
                 )
             }
 
-        if (fromTrending.isNotEmpty()) {
-            return fromTrending
-        }
-
-        // Фолбэк при недоступности трендов:
-        // Запрашиваем «Свежее» (latest updates) из активного/установленного источника пользователя!
-        if (preferredSourceId > 0) {
-            val fromSource = runCatching {
-                catalog.latest(context.mediaType, preferredSourceId, page = context.pageOffset)
-            }.getOrNull().orEmpty().map { item ->
-                item.copy(
-                    reason = "source",
-                    score = 0.0,
-                )
+        if (context.mediaType == DiscoveryMediaType.NOVEL) {
+            val combinedNovels = (fromSource + fromTrending).distinctBy { it.cleanTitle }
+            if (combinedNovels.isNotEmpty()) {
+                return combinedNovels
             }
-            if (fromSource.isNotEmpty()) {
-                return fromSource
+        } else {
+            if (fromTrending.isNotEmpty()) {
+                return fromTrending
+            }
+
+            // Фолбэк при недоступности трендов:
+            // Запрашиваем «Свежее» (latest updates) из активного/установленного источника пользователя!
+            if (preferredSourceId > 0) {
+                val fallbackSource = runCatching {
+                    catalog.latest(context.mediaType, preferredSourceId, page = context.pageOffset)
+                }.getOrNull().orEmpty().map { item ->
+                    item.copy(
+                        reason = "source",
+                        score = 0.0,
+                    )
+                }
+                if (fallbackSource.isNotEmpty()) {
+                    return fallbackSource
+                }
             }
         }
 
@@ -169,7 +173,7 @@ class DiscoveryTasteRowBuilder(
         val expandedBlacklist = expandGenreSet(context.blacklistedTags.toList())
         val activeProfile = profile.filterNot { (genre, _) -> genre.trim().lowercase() in expandedBlacklist }
         if (activeProfile.isEmpty()) return emptyList()
-        val genreNames = activeProfile.take(4).map { it.first }
+        val genreNames = activeProfile.take(6).map { it.first }
         val trendingResult = runCatching {
             trending.fetchByGenres(context.mediaType, genreNames, sortProvider(), page = context.pageOffset)
         }
@@ -203,7 +207,7 @@ class DiscoveryTasteRowBuilder(
         if (combined.isEmpty() && anyFailed) {
             throw IOException("taste sources failed without results")
         }
-        return combined.take(20)
+        return combined.take(50)
     }
 }
 

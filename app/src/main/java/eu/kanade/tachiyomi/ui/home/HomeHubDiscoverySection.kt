@@ -54,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -127,14 +128,65 @@ internal fun composeTeaserItems(
             }
         }
     val fullMix = interleaveMix(rows, total = items.size, rrf = rrfScores(rows))
-    val rotated = if (fullMix.size <= capped || offset <= 0) {
+    val safeOffset = if (fullMix.isNotEmpty()) offset % fullMix.size else 0
+    val rotated = if (safeOffset <= 0) {
         fullMix.take(capped)
     } else {
-        val safeOffset = offset % fullMix.size
         (fullMix.drop(safeOffset) + fullMix.take(safeOffset)).take(capped)
     }
     return rotated.mapNotNull { row ->
         items.firstOrNull { it.cleanTitle == row.cleanTitle }?.toHomeHubDiscoveryItem()
+    }
+}
+
+/**
+ * Выбирает элементы тизера с соблюдением 48-часовой уникальности:
+ * 1. Исключает тайтлы из [shownTitles] (показанные за последние 48 ч).
+ * 2. Если свежих тайтлов >= count, формирует сбалансированный тизер только из свежих.
+ * 3. Если свежих тайтлов < count, добирает недостающие из ранее показанных строго в порядке
+ *    [shownCutoffMap] (наименее недавно показанные первыми, без искажения квотами рядов).
+ * 4. Если весь пул меньше или равен count, циклически ротирует порядок отображения по [offset],
+ *    чтобы кнопка обновления и повторный вход не зависали.
+ */
+internal fun selectFreshTeaserItems(
+    pool: List<DiscoverySuggestion>,
+    shownTitles: Set<String>,
+    count: Int,
+    offset: Int = 0,
+    shownCutoffMap: Map<String, Long> = emptyMap(),
+): List<HomeHubDiscoveryItem> {
+    val capped = count.coerceIn(3, 20)
+    if (pool.isEmpty()) return emptyList()
+
+    val freshPool = pool.filterNot { it.cleanTitle in shownTitles }
+    val shownPool = pool.filter { it.cleanTitle in shownTitles }
+
+    val rawSelection: List<HomeHubDiscoveryItem> = when {
+        freshPool.size >= capped -> {
+            composeTeaserItems(freshPool, capped, offset = 0)
+        }
+        freshPool.isNotEmpty() -> {
+            val freshItems = freshPool.map { it.toHomeHubDiscoveryItem() }
+            val needed = capped - freshItems.size
+            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            val backfillItems = sortedShown.take(needed).map { it.toHomeHubDiscoveryItem() }
+            (freshItems + backfillItems).take(capped)
+        }
+        else -> {
+            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            sortedShown.take(capped).map { it.toHomeHubDiscoveryItem() }
+        }
+    }
+
+    return if (pool.size <= capped && rawSelection.isNotEmpty()) {
+        val safeOffset = offset % rawSelection.size
+        if (safeOffset <= 0) {
+            rawSelection
+        } else {
+            rawSelection.drop(safeOffset) + rawSelection.take(safeOffset)
+        }
+    } else {
+        rawSelection
     }
 }
 
@@ -983,8 +1035,13 @@ internal fun DiscoveryHeroCollage(
     val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
     val intervalHours by discoveryPreferences.collageRotationIntervalHours().collectAsStateWithLifecycle()
     val animSpeed by discoveryPreferences.collageAnimationSpeed().collectAsStateWithLifecycle()
-    var offset by remember { mutableIntStateOf(0) }
+    var offset by rememberSaveable { mutableIntStateOf(discoveryPreferences.collageOffset().get()) }
     var userInteractionToken by remember { mutableIntStateOf(0) }
+
+    val updateOffset: (Int) -> Unit = { newOffset ->
+        offset = newOffset
+        discoveryPreferences.collageOffset().set(newOffset)
+    }
 
     // Авто-ротация с настраиваемым интервалом (от 1 до 24 ч, 0 = отключено)
     if (!colors.isEInk && items.size > 5 && intervalHours > 0) {
@@ -998,13 +1055,13 @@ internal fun DiscoveryHeroCollage(
                     discoveryPreferences.collageLastRotationTime().set(now)
                     delay(intervalMillis)
                 } else if (elapsed >= intervalMillis) {
-                    offset += 1
+                    updateOffset(offset + 1)
                     discoveryPreferences.collageLastRotationTime().set(now)
                     delay(intervalMillis)
                 } else {
                     val remaining = maxOf(1000L, intervalMillis - elapsed)
                     delay(remaining)
-                    offset += 1
+                    updateOffset(offset + 1)
                     discoveryPreferences.collageLastRotationTime().set(System.currentTimeMillis())
                 }
             }
@@ -1160,7 +1217,7 @@ internal fun DiscoveryHeroCollage(
                         appHaptics.tap()
                         discoveryPreferences.collageLastRotationTime().set(System.currentTimeMillis())
                         userInteractionToken++
-                        offset = offset + 1
+                        updateOffset(offset + 1)
                     },
                 ),
             contentAlignment = Alignment.Center,

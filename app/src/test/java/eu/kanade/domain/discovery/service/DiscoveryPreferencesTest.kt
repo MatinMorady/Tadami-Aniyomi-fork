@@ -32,6 +32,7 @@ class DiscoveryPreferencesTest {
         prefs.collageRotationIntervalHours().get() shouldBe 2
         prefs.collageAnimationSpeed().get() shouldBe "normal"
         prefs.collageLastRotationTime().get() shouldBe 0L
+        prefs.collageOffset().get() shouldBe 0
         prefs.manualRefreshAt().get() shouldBe 0L
         prefs.filterNsfw().get() shouldBe true
         prefs.lastFailedRows(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME).get() shouldBe ""

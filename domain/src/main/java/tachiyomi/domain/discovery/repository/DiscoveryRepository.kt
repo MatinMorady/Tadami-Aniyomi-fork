@@ -29,4 +29,17 @@ interface DiscoveryRepository {
     suspend fun getBlacklistEntries(mediaType: DiscoveryMediaType): List<DiscoveryBlacklistEntry>
     suspend fun restoreHiddenEntries(mediaType: DiscoveryMediaType, entries: List<DiscoveryHiddenEntry>)
     suspend fun restoreBlacklistEntries(mediaType: DiscoveryMediaType, entries: List<DiscoveryBlacklistEntry>)
+
+    /** 48h uniqueness constraint: persistence of shown recommendations. */
+    suspend fun getShownTitles(mediaType: DiscoveryMediaType, windowMillis: Long = 48 * 3600_000L): Set<String>
+    suspend fun getShownTitlesWithTimestamp(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long = 48 * 3600_000L,
+    ): Map<String, Long>
+    suspend fun markShown(
+        mediaType: DiscoveryMediaType,
+        cleanTitles: Collection<String>,
+        timestamp: Long = System.currentTimeMillis(),
+    )
+    suspend fun clearShown(mediaType: DiscoveryMediaType)
 }

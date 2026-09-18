@@ -1,0 +1,10 @@
+-- Discovery «Для тебя»: отслеживание показанных тайтлов (48h uniqueness constraint).
+-- Новая таблица, данных не теряет; IF NOT EXISTS на случай повторного наката.
+CREATE TABLE IF NOT EXISTS discovery_shown (
+    media_type TEXT NOT NULL,
+    clean_title TEXT NOT NULL,
+    shown_at INTEGER NOT NULL,
+    PRIMARY KEY (media_type, clean_title)
+);
+
+CREATE INDEX IF NOT EXISTS discovery_shown_time ON discovery_shown(media_type, shown_at);

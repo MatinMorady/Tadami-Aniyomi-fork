@@ -2185,6 +2185,7 @@
     <string name="for_you_undo">Undo</string>
     <string name="for_you_add_library">To library</string>
     <string name="for_you_added_snackbar">“%1$s” added to library</string>
+    <string name="for_you_select_source_to_read">Select a source to read this title</string>
     <string name="for_you_collage_reroll">Shuffle picks</string>
     <string name="for_you_refresh">Refresh recommendations</string>
     <string name="for_you_empty_title">Nothing here yet</string>

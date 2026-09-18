@@ -122,7 +122,7 @@ internal fun mergeNormalized(
  */
 internal fun mergeSeedResults(
     perSeed: List<List<DiscoveryRowItem>>,
-    perSeedCap: Int = 4,
+    perSeedCap: Int = 15,
     overlapMultiplier: Double = 0.5,
 ): List<DiscoveryRowItem> {
     class Acc(val template: DiscoveryRowItem) {

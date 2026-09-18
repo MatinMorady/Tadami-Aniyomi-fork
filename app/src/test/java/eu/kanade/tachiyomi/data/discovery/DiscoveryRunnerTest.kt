@@ -56,6 +56,23 @@ class DiscoveryRunnerTest {
             mediaType: DiscoveryMediaType,
             entries: List<tachiyomi.domain.discovery.model.DiscoveryBlacklistEntry>,
         ) {}
+
+        val markedShown = mutableListOf<Pair<DiscoveryMediaType, Collection<String>>>()
+        override suspend fun getShownTitles(mediaType: DiscoveryMediaType, windowMillis: Long): Set<String> = emptySet()
+        override suspend fun getShownTitlesWithTimestamp(
+            mediaType: DiscoveryMediaType,
+            windowMillis: Long,
+        ): Map<String, Long> = emptyMap()
+        override suspend fun markShown(
+            mediaType: DiscoveryMediaType,
+            cleanTitles: Collection<String>,
+            timestamp: Long,
+        ) {
+            markedShown += mediaType to cleanTitles
+        }
+        override suspend fun clearShown(mediaType: DiscoveryMediaType) {
+            markedShown.clear()
+        }
     }
 
     private class FakeSeedSources : DiscoverySeedSources {

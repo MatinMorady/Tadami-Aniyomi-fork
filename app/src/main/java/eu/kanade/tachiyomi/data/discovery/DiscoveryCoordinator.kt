@@ -25,7 +25,7 @@ data class DiscoveryFeed(
  */
 class DiscoveryCoordinator(
     private val rowBuilders: List<DiscoveryRowBuilder>,
-    private val rowLimit: Int = 20,
+    private val rowLimit: Int = 50,
 ) {
 
     suspend fun streamFeed(

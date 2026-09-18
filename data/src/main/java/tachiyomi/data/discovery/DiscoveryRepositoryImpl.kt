@@ -148,4 +148,44 @@ class DiscoveryRepositoryImpl(
 
     override suspend fun lastUpdatedAt(mediaType: DiscoveryMediaType): Long? =
         handler.awaitOne { db -> db.discovery_suggestionsQueries.lastUpdatedAt(mediaType.key) }.takeIf { it > 0L }
+
+    override suspend fun getShownTitles(mediaType: DiscoveryMediaType, windowMillis: Long): Set<String> {
+        val since = System.currentTimeMillis() - windowMillis
+        return handler.awaitList { db ->
+            db.discovery_shownQueries.selectShownSince(mediaType.key, since)
+        }.toSet()
+    }
+
+    override suspend fun getShownTitlesWithTimestamp(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long,
+    ): Map<String, Long> {
+        val since = System.currentTimeMillis() - windowMillis
+        return handler.awaitList { db ->
+            db.discovery_shownQueries.selectShownWithTimeSince(mediaType.key, since) { clean_title, shown_at ->
+                clean_title to shown_at
+            }
+        }.toMap()
+    }
+
+    override suspend fun markShown(
+        mediaType: DiscoveryMediaType,
+        cleanTitles: Collection<String>,
+        timestamp: Long,
+    ) {
+        if (cleanTitles.isEmpty()) return
+        val cutoff = timestamp - (48 * 3600_000L)
+        handler.await(inTransaction = true) { db ->
+            db.discovery_shownQueries.cleanupOld(cutoff)
+            for (cleanTitle in cleanTitles) {
+                if (cleanTitle.isNotBlank()) {
+                    db.discovery_shownQueries.insertOrReplace(mediaType.key, cleanTitle, timestamp)
+                }
+            }
+        }
+    }
+
+    override suspend fun clearShown(mediaType: DiscoveryMediaType) {
+        handler.await { db -> db.discovery_shownQueries.deleteAllByMedia(mediaType.key) }
+    }
 }

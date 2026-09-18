@@ -310,6 +310,7 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
             LaunchedEffect(state.searchFallbackItem) {
                 val item = state.searchFallbackItem ?: return@LaunchedEffect
                 screenModel.dismissSearchFallback()
+                context.toast(context.contextStringResource(AYMR.strings.for_you_select_source_to_read))
                 navigateFor(item)
             }
             sheetItem?.let { item ->

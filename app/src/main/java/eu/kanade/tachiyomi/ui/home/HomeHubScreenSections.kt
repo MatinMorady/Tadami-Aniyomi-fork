@@ -26,6 +26,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -46,6 +47,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -118,6 +122,32 @@ internal fun AnimeHomeHub(
         HomeHubScreenModel.setInstance(screenModel)
         if (activeSection == HomeHubSection.Anime) {
             screenModel.startLiveUpdates()
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, activeSection) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (activeSection == HomeHubSection.Anime) {
+                    screenModel.onScreenReentry()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    var isFirstComposition by remember { mutableStateOf(true) }
+    LaunchedEffect(activeSection, tabNavigator.current) {
+        if (activeSection == HomeHubSection.Anime && tabNavigator.current is HomeHubTab) {
+            if (isFirstComposition) {
+                isFirstComposition = false
+            } else {
+                screenModel.onScreenReentry()
+            }
         }
     }
 
@@ -230,6 +260,32 @@ internal fun MangaHomeHub(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, activeSection) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (activeSection == HomeHubSection.Manga) {
+                    screenModel.onScreenReentry()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    var isFirstComposition by remember { mutableStateOf(true) }
+    LaunchedEffect(activeSection, tabNavigator.current) {
+        if (activeSection == HomeHubSection.Manga && tabNavigator.current is HomeHubTab) {
+            if (isFirstComposition) {
+                isFirstComposition = false
+            } else {
+                screenModel.onScreenReentry()
+            }
+        }
+    }
+
     var lastSourceId by remember(activeSection) {
         mutableLongStateOf(
             if (activeSection == HomeHubSection.Manga) screenModel.getLastUsedMangaSourceId() else -1L,
@@ -338,6 +394,32 @@ internal fun NovelHomeHub(
         NovelHomeHubScreenModel.setInstance(screenModel)
         if (activeSection == HomeHubSection.Novel) {
             screenModel.startLiveUpdates()
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, activeSection) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (activeSection == HomeHubSection.Novel) {
+                    screenModel.onScreenReentry()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    var isFirstComposition by remember { mutableStateOf(true) }
+    LaunchedEffect(activeSection, tabNavigator.current) {
+        if (activeSection == HomeHubSection.Novel && tabNavigator.current is HomeHubTab) {
+            if (isFirstComposition) {
+                isFirstComposition = false
+            } else {
+                screenModel.onScreenReentry()
+            }
         }
     }
 
@@ -729,6 +811,9 @@ private fun HomeHubScreen(
                                 context.contextStringResource(AYMR.strings.for_you_added_snackbar, item.title),
                             )
                         } else {
+                            context.toast(
+                                context.contextStringResource(AYMR.strings.for_you_select_source_to_read),
+                            )
                             onDiscoveryItemClick(item)
                         }
                     }

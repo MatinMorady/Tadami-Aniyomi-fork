@@ -17,6 +17,7 @@ internal abstract class BaseHomeHubScreenModel(
     protected abstract val avatarFileName: String
 
     open fun rotateOrRefreshDiscovery() {}
+    open fun onScreenReentry() {}
 
     protected abstract fun updateCacheUserName(name: String)
     protected abstract fun updateCacheUserAvatar(path: String)

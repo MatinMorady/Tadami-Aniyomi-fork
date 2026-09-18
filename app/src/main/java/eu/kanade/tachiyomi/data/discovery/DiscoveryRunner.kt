@@ -28,7 +28,9 @@ class DiscoveryRunner(
     private val repository: DiscoveryRepository,
     private val preferences: DiscoveryPreferences,
     private val seedSources: DiscoverySeedSources,
-    private val coordinatorFactory: (List<DiscoveryRowBuilder>) -> DiscoveryCoordinator = { DiscoveryCoordinator(it) },
+    private val coordinatorFactory: (
+        List<DiscoveryRowBuilder>,
+    ) -> DiscoveryCoordinator = { DiscoveryCoordinator(it, rowLimit = 50) },
     private val seedSelector: DiscoverySeedSelector = DiscoverySeedSelector(),
     private val trendingFactory: () -> DiscoveryTrendingSource = { CompositeTrendingSource() },
     private val sourcePreferencesProvider: () -> SourcePreferences = { Injekt.get() },
@@ -112,10 +114,11 @@ class DiscoveryRunner(
         }
 
         val currentSuggestions = runCatching { repository.subscribe(mediaType).firstOrNull() }.getOrNull().orEmpty()
+        val shownTitles = runCatching { repository.getShownTitles(mediaType) }.getOrDefault(emptySet())
         val recentCleanTitles = if (isManualRefresh) {
-            currentSuggestions.mapTo(HashSet()) { it.cleanTitle }
+            currentSuggestions.mapTo(HashSet()) { it.cleanTitle } + shownTitles
         } else {
-            emptySet()
+            shownTitles
         }
         val pageOffset = if (isManualRefresh) 2 else 1
 
@@ -180,7 +183,7 @@ class DiscoveryRunner(
                 )
             }
             if (preferences.rowSourceEnabled().get()) {
-                add(DiscoverySourceRowBuilder(sourceCatalog))
+                add(DiscoverySourceRowBuilder(sourceCatalog, rowCap = 50))
             }
         }
         if (builders.isEmpty()) {
