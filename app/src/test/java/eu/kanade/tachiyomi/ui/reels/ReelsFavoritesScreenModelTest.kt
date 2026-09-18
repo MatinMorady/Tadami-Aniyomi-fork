@@ -23,8 +23,10 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import tachiyomi.domain.reels.anime.model.ReelsAlbum
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.model.ReelsHiddenEntry
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
 import tachiyomi.domain.source.anime.model.StubAnimeSource
@@ -64,6 +66,7 @@ class ReelsFavoritesScreenModelTest {
             sourceManager = managerOf(initialized, feedSource(501L)),
             offlineStore = store,
             hiddenRepository = FakeHiddenRepositoryCascade(),
+            albumRepository = FakeAlbumRepositoryCascade(),
         )
 
         // Cleanup is suspended on the cold-start guard: with the source map still empty it
@@ -96,12 +99,17 @@ class ReelsFavoritesScreenModelTest {
             val hidden = FakeHiddenRepositoryCascade()
             hidden.insert(ReelsHiddenEntry(501L, "video", "keep-me", Date(0), "Kept"))
             hidden.insert(ReelsHiddenEntry(502L, "video", "gone-too", Date(0), "Gone"))
+            val albums = FakeAlbumRepositoryCascade()
+            albums.insert(album("alb-keep", 501L))
+            albums.insert(album("alb-gone", 502L))
+            albums.markWatched(502L, "v-gone")
             val model = ReelsFavoritesScreenModel(
                 repository = favorites,
                 // 502 is not installed anymore: the manager has no entry for it.
                 sourceManager = managerOf(MutableStateFlow(true), feedSource(501L)),
                 offlineStore = store,
                 hiddenRepository = hidden,
+                albumRepository = albums,
             )
 
             val removed = model.cleanupMissingSources()
@@ -115,6 +123,10 @@ class ReelsFavoritesScreenModelTest {
             // H7 cascade: hidden entries of the removed source are gone.
             hidden.entries.keys shouldContainExactly setOf(Triple(501L, "video", "keep-me"))
             hidden.deletedSources shouldContainExactly listOf(502L)
+            // Albums cascade: the removed source loses its collection and watched marks.
+            albums.albums.keys shouldContainExactly setOf("alb-keep" to 501L)
+            albums.deletedSources shouldContainExactly listOf(502L)
+            albums.watchedDeletedSources shouldContainExactly listOf(502L)
         }
 
     @Test
@@ -124,11 +136,13 @@ class ReelsFavoritesScreenModelTest {
         val store = FakeOfflineStoreCascade()
         store.stored[501L to "fav-a"] = "file:///offline/501_fav-a.mp4"
         val hidden = FakeHiddenRepositoryCascade()
+        val albums = FakeAlbumRepositoryCascade()
         val model = ReelsFavoritesScreenModel(
             repository = favorites,
             sourceManager = managerOf(MutableStateFlow(true), feedSource(501L)),
             offlineStore = store,
             hiddenRepository = hidden,
+            albumRepository = albums,
         )
 
         model.cleanupMissingSources() shouldBe 0
@@ -136,6 +150,7 @@ class ReelsFavoritesScreenModelTest {
         favorites.deletedSources shouldBe emptyList()
         store.deletedSources shouldBe emptyList()
         hidden.deletedSources shouldBe emptyList()
+        albums.deletedSources shouldBe emptyList()
     }
 
     // --- Fixture helpers ---
@@ -267,5 +282,58 @@ class ReelsFavoritesScreenModelTest {
         }
 
         override suspend fun deleteAll() = entries.clear()
+    }
+
+    private fun album(albumId: String, sourceId: Long) = ReelsAlbum(
+        sourceId = sourceId,
+        albumId = albumId,
+        name = "Album $albumId",
+        coverUrl = null,
+        addedAt = Date(0),
+    )
+
+    private class FakeAlbumRepositoryCascade : ReelsAlbumRepository {
+        val albums = mutableMapOf<Pair<String, Long>, ReelsAlbum>()
+        val watched = mutableMapOf<Long, MutableSet<String>>()
+        val deletedSources = mutableListOf<Long>()
+        val watchedDeletedSources = mutableListOf<Long>()
+
+        override fun subscribeBySource(sourceId: Long): Flow<List<ReelsAlbum>> =
+            MutableStateFlow(albums.values.filter { it.sourceId == sourceId })
+
+        override suspend fun getBySource(sourceId: Long): List<ReelsAlbum> =
+            albums.values.filter { it.sourceId == sourceId }
+
+        override suspend fun insert(album: ReelsAlbum) {
+            albums[album.albumId to album.sourceId] = album
+        }
+
+        override suspend fun delete(sourceId: Long, albumId: String) {
+            albums.remove(albumId to sourceId)
+        }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            deletedSources += sourceId
+            albums.keys.filter { it.second == sourceId }.forEach { albums.remove(it) }
+            // Mirrors the impl: one repository call clears the source's watched marks too.
+            watchedDeletedSources += sourceId
+            watched.remove(sourceId)
+        }
+
+        override fun subscribeWatched(sourceId: Long): Flow<Set<String>> =
+            MutableStateFlow(watched[sourceId].orEmpty())
+
+        override suspend fun markWatched(sourceId: Long, videoId: String) {
+            watched.getOrPut(sourceId) { mutableSetOf() } += videoId
+        }
+
+        override suspend fun unmarkWatched(sourceId: Long, videoId: String) {
+            watched[sourceId]?.remove(videoId)
+        }
+
+        override suspend fun deleteWatchedBySource(sourceId: Long) {
+            watchedDeletedSources += sourceId
+            watched.remove(sourceId)
+        }
     }
 }

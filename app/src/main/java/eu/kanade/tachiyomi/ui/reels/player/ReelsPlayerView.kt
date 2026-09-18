@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -46,6 +47,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -58,6 +60,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import logcat.LogPriority
 import okhttp3.OkHttpClient
 import tachiyomi.core.common.util.system.logcat
@@ -113,12 +116,72 @@ fun ReelsPlayerView(
     webUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    // Lazy signing (balbums v6+): a blank url means the stream is signed just-in-time by the
+    // page; show the poster layer with a spinner until the resolved url arrives instead of
+    // building a player around an empty MediaItem (which would surface a playback error).
+    if (videoUrl.isBlank()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            AsyncImage(
+                model = posterUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            androidx.compose.material3.CircularProgressIndicator(
+                color = Color.White,
+            )
+        }
+        return
+    }
+    // Photo reels (mixed albums): ExoPlayer cannot decode stills — render the image and
+    // drive the minimum-dwell progress/advance ourselves (device fix for photo albums).
+    if (isReelImageUrl(videoUrl)) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            AsyncImage(
+                model = videoUrl,
+                contentDescription = videoDescription,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        LaunchedEffect(isActive, isPlaying) {
+            if (!isActive || !isPlaying) return@LaunchedEffect
+            onPlaybackRunningChanged(true)
+            onBufferingChanged(false)
+            val start = SystemClock.elapsedRealtime()
+            while (true) {
+                val shownMs = SystemClock.elapsedRealtime() - start
+                onProgressUpdate((shownMs.toFloat() / REELS_MIN_DWELL_MS).coerceIn(0f, 1f))
+                if (shownMs >= REELS_MIN_DWELL_MS) {
+                    onVideoCompleted()
+                    break
+                }
+                delay(250)
+            }
+        }
+        return
+    }
     val context = LocalContext.current
     val networkClient = remember { Injekt.get<NetworkHelper>().client }
     // Listener and surface callbacks are created once with the player; they must read the
     // CURRENT composition values, not the ones captured on first composition.
     val currentCropMode by rememberUpdatedState(isCropMode)
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
+    // CDN rate-limit (429) auto-recovery: silent backoff re-prepares before the error
+    // snackbar is allowed to surface (device logcat evidence).
+    val retryScope = rememberCoroutineScope()
+    var autoRetry429Count by remember { mutableIntStateOf(0) }
+    var autoRetry429Signal by remember { mutableIntStateOf(0) }
     var isFirstFrameRendered by remember(videoUrl) { mutableStateOf(false) }
     // First-frame wall-clock anchor for the minimum-dwell rule (see reelsEndHold).
     var firstFrameAtMs by remember(videoUrl) { mutableLongStateOf(0L) }
@@ -256,6 +319,7 @@ fun ReelsPlayerView(
                             onBufferingChanged(playbackState == Player.STATE_BUFFERING)
                             when (playbackState) {
                                 Player.STATE_READY -> {
+                                    autoRetry429Count = 0
                                     val durSec = duration.toFloat() / 1000f
                                     if (durSec > 0) onDurationKnown(durSec)
                                     if (restorePositionMs > 0) {
@@ -318,6 +382,29 @@ fun ReelsPlayerView(
                         override fun onPlayerError(error: PlaybackException) {
                             logcat(LogPriority.ERROR) {
                                 "Reels player error ${error.errorCodeName} on $videoUrl"
+                            }
+                            // CDN rate limit (device logcat: HTTP 429 on the media GET with a
+                            // valid signed URL): back off and re-prepare silently a few times,
+                            // keeping the buffering spinner up, before surfacing the error.
+                            var cause: Throwable? = error
+                            var rateLimited = false
+                            while (cause != null) {
+                                if (cause is HttpDataSource.InvalidResponseCodeException &&
+                                    cause.responseCode == 429
+                                ) {
+                                    rateLimited = true
+                                    break
+                                }
+                                cause = cause.cause
+                            }
+                            if (rateLimited && autoRetry429Count < MAX_PLAYBACK_429_RETRIES) {
+                                autoRetry429Count++
+                                onBufferingChanged(true)
+                                retryScope.launch {
+                                    delay(PLAYBACK_429_BACKOFF_MS * autoRetry429Count)
+                                    autoRetry429Signal++
+                                }
+                                return
                             }
                             onPlaybackError(error.localizedMessage ?: error.errorCodeName)
                         }
@@ -385,8 +472,8 @@ fun ReelsPlayerView(
     }
 
     // Retry after a playback error: re-prepare the same media from the beginning.
-    LaunchedEffect(retrySignal) {
-        if (retrySignal > 0) {
+    LaunchedEffect(retrySignal, autoRetry429Signal) {
+        if (retrySignal > 0 || autoRetry429Signal > 0) {
             player?.apply {
                 seekTo(0)
                 prepare()
@@ -566,6 +653,10 @@ private const val REELS_CACHE_DIR = "reels_video"
 // One decode size shared by the blurred background and the placeholder overlay.
 private const val POSTER_DECODE_SIZE = 480
 
+/** 429 auto-recovery: this many silent backoff re-prepares before the error surfaces. */
+private const val MAX_PLAYBACK_429_RETRIES = 3
+private const val PLAYBACK_429_BACKOFF_MS = 3_000L
+
 /** Minimum time a reel stays on screen before auto-advance moves on (stills/short clips). */
 const val REELS_MIN_DWELL_MS = 5_000L
 
@@ -660,6 +751,14 @@ internal fun isProgressiveReelUrl(url: String): Boolean =
     Uri.parse(url).lastPathSegment
         ?.substringAfterLast('.', "")
         ?.lowercase() in PROGRESSIVE_CONTAINER_EXTENSIONS
+
+/** Photo-reel detection: still-image containers ride the feed as dwell-held stills. */
+internal fun isReelImageUrl(url: String): Boolean =
+    Uri.parse(url).lastPathSegment
+        ?.substringAfterLast('.', "")
+        ?.lowercase() in STILL_IMAGE_EXTENSIONS
+
+private val STILL_IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "avif")
 
 /** Head-prewarm chunk: how many leading bytes of a reel are warmed ahead of the player window. */
 internal const val HEAD_PREWARM_BYTES = 512L * 1024L

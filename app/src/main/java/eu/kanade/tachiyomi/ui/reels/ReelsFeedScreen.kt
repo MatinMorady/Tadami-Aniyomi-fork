@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.SystemClock
 import android.text.format.Formatter
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -17,34 +18,54 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.outlined.AddCircle
+import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -57,12 +78,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -71,9 +99,11 @@ import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import coil3.compose.AsyncImage
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.tachiyomi.animesource.model.CustomFeedRef
+import eu.kanade.tachiyomi.animesource.model.FeedCategory
 import eu.kanade.tachiyomi.animesource.model.SearchSuggestionKind
 import eu.kanade.tachiyomi.ui.browse.anime.source.browse.SourceFilterAnimeDialog
 import eu.kanade.tachiyomi.ui.reels.ReelsFeedScreenModel.OfflineCopyResult
@@ -106,6 +136,7 @@ import tachiyomi.presentation.core.screens.EmptyScreenAction
 import tachiyomi.presentation.core.screens.LoadingScreen
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import androidx.compose.foundation.lazy.grid.items as gridItems
 
 data class ReelsFeedScreen(
     val sourceId: Long,
@@ -207,6 +238,9 @@ data class ReelsFeedScreen(
             )
             else -> stringResource(MR.strings.reels_off_short)
         }
+        // Contract v23: album-capable sources answer search with an album directory — the
+        // screen renders album cards instead of the video pager for such queries.
+        val albumMode = state.albumSearchCapable && state.searchQuery.isNotBlank()
         // Audit H8: the offline-copy quota usage, refreshed on entry and after every change.
         var offlineUsedBytes by remember { mutableLongStateOf(0L) }
         // Double-tap guard: one download/removal at a time (the store survives races, but a
@@ -216,6 +250,19 @@ data class ReelsFeedScreen(
         // B3 touch lock (Just Player pattern): blocks swipes/taps/gestures; long-press on the
         // full-screen overlay unlocks. Session state — deliberately not persisted.
         var touchLocked by rememberSaveable { mutableStateOf(false) }
+        // Device UX (sign-off): transient network failures must not stack snackbars over a
+        // playing feed — the same message is coalesced within a cooldown window.
+        var lastErrorSnackMsg by remember { mutableStateOf("") }
+        var lastErrorSnackAt by remember { mutableLongStateOf(0L) }
+        fun showErrorSnackbarOnce(message: String): Boolean {
+            val now = SystemClock.elapsedRealtime()
+            if (message == lastErrorSnackMsg && now - lastErrorSnackAt < ERROR_SNACK_COOLDOWN_MS) {
+                return false
+            }
+            lastErrorSnackMsg = message
+            lastErrorSnackAt = now
+            return true
+        }
         LaunchedEffect(Unit) { offlineUsedBytes = screenModel.offlineUsedBytes() }
 
         fun handleFollowToggle(creatorName: String?) {
@@ -287,6 +334,13 @@ data class ReelsFeedScreen(
         // own their dismiss handling already).
         BackHandler(enabled = !landscapeFullscreen && state.isSearchBarOpen) {
             screenModel.toggleSearchBar(false)
+        }
+        // Report fix: with an active search result (album cards or filtered feed), back
+        // cancels the search and restores the previous feed instead of leaving Reels.
+        BackHandler(
+            enabled = !landscapeFullscreen && !state.isSearchBarOpen && state.searchQuery.isNotBlank(),
+        ) {
+            screenModel.clearSearch()
         }
 
         // Hide the system bars while the rotated video owns the screen; restore on exit
@@ -419,6 +473,22 @@ data class ReelsFeedScreen(
 
         Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             when {
+                albumMode -> AlbumSearchResults(
+                    state = state,
+                    onOpenAlbum = { category ->
+                        navigator.push(
+                            ReelsAlbumScreen(
+                                sourceId = state.currentSourceId,
+                                albumId = category.id,
+                                albumName = category.name,
+                            ),
+                        )
+                    },
+                    onToggleSave = { category -> screenModel.toggleAlbumSaved(category) },
+                    onPreview = { category -> screenModel.loadAlbumPreview(category.id) },
+                    onLoadMore = { screenModel.loadFeed() },
+                    onResetSearch = screenModel::clearSearch,
+                )
                 state.isLoading && state.items.isEmpty() -> {
                     LoadingScreen(modifier = Modifier.fillMaxSize())
                 }
@@ -549,7 +619,10 @@ data class ReelsFeedScreen(
                     val genericLoadError = stringResource(MR.strings.reels_feed_load_failed)
                     LaunchedEffect(state.pageError) {
                         state.pageError?.let { message ->
-                            snackbarHostState.showSnackbar(message.ifBlank { genericLoadError })
+                            val text = message.ifBlank { genericLoadError }
+                            if (showErrorSnackbarOnce(text)) {
+                                snackbarHostState.showSnackbar(text)
+                            }
                             screenModel.onPageErrorShown()
                         }
                     }
@@ -734,15 +807,22 @@ data class ReelsFeedScreen(
                                     }
                                 },
                                 onPlaybackError = { msg, retry ->
-                                    // Offline playlist: the stored CDN link may have expired — kick the
-                                    // on-demand re-resolve now so the retry tap meets the refreshed URL.
-                                    screenModel.refreshOfflineUrl(page)
-                                    coroutineScope.launch {
-                                        val result = snackbarHostState.showSnackbar(
-                                            message = msg,
-                                            actionLabel = retryLabel,
-                                        )
-                                        if (result == SnackbarResult.ActionPerformed) retry()
+                                    // Device UX (sign-off): preload neighbors fail silently —
+                                    // only the settled page's playback errors reach the user.
+                                    if (page == pagerState.settledPage) {
+                                        // Offline playlist: the stored CDN link may have expired — kick
+                                        // the on-demand re-resolve now so the retry tap meets the
+                                        // refreshed URL.
+                                        screenModel.refreshOfflineUrl(page)
+                                        if (showErrorSnackbarOnce(msg)) {
+                                            coroutineScope.launch {
+                                                val result = snackbarHostState.showSnackbar(
+                                                    message = msg,
+                                                    actionLabel = retryLabel,
+                                                )
+                                                if (result == SnackbarResult.ActionPerformed) retry()
+                                            }
+                                        }
                                     }
                                 },
                                 onScrubStart = { chromeVisible = true },
@@ -767,6 +847,9 @@ data class ReelsFeedScreen(
                                     state.offlineSourceIds.getOrNull(page)?.toString() ?: "offline"
                                 } else {
                                     state.currentSourceId.toString()
+                                },
+                                resolveUrl = { pageItem ->
+                                    screenModel.resolvePlaybackUrl(pageItem, effectiveHd)
                                 },
                                 isLastPage = page == state.items.lastIndex,
                                 headers = state.sourceHeaders,
@@ -916,7 +999,14 @@ data class ReelsFeedScreen(
                             handleFollowToggle(state.creator)
                         }
                     },
-                    onBackClick = { navigator.pop() },
+                    onBackClick = {
+                        // Report fix: the top-bar back arrow mirrors the system back behavior.
+                        if (state.searchQuery.isNotBlank()) {
+                            screenModel.clearSearch()
+                        } else {
+                            navigator.pop()
+                        }
+                    },
                     onOpenSourcePicker = { screenModel.toggleSourcePicker(true) },
                     onLoginRequest = { screenModel.openLoginFlow() },
                     onLogout = screenModel::logout,
@@ -968,6 +1058,9 @@ data class ReelsFeedScreen(
                     onOpenFavorites = { navigator.push(ReelsFavoritesScreen()) },
                     onOpenHistory = { navigator.push(ReelsWatchHistoryScreen()) },
                     onOpenHidden = { navigator.push(ReelsHiddenScreen()) },
+                    onOpenAlbums = { navigator.push(ReelsAlbumsScreen(state.currentSourceId)) },
+                    nicheAlbumSaved = if (nicheId != null) nicheId in state.savedAlbumIds else null,
+                    onToggleNicheAlbum = { screenModel.toggleCurrentNicheAlbum() },
                     onOpenFollows = { navigator.push(ReelsFollowsScreen(sourceId = state.currentSourceId)) },
                     onSearch = screenModel::search,
                     onClearSearch = screenModel::clearSearch,
@@ -1206,6 +1299,156 @@ data class ReelsFeedScreen(
                 }
             }
         }
+
+        // Long-press preview of an album's content (contract v23 search cards): mini-grid of
+        // the first page thumbnails + save/open actions (prototype v2, sign-off).
+        state.previewAlbumId?.let { previewId ->
+            val previewCategory = state.albumSearchResults.firstOrNull { it.id == previewId }
+            Dialog(onDismissRequest = screenModel::closeAlbumPreview) {
+                // Sign-off v3/D: one custom surface — the haze header spans edge-to-edge (no
+                // AlertDialog text-slot insets, hence no "window inside a window"), and the
+                // grid plus actions continue the very same surface.
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+                ) {
+                    Column {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(112.dp),
+                        ) {
+                            previewCategory?.imageUrl?.let { url ->
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer(scaleX = 1.25f, scaleY = 1.25f)
+                                        .blur(30.dp)
+                                        .alpha(0.55f),
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colorStops = arrayOf(
+                                                0.35f to Color.Transparent,
+                                                0.82f to MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                                                1f to MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+                                            ),
+                                        ),
+                                    ),
+                            )
+                            Column(modifier = Modifier.padding(start = 20.dp, top = 16.dp, end = 20.dp)) {
+                                Text(
+                                    text = previewCategory?.name ?: previewId,
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                previewCategory?.let { category ->
+                                    TextButton(onClick = { screenModel.toggleAlbumSaved(category) }) {
+                                        Text(
+                                            stringResource(
+                                                if (category.id in state.savedAlbumIds) {
+                                                    MR.strings.reels_album_remove_album
+                                                } else {
+                                                    MR.strings.reels_album_save
+                                                },
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        when {
+                            state.previewLoading -> Box(
+                                modifier = Modifier.fillMaxWidth().height(140.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                            state.previewItems.isEmpty() -> Box(
+                                modifier = Modifier.fillMaxWidth().height(96.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = stringResource(MR.strings.reels_feed_empty),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            else -> LazyVerticalGrid(
+                                columns = GridCells.Fixed(4),
+                                modifier = Modifier.fillMaxWidth().height(220.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                gridItems(state.previewItems, key = { it.id }) { item ->
+                                    if (item.posterUrl.isBlank()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(3f / 4f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                                        .copy(alpha = 0.5f),
+                                                ),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Collections,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    } else {
+                                        AsyncImage(
+                                            model = item.posterUrl,
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(3f / 4f)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 14.dp),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = screenModel::closeAlbumPreview) {
+                                Text(stringResource(MR.strings.action_cancel))
+                            }
+                            TextButton(
+                                onClick = {
+                                    screenModel.closeAlbumPreview()
+                                    previewCategory?.let { category ->
+                                        navigator.push(
+                                            ReelsAlbumScreen(
+                                                sourceId = state.currentSourceId,
+                                                albumId = category.id,
+                                                albumName = category.name,
+                                            ),
+                                        )
+                                    }
+                                },
+                            ) {
+                                Text(stringResource(MR.strings.reels_album_open))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1213,6 +1456,154 @@ private fun Context.isOnWifi(): Boolean {
     val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
     val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
     return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+}
+
+/** Device UX (sign-off): same-message error snackbars are coalesced within this window. */
+private const val ERROR_SNACK_COOLDOWN_MS = 10_000L
+
+/**
+ * Contract v23 album-search results: album cards instead of the video pager. Tap opens the
+ * album grid, the trailing button saves/removes it in the collection, long-press shows the
+ * content preview dialog (prototype v2, sign-off). Pagination appends on scroll bottom.
+ */
+@Composable
+private fun AlbumSearchResults(
+    state: ReelsFeedScreenModel.State,
+    onOpenAlbum: (FeedCategory) -> Unit,
+    onToggleSave: (FeedCategory) -> Unit,
+    onPreview: (FeedCategory) -> Unit,
+    onLoadMore: () -> Unit,
+    onResetSearch: () -> Unit,
+) {
+    // Report fix: the list lives under the overlay top bar — pad for status bar + bar height
+    // so the first album card is never hidden beneath the chrome; the open search block
+    // (device fix) adds its own height on top.
+    val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 64.dp +
+        if (state.isSearchBarOpen) 116.dp else 0.dp
+    if (state.albumSearchResults.isEmpty() && !state.isLoading) {
+        ReelsEmptySearchState(onResetSearch = onResetSearch, modifier = Modifier.padding(top = topPadding))
+        return
+    }
+    val listState = rememberLazyListState()
+    val lastVisible by remember {
+        derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+    }
+    LaunchedEffect(lastVisible, state.albumSearchResults.size, state.albumSearchCanLoadMore) {
+        if (state.albumSearchCanLoadMore && lastVisible >= state.albumSearchResults.size - 4) {
+            onLoadMore()
+        }
+    }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 12.dp,
+            end = 12.dp,
+            bottom = 12.dp,
+            top = topPadding,
+        ),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(state.albumSearchResults, key = { it.id }) { category ->
+            val saved = category.id in state.savedAlbumIds
+            // Aurora haze (device sign-off): the album cover blurred as backdrop under a
+            // transparent surface instead of an opaque card.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .combinedClickable(
+                        onClick = { onOpenAlbum(category) },
+                        onLongClick = { onPreview(category) },
+                    ),
+            ) {
+                if (category.imageUrl != null) {
+                    AsyncImage(
+                        model = category.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .matchParentSize()
+                            .blur(18.dp)
+                            .alpha(0.45f),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.45f)),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Report fix: graceful fallback when the album has no thumbnail.
+                    if (category.imageUrl != null) {
+                        AsyncImage(
+                            model = category.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(56.dp, 72.dp)
+                                .clip(RoundedCornerShape(10.dp)),
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp, 72.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Collections,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(
+                            text = category.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        category.itemCount?.let { count ->
+                            Text(
+                                text = count.toString(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    IconButton(onClick = { onToggleSave(category) }) {
+                        Icon(
+                            imageVector = if (saved) Icons.Filled.CheckCircle else Icons.Outlined.AddCircle,
+                            contentDescription = null,
+                            tint = if (saved) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        if (state.isLoading) {
+            item {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
+    }
 }
 
 /**

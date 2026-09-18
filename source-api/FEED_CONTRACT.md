@@ -1,6 +1,6 @@
 # Reels Feed Contract
 
-**Current version: 22** (`extensionLib` 12.0–22.0 accepted by the host) ·
+**Current version: 23** (`extensionLib` 12.0–23.0 accepted by the host) ·
 Owner module: [`:source-api`](build.gradle.kts) ·
 API surface: [`AnimeFeedSource`](src/commonMain/kotlin/eu/kanade/tachiyomi/animesource/AnimeFeedSource.kt),
 [`AnimeCreatorFeedSource`](src/commonMain/kotlin/eu/kanade/tachiyomi/animesource/AnimeCreatorFeedSource.kt),
@@ -279,6 +279,7 @@ class MyFeed : AnimeFeedSource {
 
 | Version | Change |
 |---|---|
+| 23 | Optional capability `AnimeAlbumSearchSource.searchAlbums(query, page, cursor): FeedCategoryPage` — paginated album-oriented search for bunkr-like sources; the host renders album cards (open / save to collection / long-press content preview) instead of the flat video feed when present. Instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep their pre-v23 search; `LIB_VERSION_MAX` → 23.0 as the discipline stamp. |
 | 22 | Optional capability `AnimeFeedLoginInstrumentationSource` (source-supplied session instrumentation JS + extra dump origins + logout purge origins) and `AnimeFeedVideoResolverSource` (stable-id → playable URL re-resolution for favorites). Both instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep working; `LIB_VERSION_MAX` → 22.0 as the discipline stamp. |
 | 21 | Optional capability `AnimeCategoryFeedOrderSource` (`categoryFilters()` + four-arg `getCategoryFeed`): source-defined category-feed orders rendered by the host in NICHE mode. Instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep working; `LIB_VERSION_MAX` → 21.0 as the discipline stamp. |
 | 20 | Optional capabilities `AnimeFeedWebLoginSource` (hosted web login via WebView session import), `AnimeFeedBrowseSource` (category directory + per-category feeds) and `AnimeCategorizedSearchSource` (sectioned search hits with previews), plus models `FeedCategory`/`FeedCategoryPage`/`SearchSuggestion`/`SearchSuggestions`. All instanceof-detected, no default members added to existing interfaces. Additive: existing feed plugins keep working; `LIB_VERSION_MAX` → 20.0 as the discipline stamp. |

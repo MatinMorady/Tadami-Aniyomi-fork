@@ -13,9 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tachiyomi.domain.reels.anime.model.ReelsAlbum
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.util.Date
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -27,6 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class ReelsNichesScreenModel(
     private val sourceId: Long,
     private val sourceManager: AnimeSourceManager = Injekt.get(),
+    private val albumRepository: ReelsAlbumRepository = Injekt.get(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : StateScreenModel<ReelsNichesScreenModel.State>(ReelsNichesScreenModel.State()) {
 
@@ -41,6 +45,8 @@ class ReelsNichesScreenModel(
         val nextPage: Int = 1,
         val nextCursor: String? = null,
         val cursorMode: Boolean = false,
+        // Albums collection marks for the add-to-collection button on each category cell.
+        val savedAlbumIds: Set<String> = emptySet(),
     )
 
     // Monotonic generation token (the same pattern as ReelsFeedScreenModel): every retry and
@@ -54,6 +60,38 @@ class ReelsNichesScreenModel(
 
     init {
         loadMore()
+        reloadSavedAlbums()
+    }
+
+    /** Albums-collection marks of this source (add-to-collection buttons on the cells). */
+    private fun reloadSavedAlbums() {
+        screenModelScope.launch(ioDispatcher) {
+            val saved = runCatching { albumRepository.getBySource(sourceId) }
+                .getOrDefault(emptyList())
+                .map { it.albumId }
+                .toSet()
+            mutableState.update { it.copy(savedAlbumIds = saved) }
+        }
+    }
+
+    /** Adds/removes a category to/from the albums collection (device feature entry point). */
+    fun toggleAlbumSaved(category: FeedCategory) {
+        screenModelScope.launch(ioDispatcher) {
+            if (category.id in state.value.savedAlbumIds) {
+                albumRepository.delete(sourceId, category.id)
+            } else {
+                albumRepository.insert(
+                    ReelsAlbum(
+                        sourceId = sourceId,
+                        albumId = category.id,
+                        name = category.name,
+                        coverUrl = category.imageUrl,
+                        addedAt = Date(),
+                    ),
+                )
+            }
+            reloadSavedAlbums()
+        }
     }
 
     /** Resets the stream and starts over (error state retry). */
@@ -63,6 +101,7 @@ class ReelsNichesScreenModel(
         loading = false
         mutableState.update { State() }
         loadMore()
+        reloadSavedAlbums()
     }
 
     fun loadMore() {

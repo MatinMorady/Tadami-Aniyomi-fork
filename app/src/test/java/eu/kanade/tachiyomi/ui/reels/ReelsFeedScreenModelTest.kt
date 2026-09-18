@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reels
 
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.animesource.AnimeAlbumSearchSource
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.AnimeCategorizedSearchSource
 import eu.kanade.tachiyomi.animesource.AnimeCategorySubscriptionSource
@@ -52,10 +53,12 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.domain.reels.anime.model.ReelsAlbum
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.model.ReelsFollow
 import tachiyomi.domain.reels.anime.model.ReelsHiddenEntry
 import tachiyomi.domain.reels.anime.model.ReelsWatchEntry
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFollowRepository
 import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
@@ -275,6 +278,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -389,6 +393,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -455,6 +460,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -504,6 +510,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -565,6 +572,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -631,6 +639,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -695,6 +704,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -877,6 +887,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -1066,6 +1077,36 @@ class ReelsFeedScreenModelTest {
         }
     }
 
+    private class FakeAlbumRepository : ReelsAlbumRepository {
+        val albums = mutableMapOf<Pair<String, Long>, ReelsAlbum>()
+
+        override fun subscribeBySource(sourceId: Long): Flow<List<ReelsAlbum>> =
+            MutableStateFlow(albums.values.filter { it.sourceId == sourceId })
+
+        override suspend fun getBySource(sourceId: Long): List<ReelsAlbum> =
+            albums.values.filter { it.sourceId == sourceId }
+
+        override suspend fun insert(album: ReelsAlbum) {
+            albums[album.albumId to album.sourceId] = album
+        }
+
+        override suspend fun delete(sourceId: Long, albumId: String) {
+            albums.remove(albumId to sourceId)
+        }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            albums.keys.filter { it.second == sourceId }.forEach { albums.remove(it) }
+        }
+
+        override fun subscribeWatched(sourceId: Long): Flow<Set<String>> = MutableStateFlow(emptySet())
+
+        override suspend fun markWatched(sourceId: Long, videoId: String) = Unit
+
+        override suspend fun unmarkWatched(sourceId: Long, videoId: String) = Unit
+
+        override suspend fun deleteWatchedBySource(sourceId: Long) = Unit
+    }
+
     private fun sourceManagerOf(vararg sources: AnimeSource): AnimeSourceManager = object : AnimeSourceManager {
         override val isInitialized: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
         override val sources: Flow<List<AnimeSource>> = MutableStateFlow(sources.toList())
@@ -1084,6 +1125,7 @@ class ReelsFeedScreenModelTest {
         followRepository: ReelsFollowRepository = FakeReelsFollowRepository(),
         watchRepository: ReelsWatchRepository = FakeReelsWatchRepository(),
         hiddenRepository: ReelsHiddenRepository = FakeReelsHiddenRepository(),
+        albumRepository: ReelsAlbumRepository = FakeAlbumRepository(),
         offlineStore: ReelsOfflineStore = FakeReelsOfflineStore(),
         incognito: Boolean = false,
         offlinePlaylist: Boolean = false,
@@ -1119,6 +1161,7 @@ class ReelsFeedScreenModelTest {
         reelsFollowRepository = followRepository,
         reelsWatchRepository = watchRepository,
         reelsHiddenRepository = hiddenRepository,
+        reelsAlbumRepository = albumRepository,
         offlineStore = offlineStore,
         sessionSound = sessionSound,
     )
@@ -1767,6 +1810,7 @@ class ReelsFeedScreenModelTest {
             reelsFollowRepository = FakeReelsFollowRepository(),
             reelsWatchRepository = FakeReelsWatchRepository(),
             reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
             offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
@@ -2892,5 +2936,130 @@ class ReelsFeedScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         model.state.value.customFeeds.map { it.id } shouldBe listOf("f2")
+    }
+
+    @Test
+    fun `album search routes from niche mode and its pagination flag gates loadMore`() = runTest(testDispatcher) {
+        val source = FakeAlbumSearchSource()
+        val model = buildModel(
+            sourceId = 9201L,
+            manager = sourceManagerOf(source),
+            nicheId = "alb-1",
+            nicheName = "Album One",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Report fix: album search works from NICHE mode, not only GLOBAL.
+        model.search("summer")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1")
+        source.albumRequests shouldBe listOf(1 to null)
+
+        model.loadFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1", "alb-2")
+        model.state.value.albumSearchCanLoadMore shouldBe false
+
+        // The album-search flag (not the feed flag) gates further pages now.
+        model.loadFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        source.albumRequests shouldBe listOf(1 to null, 2 to "c1")
+    }
+
+    @Test
+    fun `album-capable live typing renders album cards and keeps the bar open`() = runTest(testDispatcher) {
+        val source = FakeAlbumSearchSource()
+        val model = buildModel(sourceId = 9201L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.toggleSearchBar(true)
+        model.requestSearchSuggestions("sum")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Live album search (device fix): cards replace the 100-chip suggestion panel,
+        // the bar stays open while typing, and no categorized suggestions are requested.
+        model.state.value.searchQuery shouldBe "sum"
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1")
+        model.state.value.isSearchBarOpen shouldBe true
+        model.state.value.searchSuggestions shouldBe null
+        source.albumRequests shouldBe listOf(1 to null)
+    }
+
+    @Test
+    fun `deep-link seek silently appends pages until the tapped clip surfaces`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(
+            id = 3301L,
+            feedProvider = { page ->
+                FeedPage(
+                    videos = (1..3).map { i -> videoItem("p$page-$i") },
+                    hasNextPage = page < 3,
+                )
+            },
+        )
+        val model = buildModel(sourceId = 3301L, manager = sourceManagerOf(source), resumeVideoId = "p2-2")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val ids = model.state.value.items.map { it.id }
+        ids shouldContain "p2-2"
+        model.state.value.targetPageIndex shouldBe ids.indexOfFirst { it == "p2-2" }
+        source.requestedPages shouldBe listOf(1, 2)
+    }
+
+    @Test
+    fun `album-capable source renders search as paginated album directory`() = runTest(testDispatcher) {
+        val source = FakeAlbumSearchSource()
+        val model = buildModel(sourceId = 9201L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.search("summer")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.state.value.albumSearchCapable shouldBe true
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1")
+        model.state.value.albumSearchCanLoadMore shouldBe true
+
+        model.loadFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1", "alb-2")
+        model.state.value.albumSearchCanLoadMore shouldBe false
+        source.albumRequests shouldBe listOf(1 to null, 2 to "c1")
+    }
+
+    private class FakeAlbumSearchSource : AnimeFeedSource, AnimeAlbumSearchSource, AnimeFeedBrowseSource {
+        override val id: Long = 9201L
+        override val name: String = "Album Search"
+        override val lang: String = "all"
+        val albumRequests = mutableListOf<Pair<Int, String?>>()
+
+        override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage =
+            FeedPage(emptyList(), false)
+
+        override suspend fun getBrowseCategories(page: Int, cursor: String?): FeedCategoryPage =
+            FeedCategoryPage(emptyList(), hasNextPage = false)
+
+        override suspend fun getCategoryFeed(categoryId: String, page: Int, cursor: String?): FeedPage =
+            FeedPage(emptyList(), hasNextPage = false)
+
+        override suspend fun searchAlbums(query: String, page: Int, cursor: String?): FeedCategoryPage {
+            albumRequests += page to cursor
+            return if (page == 1) {
+                FeedCategoryPage(
+                    categories = listOf(
+                        FeedCategory(id = "alb-1", name = "Album One", imageUrl = null, itemCount = 3),
+                    ),
+                    hasNextPage = true,
+                    nextCursor = "c1",
+                )
+            } else {
+                FeedCategoryPage(
+                    categories = listOf(
+                        FeedCategory(id = "alb-2", name = "Album Two", imageUrl = null, itemCount = 1),
+                    ),
+                    hasNextPage = false,
+                )
+            }
+        }
     }
 }

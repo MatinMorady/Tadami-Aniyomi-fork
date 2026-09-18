@@ -34,6 +34,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.outlined.PlaylistAdd
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Check
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.GridView
@@ -131,6 +133,10 @@ fun ReelsTopBar(
     onOpenFavorites: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenHidden: () -> Unit = {},
+    onOpenAlbums: () -> Unit = {},
+    // NICHE mode: save/remove the currently open album in the collection (null hides the row).
+    nicheAlbumSaved: Boolean? = null,
+    onToggleNicheAlbum: () -> Unit = {},
     onOpenFollows: () -> Unit = {},
     isPipEnabled: Boolean = false,
     onTogglePip: () -> Unit = {},
@@ -529,6 +535,15 @@ fun ReelsTopBar(
                             },
                             onOpenHidden = {
                                 onOpenHidden()
+                                openHub = HubMenu.NONE
+                            },
+                            onOpenAlbums = {
+                                onOpenAlbums()
+                                openHub = HubMenu.NONE
+                            },
+                            nicheAlbumSaved = nicheAlbumSaved,
+                            onToggleNicheAlbum = {
+                                onToggleNicheAlbum()
                                 openHub = HubMenu.NONE
                             },
                             onOpenFilter = {
@@ -945,6 +960,9 @@ private fun ReelsMoreMenu(
     isReelsIncognito: Boolean,
     onOpenHistory: () -> Unit,
     onOpenHidden: () -> Unit,
+    onOpenAlbums: () -> Unit,
+    nicheAlbumSaved: Boolean?,
+    onToggleNicheAlbum: () -> Unit,
     onOpenFilter: () -> Unit,
     onOpenSleepDialog: () -> Unit,
     onToggleTouchLock: () -> Unit,
@@ -1010,6 +1028,42 @@ private fun ReelsMoreMenu(
                 checked = null,
                 onClick = onOpenHidden,
             )
+            MoreMenuRow(
+                icon = {
+                    Icon(
+                        Icons.Outlined.Collections,
+                        null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+                label = stringResource(MR.strings.reels_albums),
+                value = null,
+                checked = null,
+                onClick = onOpenAlbums,
+            )
+            if (nicheAlbumSaved != null) {
+                MoreMenuRow(
+                    icon = {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.PlaylistAdd,
+                            null,
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    label = stringResource(
+                        if (nicheAlbumSaved) {
+                            MR.strings.reels_album_remove_album
+                        } else {
+                            MR.strings.reels_album_save
+                        },
+                    ),
+                    value = null,
+                    checked = null,
+                    onClick = onToggleNicheAlbum,
+                )
+            }
             if (showFilterRow) {
                 MoreMenuRow(
                     icon = {

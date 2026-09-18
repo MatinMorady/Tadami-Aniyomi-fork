@@ -93,6 +93,9 @@ fun ReelsVideoPage(
     // Stable per-source prefix; the page appends item id + the PINNED quality to build the
     // progressive cache key.
     cachePrefix: String? = null,
+    // Lazy stream signing (balbums v6+): items may carry a blank videoUrl; the page resolves
+    // just-in-time through the source's v22 resolver before building the player.
+    resolveUrl: (suspend (ShortVideoItem) -> String?)? = null,
     // Creator follow affordances (contract v18): the caller gates both on
     // `source is AnimeCreatorFeedSource && item.author != null`.
     showFollowAction: Boolean = false,
@@ -231,8 +234,25 @@ fun ReelsVideoPage(
         }
     }
 
-    val videoUrl = remember(item, pinnedHd) {
+    val rawUrl = remember(item, pinnedHd) {
         if (pinnedHd) (item.videoUrlHd ?: item.videoUrl) else item.videoUrl
+    }
+    // Lazy signing: a blank url resolves just-in-time; the player is only built once a real
+    // url exists (a blank MediaItem would surface a playback error before signing finishes).
+    var videoUrl by remember(rawUrl, item.id) { mutableStateOf(rawUrl) }
+    LaunchedEffect(rawUrl, item.id, retrySignal) {
+        if (rawUrl.isBlank()) {
+            val resolved = runCatching { resolveUrl?.invoke(item) }.getOrNull()
+            if (!resolved.isNullOrBlank()) {
+                videoUrl = resolved
+            } else if (resolveUrl != null) {
+                onPlaybackError("Failed to load video stream") {
+                    retrySignal++
+                }
+            }
+        } else {
+            videoUrl = rawUrl
+        }
     }
     val cacheKey = cachePrefix?.let { prefix -> "$prefix:${item.id}:${if (pinnedHd) "hd" else "sd"}" }
 

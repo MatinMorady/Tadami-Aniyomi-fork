@@ -1991,4 +1991,15 @@
     <string name="reels_on_short">On</string>
     <string name="reels_off_short">Off</string>
     <string name="reels_incognito">Incognito (Reels)</string>
+    <string name="reels_albums">Albums</string>
+    <string name="reels_albums_empty">No saved albums yet</string>
+    <string name="reels_album_add">Add album</string>
+    <string name="reels_album_remove">Remove from collection</string>
+    <string name="reels_album_search">Search in album</string>
+    <string name="reels_album_mark_watched">Mark as watched</string>
+    <string name="reels_album_unmark_watched">Remove watched mark</string>
+    <string name="reels_album_save">Save album to collection</string>
+    <string name="reels_album_remove_album">Remove album from collection</string>
+    <string name="reels_album_open">Open album</string>
+    <string name="reels_album_play_as_feed">Play as reels feed</string>
 </resources>

@@ -26,6 +26,8 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import tachiyomi.domain.reels.anime.model.ReelsAlbum
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.source.anime.model.StubAnimeSource
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 
@@ -143,6 +145,7 @@ class ReelsNichesScreenModelTest {
             sourceId = 4001L,
             sourceManager = sourceManagerOf(source),
             ioDispatcher = testDispatcher,
+            albumRepository = FakeAlbumRepository(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -164,6 +167,7 @@ class ReelsNichesScreenModelTest {
             sourceId = 4002L,
             sourceManager = sourceManagerOf(PlainFeedSource()),
             ioDispatcher = testDispatcher,
+            albumRepository = FakeAlbumRepository(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -179,6 +183,7 @@ class ReelsNichesScreenModelTest {
             sourceId = 4003L,
             sourceManager = sourceManagerOf(source),
             ioDispatcher = testDispatcher,
+            albumRepository = FakeAlbumRepository(),
         )
         testDispatcher.scheduler.runCurrent()
         source.categoryRequests shouldBe listOf(1 to null)
@@ -212,6 +217,7 @@ class ReelsNichesScreenModelTest {
             sourceId = 4004L,
             sourceManager = sourceManagerOf(source),
             ioDispatcher = testDispatcher,
+            albumRepository = FakeAlbumRepository(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -230,5 +236,35 @@ class ReelsNichesScreenModelTest {
 
         model.onPageErrorShown()
         model.state.value.pageError shouldBe null
+    }
+
+    private class FakeAlbumRepository : ReelsAlbumRepository {
+        val albums = mutableMapOf<Pair<String, Long>, ReelsAlbum>()
+
+        override fun subscribeBySource(sourceId: Long): Flow<List<ReelsAlbum>> =
+            MutableStateFlow(albums.values.filter { it.sourceId == sourceId })
+
+        override suspend fun getBySource(sourceId: Long): List<ReelsAlbum> =
+            albums.values.filter { it.sourceId == sourceId }
+
+        override suspend fun insert(album: ReelsAlbum) {
+            albums[album.albumId to album.sourceId] = album
+        }
+
+        override suspend fun delete(sourceId: Long, albumId: String) {
+            albums.remove(albumId to sourceId)
+        }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            albums.keys.filter { it.second == sourceId }.forEach { albums.remove(it) }
+        }
+
+        override fun subscribeWatched(sourceId: Long): Flow<Set<String>> = MutableStateFlow(emptySet())
+
+        override suspend fun markWatched(sourceId: Long, videoId: String) = Unit
+
+        override suspend fun unmarkWatched(sourceId: Long, videoId: String) = Unit
+
+        override suspend fun deleteWatchedBySource(sourceId: Long) = Unit
     }
 }

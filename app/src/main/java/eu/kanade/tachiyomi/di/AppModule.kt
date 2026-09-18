@@ -17,6 +17,8 @@ import data.Mangas
 import dataanime.Animehistory
 import dataanime.Animes
 import dataanime.Episodes
+import dataanime.Reels_album_watched
+import dataanime.Reels_albums
 import dataanime.Reels_favorites
 import dataanime.Reels_follows
 import dataanime.Reels_hidden
@@ -532,6 +534,12 @@ class AppModule(val app: Application) : InjektModule {
                 ),
                 reels_hiddenAdapter = Reels_hidden.Adapter(
                     hidden_atAdapter = DateColumnAdapter,
+                ),
+                reels_albumsAdapter = Reels_albums.Adapter(
+                    added_atAdapter = DateColumnAdapter,
+                ),
+                reels_album_watchedAdapter = Reels_album_watched.Adapter(
+                    marked_atAdapter = DateColumnAdapter,
                 ),
             )
         }

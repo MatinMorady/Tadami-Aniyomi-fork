@@ -1,0 +1,19 @@
+-- Albums collection (device feature, sign-off prototype_reels_albums.html): the user's saved
+-- albums per source (cover + name cached from AnimeFeedBrowseSource) plus manual "watched"
+-- marks for album items. Viewing progress itself is NOT stored here — the progress bar reads
+-- reels_watch_history (positionMs/durationSec); this table only holds explicit marks.
+CREATE TABLE IF NOT EXISTS reels_albums(
+    source_id INTEGER NOT NULL,
+    album_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    cover_url TEXT,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (source_id, album_id)
+);
+
+CREATE TABLE IF NOT EXISTS reels_album_watched(
+    source_id INTEGER NOT NULL,
+    video_id TEXT NOT NULL,
+    marked_at INTEGER NOT NULL,
+    PRIMARY KEY (source_id, video_id)
+);

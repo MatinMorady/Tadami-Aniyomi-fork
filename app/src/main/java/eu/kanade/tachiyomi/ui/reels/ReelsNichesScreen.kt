@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.ui.reels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,11 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.AddCircle
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -23,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -116,6 +123,8 @@ data class ReelsNichesScreen(
                         items(state.categories, key = { it.id }) { category ->
                             NicheCell(
                                 category = category,
+                                saved = category.id in state.savedAlbumIds,
+                                onToggleSaved = { model.toggleAlbumSaved(category) },
                                 onClick = {
                                     navigator.push(
                                         ReelsFeedScreen(
@@ -137,6 +146,8 @@ data class ReelsNichesScreen(
 @Composable
 private fun NicheCell(
     category: FeedCategory,
+    saved: Boolean,
+    onToggleSaved: () -> Unit,
     onClick: () -> Unit,
 ) {
     Column(
@@ -145,19 +156,37 @@ private fun NicheCell(
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(category.imageUrl)
-                .crossfade(true)
-                .build(),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(3f / 4f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer),
-        )
+        Box {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(category.imageUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(3f / 4f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
+            )
+            // Albums collection entry point (device feature): save this category to the
+            // library without leaving the niches grid.
+            IconButton(
+                onClick = onToggleSaved,
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                Icon(
+                    imageVector = if (saved) Icons.Filled.CheckCircle else Icons.Outlined.AddCircle,
+                    contentDescription = stringResource(MR.strings.reels_album_add),
+                    tint = if (saved) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+        }
         Text(
             text = category.name,
             style = MaterialTheme.typography.labelMedium,

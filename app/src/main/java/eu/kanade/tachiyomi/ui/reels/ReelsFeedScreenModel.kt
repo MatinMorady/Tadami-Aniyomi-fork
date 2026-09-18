@@ -10,6 +10,7 @@ import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.animesource.AnimeAlbumSearchSource
 import eu.kanade.tachiyomi.animesource.AnimeBlockedTagsSource
 import eu.kanade.tachiyomi.animesource.AnimeCategorizedSearchSource
 import eu.kanade.tachiyomi.animesource.AnimeCategoryFeedOrderSource
@@ -30,6 +31,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.ContentPreferenceOption
 import eu.kanade.tachiyomi.animesource.model.CustomFeedRef
+import eu.kanade.tachiyomi.animesource.model.FeedCategory
 import eu.kanade.tachiyomi.animesource.model.FeedPage
 import eu.kanade.tachiyomi.animesource.model.SearchSuggestions
 import eu.kanade.tachiyomi.animesource.model.ShortVideoItem
@@ -57,6 +59,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -64,10 +69,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.reels.anime.model.ReelsAlbum
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.model.ReelsFollow
 import tachiyomi.domain.reels.anime.model.ReelsHiddenEntry
 import tachiyomi.domain.reels.anime.model.ReelsWatchEntry
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFollowRepository
 import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
@@ -135,6 +142,7 @@ class ReelsFeedScreenModel(
     private val reelsFollowRepository: ReelsFollowRepository = Injekt.get(),
     private val reelsWatchRepository: ReelsWatchRepository = Injekt.get(),
     private val reelsHiddenRepository: ReelsHiddenRepository = Injekt.get(),
+    private val reelsAlbumRepository: ReelsAlbumRepository = Injekt.get(),
     private val offlineStore: ReelsOfflineStore = Injekt.get(),
     private val sessionSound: ReelsSessionSoundState = sharedSessionSound,
 ) : StateScreenModel<ReelsFeedScreenModel.State>(
@@ -301,6 +309,9 @@ class ReelsFeedScreenModel(
     }
 
     init {
+        // Reactive albums-collection marks (report fix): saves from any screen (search cards,
+        // album screen, niche row) update the saved set everywhere without manual reloads.
+        startSavedAlbumsSubscription()
         if (offlinePlaylist) {
             mutableState.update { it.copy(isOffline = true, isLoading = true) }
             screenModelScope.launch(ioDispatcher) {
@@ -430,6 +441,7 @@ class ReelsFeedScreenModel(
 
     fun switchSource(newSourceId: Long) {
         if (state.value.isOffline) return
+        val previousSourceId = state.value.currentSourceId
         val rawSource = sourceManager.get(newSourceId)
         if (rawSource is AnimeFeedSource) {
             val creatorCapable = rawSource is AnimeCreatorFeedSource
@@ -481,6 +493,9 @@ class ReelsFeedScreenModel(
             baseCanLoadMore = true
             basePosition = 0
             decidedIds.clear()
+            // A manual switch to a DIFFERENT source voids any pending deep-link seek from the
+            // entry point; the entry switch itself (same id) keeps it.
+            if (newSourceId != previousSourceId) resumeNavPending = false
             decidedFollows.clear()
             followingStreams = emptyList()
             hiddenSnapshot = emptySet<String>() to emptySet<String>()
@@ -507,6 +522,14 @@ class ReelsFeedScreenModel(
                     // loadSearchHints below refills it when the capability exists.
                     searchHints = persistentListOf(),
                     searchQuery = savedQuery,
+                    albumSearchCapable = rawSource is AnimeAlbumSearchSource,
+                    albumSearchResults = persistentListOf(),
+                    albumSearchNextPage = 1,
+                    albumSearchNextCursor = null,
+                    albumSearchCanLoadMore = true,
+                    previewAlbumId = null,
+                    previewItems = persistentListOf(),
+                    previewLoading = false,
                     // Categorized-search tabs (v20) belong to the previous source's query.
                     searchSuggestions = null,
                     // Placeholder: the real filter list replaces it from buildFiltersAndStartFeed.
@@ -625,7 +648,11 @@ class ReelsFeedScreenModel(
         if (state.value.isOffline) return
         val src = source ?: return
         if (!reset && state.value.isLoading) return
-        if (!reset && !state.value.canLoadMore) return
+        // Album-search pagination lives on its own cursor/cap flag (report fix): the feed's
+        // canLoadMore must not gate album pages and vice versa.
+        val albumSearchMode = state.value.albumSearchCapable && state.value.searchQuery.isNotBlank()
+        if (!reset && albumSearchMode && !state.value.albumSearchCanLoadMore) return
+        if (!reset && !albumSearchMode && !state.value.canLoadMore) return
 
         loadJob?.cancel()
         val generation = loadGeneration.incrementAndGet()
@@ -645,6 +672,10 @@ class ReelsFeedScreenModel(
                     nextCursor = null,
                     cursorMode = false,
                     canLoadMore = true,
+                    albumSearchResults = persistentListOf(),
+                    albumSearchNextPage = 1,
+                    albumSearchNextCursor = null,
+                    albumSearchCanLoadMore = true,
                 )
             } else {
                 current.copy(isLoading = true, error = null, errorRes = null, errorCounts = null)
@@ -659,6 +690,23 @@ class ReelsFeedScreenModel(
         // Contract v17: while locked into cursor mode the token is authoritative;
         // in page-int mode the source always receives a null cursor.
         val cursor = if (snapshot.cursorMode) snapshot.nextCursor else null
+
+        // Contract v23: album-oriented sources answer search with a paginated album directory;
+        // the screen then renders album cards (open / save / long-press preview) instead of
+        // the flat video pager for such queries.
+        // Report fix: album search works from ANY mode (niche/album feeds included) whenever
+        // the source exposes the v23 capability and a query is active.
+        if (query.isNotBlank() && src is AnimeAlbumSearchSource) {
+            loadJob = screenModelScope.launch(ioDispatcher) {
+                loadAlbumSearch(
+                    generation = generation,
+                    reset = reset,
+                    src = src,
+                    query = query,
+                )
+            }
+            return
+        }
 
         loadJob = screenModelScope.launch(ioDispatcher) {
             if (mode == FeedMode.FOLLOWING) {
@@ -710,16 +758,28 @@ class ReelsFeedScreenModel(
                 } else {
                     0
                 }
-                // One-shot resume navigation (watch-history entry): the tapped clip outranks
-                // the saved position when it is on this first page. Same processed shape as
-                // the CAS below so the index matches the published items list.
-                val resumeTarget = if (reset && resumeNavPending) {
-                    resumeNavPending = false
-                    pageData.videos.distinctBy { it.id }.filterHidden()
-                        .indexOfFirst { it.id == resumeVideoId }
+                // One-shot resume navigation (watch-history entry, album grid tap): the tapped
+                // clip outranks the saved position. Deep albums keep the clip beyond page 1,
+                // so the seek survives across appended pages until found (bounded).
+                val resumeTarget = if (resumeNavPending) {
+                    val pool = if (reset) {
+                        pageData.videos.distinctBy { it.id }.filterHidden()
+                    } else {
+                        state.value.items + pageData.videos.distinctBy { it.id }.filterHidden()
+                    }
+                    val hit = pool.indexOfFirst { it.id == resumeVideoId }
+                    if (hit >= 0) resumeNavPending = false
+                    hit
                 } else {
                     -1
                 }
+
+                // Stall detection for the seek loop, evaluated BEFORE the CAS below updates
+                // seenIds: an append page that contributes nothing new ends the seek instead
+                // of looping forever on a broken source.
+                val seekStalled = !reset && resumeNavPending &&
+                    pageData.videos.distinctBy { it.id }.filterHidden()
+                        .all { it.id in state.value.seenIds }
 
                 mutableState.update { current ->
                     // Re-check inside the CAS: a reset may have landed between the outer guard
@@ -754,13 +814,20 @@ class ReelsFeedScreenModel(
                         nextPageIndex = page + 1,
                         nextCursor = pageData.nextCursor,
                         cursorMode = newCursorMode,
-                        feedGeneration = if (reset) current.feedGeneration + 1 else current.feedGeneration,
+                        feedGeneration = if (reset || resumeTarget >= 0) {
+                            current.feedGeneration + 1
+                        } else {
+                            current.feedGeneration
+                        },
                         // A fresh feed starts at the saved position on source entry, at the top
-                        // on search/filter resets; a watch-history entry outranks both with a
-                        // direct navigation to the tapped clip; only the clearSearch restore
-                        // path sets a non-zero targetPageIndex otherwise.
-                        targetPageIndex = if (reset) {
-                            if (resumeTarget >= 0) resumeTarget else restorePosition
+                        // on search/filter resets; a resume/deep-link target outranks both with
+                        // a direct navigation to the tapped clip (found on this page or an
+                        // appended seek page); only the clearSearch restore path sets a
+                        // non-zero targetPageIndex otherwise.
+                        targetPageIndex = if (resumeTarget >= 0) {
+                            resumeTarget
+                        } else if (reset) {
+                            restorePosition
                         } else {
                             current.targetPageIndex
                         },
@@ -768,6 +835,17 @@ class ReelsFeedScreenModel(
                         // A recovered append must not leave a stale transient error.
                         pageError = null,
                     )
+                }
+                // Deep-link seek continuation: the tapped clip was not on this page — silently
+                // append the next page until it surfaces (unbounded by design: deep albums put
+                // the clip dozens of pages in). Natural stops: end of feed, or a stall page
+                // that adds nothing new (protects against infinite loops on broken sources).
+                if (resumeNavPending && state.value.canLoadMore) {
+                    if (seekStalled) {
+                        resumeNavPending = false
+                    } else {
+                        loadFeed(reset = false)
+                    }
                 }
             } catch (e: CancellationException) {
                 // Superseded by a newer reset/switch: keep whatever state the new load owns.
@@ -820,6 +898,113 @@ class ReelsFeedScreenModel(
             return true
         }
         return false
+    }
+
+    /** Contract v23 album-search stream: accumulates FeedCategory pages on its own cursor. */
+    private suspend fun loadAlbumSearch(generation: Int, reset: Boolean, src: AnimeAlbumSearchSource, query: String) {
+        try {
+            val snapshot = state.value
+            val page = if (reset) 1 else snapshot.albumSearchNextPage
+            val cursor = if (reset) null else snapshot.albumSearchNextCursor
+            val pageData = src.searchAlbums(query, page, cursor)
+            currentCoroutineContext().ensureActive()
+            if (loadGeneration.get() != generation) return
+            rateLimitRetries = 0
+            mutableState.update { current ->
+                val base = if (reset) persistentListOf<FeedCategory>() else current.albumSearchResults
+                current.copy(
+                    albumSearchResults = (base + pageData.categories).toImmutableList(),
+                    albumSearchNextPage = page + 1,
+                    albumSearchNextCursor = pageData.nextCursor,
+                    albumSearchCanLoadMore = pageData.hasNextPage,
+                    isLoading = false,
+                    error = null,
+                    errorRes = null,
+                    errorCounts = null,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            logcat(LogPriority.ERROR, throwable = t) { "Album search failed for query $query" }
+            if (loadGeneration.get() != generation) return
+            maybeScheduleRateLimitRetry(t.localizedMessage.orEmpty(), reset)
+            mutableState.update { current ->
+                current.copy(isLoading = false, error = t.localizedMessage.orEmpty())
+            }
+        }
+    }
+
+    /** Albums-collection marks of the current source (save buttons / niche save row). */
+    private fun startSavedAlbumsSubscription() {
+        screenModelScope.launch {
+            mutableState.map { it.currentSourceId }
+                .distinctUntilChanged()
+                .flatMapLatest { sourceId -> reelsAlbumRepository.subscribeBySource(sourceId) }
+                .collectLatest { albums ->
+                    mutableState.update { it.copy(savedAlbumIds = albums.map { a -> a.albumId }.toSet()) }
+                }
+        }
+    }
+
+    /** Adds/removes an album to/from the collection (search cards, niche save row). */
+    fun toggleAlbumSaved(category: FeedCategory) {
+        val sourceId = state.value.currentSourceId
+        screenModelScope.launch(ioDispatcher) {
+            if (category.id in state.value.savedAlbumIds) {
+                reelsAlbumRepository.delete(sourceId, category.id)
+            } else {
+                reelsAlbumRepository.insert(
+                    ReelsAlbum(
+                        sourceId = sourceId,
+                        albumId = category.id,
+                        name = category.name,
+                        coverUrl = category.imageUrl,
+                        addedAt = Date(),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Save-row action for NICHE mode: the currently open album/category. */
+    fun toggleCurrentNicheAlbum() {
+        val id = nicheId ?: return
+        // Report fix: keep a cover for the collection row (first reel's poster).
+        toggleAlbumSaved(
+            FeedCategory(
+                id = id,
+                name = nicheName.orEmpty(),
+                imageUrl = state.value.items.firstOrNull()?.posterUrl,
+                itemCount = null,
+            ),
+        )
+    }
+
+    /** Long-press preview of an album's content (first page thumbnails) for search cards. */
+    fun loadAlbumPreview(albumId: String) {
+        mutableState.update {
+            it.copy(previewAlbumId = albumId, previewLoading = true, previewItems = persistentListOf())
+        }
+        screenModelScope.launch(ioDispatcher) {
+            val browse = source as? AnimeFeedBrowseSource
+            val items = runCatching { browse?.getCategoryFeed(albumId, 1, null)?.videos.orEmpty() }
+                .getOrDefault(emptyList())
+                .take(8)
+            mutableState.update { current ->
+                if (current.previewAlbumId == albumId) {
+                    current.copy(previewItems = items.toImmutableList(), previewLoading = false)
+                } else {
+                    current
+                }
+            }
+        }
+    }
+
+    fun closeAlbumPreview() {
+        mutableState.update {
+            it.copy(previewAlbumId = null, previewItems = persistentListOf(), previewLoading = false)
+        }
     }
 
     /**
@@ -1076,7 +1261,18 @@ class ReelsFeedScreenModel(
 
     fun search(query: String) {
         if (state.value.isOffline) return
+        applySearchQuery(query, closeBar = true)
+    }
+
+    /**
+     * Applies a search query from the IME submit ([search]) or live from typing on
+     * album-capable sources ([requestSearchSuggestions]): snapshots the base feed once,
+     * persists the query, and reloads. Live typing keeps the search bar open.
+     */
+    private fun applySearchQuery(query: String, closeBar: Boolean) {
         val trimmed = query.trim()
+        // A new search voids any pending deep-link seek from the entry point.
+        resumeNavPending = false
         // Snapshot the unfiltered feed the first time a query is applied, so clearing the
         // query can restore the browsing position instead of reloading from scratch.
         if (state.value.searchQuery.isBlank()) {
@@ -1091,8 +1287,15 @@ class ReelsFeedScreenModel(
         persistUnlessIncognito(state.value.currentSourceId) {
             sourcePreferences.lastReelsQuery(state.value.currentSourceId).set(trimmed)
         }
-        mutableState.update { it.copy(searchQuery = trimmed, isSearchBarOpen = false) }
-        requestSearchSuggestions(trimmed)
+        mutableState.update { current ->
+            current.copy(
+                searchQuery = trimmed,
+                isSearchBarOpen = if (closeBar) false else current.isSearchBarOpen,
+            )
+        }
+        // Album-capable sources render cards (live via requestSearchSuggestions); the
+        // categorized panel is only for non-album sources.
+        if (!state.value.albumSearchCapable) requestSearchSuggestions(trimmed)
         loadFeed(reset = true)
     }
 
@@ -1110,6 +1313,22 @@ class ReelsFeedScreenModel(
         // A newer keystroke (or a cleared query) supersedes the in-flight attempt: the
         // canceled job must never repopulate the tabs afterwards.
         suggestionsJob?.cancel()
+        // Device UX fix: for album-capable sources the paginated album cards ARE the
+        // suggestions (with save "+" and long-press preview, no 100-chip cap) — typing
+        // runs the album search live instead of the one-shot categorized panel.
+        if (state.value.albumSearchCapable) {
+            if (query.isBlank()) {
+                mutableState.update { it.copy(searchSuggestions = null) }
+                return
+            }
+            suggestionsJob = screenModelScope.launch(ioDispatcher) {
+                delay(SEARCH_SUGGESTIONS_DEBOUNCE_MS)
+                if (suggestionsQuery != query) return@launch
+                if (state.value.searchQuery == query.trim()) return@launch
+                applySearchQuery(query, closeBar = false)
+            }
+            return
+        }
         val src = source as? AnimeCategorizedSearchSource
         if (src == null || query.isBlank()) {
             mutableState.update { it.copy(searchSuggestions = null) }
@@ -1980,6 +2199,16 @@ class ReelsFeedScreenModel(
     enum class OfflineCopyResult { SAVED, REMOVED, FAILED_QUOTA, FAILED_NETWORK }
 
     /**
+     * Just-in-time stream signing (contract v22): sources may serve items with a blank
+     * videoUrl (balbums v6+ defers signing to playback time); the player and the offline
+     * downloader resolve through the resolver capability instead of batch-resolving pages.
+     */
+    suspend fun resolvePlaybackUrl(item: ShortVideoItem, hd: Boolean): String? {
+        val resolver = source as? AnimeFeedVideoResolverSource ?: return null
+        return runCatching { resolver.resolveVideoUrl(item.id, hd) }.getOrNull()
+    }
+
+    /**
      * Downloads a real offline copy of the current playlist reel (or removes it). On success
      * the item's URL flips to the local file and the player rebuilds automatically; quota and
      * transport failures keep the network URL and report distinct reasons for the snackbar.
@@ -2010,7 +2239,15 @@ class ReelsFeedScreenModel(
             return OfflineCopyResult.REMOVED
         }
         // Transport exceptions are a NETWORK verdict, never a crash in the UI scope.
-        val result = runCatching { offlineStore.download(item, sourceId) }
+        // Lazy-signed items (blank url) are resolved just-in-time before the download.
+        val downloadItem = if (item.videoUrl.isBlank()) {
+            val resolved = resolvePlaybackUrl(item, state.value.isHdQuality)
+                ?: return OfflineCopyResult.FAILED_NETWORK
+            item.copy(videoUrl = resolved)
+        } else {
+            item
+        }
+        val result = runCatching { offlineStore.download(downloadItem, sourceId) }
             .getOrDefault(ReelsOfflineStore.DownloadResult.NETWORK)
         if (result != ReelsOfflineStore.DownloadResult.SAVED) {
             return if (result == ReelsOfflineStore.DownloadResult.QUOTA) {
@@ -2399,6 +2636,17 @@ class ReelsFeedScreenModel(
         // the remembered position when a cleared search restores the base feed.
         val targetPageIndex: Int = 0,
         val searchQuery: String = "",
+        // Contract v23 album search: the source answers search with a paginated album
+        // directory; the screen renders album cards instead of the video pager.
+        val albumSearchCapable: Boolean = false,
+        val albumSearchResults: ImmutableList<FeedCategory> = persistentListOf(),
+        val albumSearchNextPage: Int = 1,
+        val albumSearchNextCursor: String? = null,
+        val albumSearchCanLoadMore: Boolean = true,
+        val savedAlbumIds: Set<String> = emptySet(),
+        val previewAlbumId: String? = null,
+        val previewItems: ImmutableList<ShortVideoItem> = persistentListOf(),
+        val previewLoading: Boolean = false,
         // Categorized search hits (contract v20) for the search-panel tabs; null when the
         // source lacks the capability or no query is active.
         val searchSuggestions: SearchSuggestions? = null,

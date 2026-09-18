@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
@@ -20,6 +21,7 @@ class ReelsFavoritesScreenModel(
     private val sourceManager: AnimeSourceManager = Injekt.get(),
     private val offlineStore: ReelsOfflineStore = Injekt.get(),
     private val hiddenRepository: ReelsHiddenRepository = Injekt.get(),
+    private val albumRepository: ReelsAlbumRepository = Injekt.get(),
 ) : StateScreenModel<ReelsFavoritesScreenModel.State>(State()) {
 
     @Immutable
@@ -78,6 +80,8 @@ class ReelsFavoritesScreenModel(
             offlineStore.deleteBySource(sourceId)
             // Audit H7: hidden entries of a removed source are unreachable too.
             hiddenRepository.deleteBySource(sourceId)
+            // Albums collection of a removed source is unreachable too (same cascade rule).
+            albumRepository.deleteBySource(sourceId)
         }
         return removedCount
     }

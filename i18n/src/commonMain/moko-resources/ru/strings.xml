@@ -1793,4 +1793,15 @@
     <string name="reels_on_short">Вкл.</string>
     <string name="reels_off_short">Выкл.</string>
     <string name="reels_incognito">Инкогнито (Reels)</string>
+    <string name="reels_albums">Альбомы</string>
+    <string name="reels_albums_empty">Пока нет сохранённых альбомов</string>
+    <string name="reels_album_add">Добавить альбом</string>
+    <string name="reels_album_remove">Убрать из коллекции</string>
+    <string name="reels_album_search">Поиск по альбому</string>
+    <string name="reels_album_mark_watched">Отметить просмотренным</string>
+    <string name="reels_album_unmark_watched">Снять отметку просмотра</string>
+    <string name="reels_album_save">Сохранить альбом в коллекцию</string>
+    <string name="reels_album_remove_album">Убрать альбом из коллекции</string>
+    <string name="reels_album_open">Открыть альбом</string>
+    <string name="reels_album_play_as_feed">Смотреть как ленту (Reels)</string>
 </resources>
