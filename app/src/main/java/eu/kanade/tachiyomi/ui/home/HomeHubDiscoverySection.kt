@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.ui.home
 
 import android.animation.ValueAnimator
-import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.LinearEasing
@@ -17,7 +16,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -88,6 +87,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -100,7 +100,6 @@ import eu.kanade.domain.ui.model.HomeHeroMode
 import eu.kanade.presentation.components.AdaptiveSheet
 import eu.kanade.presentation.components.AuroraCoverPlaceholderVariant
 import eu.kanade.presentation.components.AuroraSheetWindowFx
-import eu.kanade.presentation.components.StageFocusGlowShader
 import eu.kanade.presentation.components.buildAuroraCoverImageRequest
 import eu.kanade.presentation.components.rememberCoverReloadTick
 import eu.kanade.presentation.components.rememberThemeAwareCoverErrorPainter
@@ -1408,10 +1407,6 @@ internal fun shouldAutoRotateStage(
     systemAnimationsEnabled = systemAnimationsEnabled,
 )
 
-/** Свечение доступно только на API 33+ (RuntimeShader) и бессмысленно в e-ink. */
-internal fun shouldUseStageGlowShader(sdkInt: Int, isEInk: Boolean): Boolean =
-    sdkInt >= Build.VERSION_CODES.TIRAMISU && !isEInk
-
 /**
  * Hero «Кинематографичный фокус»: бесконечная карусель подборки — один постер в фокусе,
  * соседи уходят в перспективу. Слоты живут в окне ±3 от непрерывного центра, данные берутся
@@ -1494,48 +1489,9 @@ internal fun DiscoveryHeroStage(
             .auroraCenteredMaxWidth(contentMaxWidthDp)
             .height(440.dp)
             .padding(horizontal = 16.dp, vertical = 14.dp)
-            .clip(outerShape)
-            .background(colors.cardBackground)
-            .then(
-                if (colors.isDark || colors.isEInk) {
-                    Modifier.border(1.dp, colors.divider, outerShape)
-                } else {
-                    Modifier
-                },
-            ),
+            // Клип держим на контейнере: свечение затухает внутри области, а соседи не вылезают на соседние секции.
+            .clip(outerShape),
     ) {
-        // Акцентное свечение под фокус-постером: отдельный слой под карточками (не RenderEffect на сцене).
-        if (!colors.isEInk) {
-            val glowIntensity = if (colors.isDark) 1f else 0.5f
-            val glowModifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(0.74f)
-                .height(170.dp)
-            val glowShader = remember {
-                if (shouldUseStageGlowShader(Build.VERSION.SDK_INT, isEInk = false)) {
-                    StageFocusGlowShader()
-                } else {
-                    null
-                }
-            }
-            if (glowShader?.isAvailable == true) {
-                Canvas(glowModifier) {
-                    with(glowShader) { drawStageGlow(accent = colors.accent, intensity = glowIntensity) }
-                }
-            } else {
-                Box(
-                    glowModifier.background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                colors.accent.copy(alpha = 0.28f * glowIntensity),
-                                Color.Transparent,
-                            ),
-                        ),
-                    ),
-                )
-            }
-        }
-
         Box(
             Modifier
                 .fillMaxSize()
@@ -1593,22 +1549,6 @@ internal fun DiscoveryHeroStage(
             }
         }
 
-        // Счётчик позиции: у ленты нет конца, поэтому показываем место в подборке.
-        val position = stageItemIndex(center, 0, ordered.size) + 1
-        Text(
-            text = "${position.toString().padStart(2, '0')} / ${ordered.size.toString().padStart(2, '0')}",
-            color = if (colors.isDark && !colors.isEInk) Color.White else colors.textPrimary,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(12.dp)
-                .clip(RoundedCornerShape(7.dp))
-                .background(if (colors.isEInk) colors.cardBackground else Color.Black.copy(alpha = 0.5f))
-                .border(1.dp, colors.divider, RoundedCornerShape(7.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-
         // Стрелки: у ленты нет конца, поэтому обе кнопки всегда активны.
         StageNavButton(
             icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
@@ -1632,31 +1572,15 @@ internal fun DiscoveryHeroStage(
         )
 
         // Реролл: новый порядок подборки, позиция сохраняется (без «проезда» через всю ленту).
+        // Кнопка без подложки — только иконка с тенью-двойником, чтобы читалась на любом постере.
         Box(
             Modifier
                 .align(Alignment.TopEnd)
-                .padding(12.dp)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(
-                    if (colors.isEInk) {
-                        colors.cardBackground
-                    } else if (colors.isDark) {
-                        Color.Black.copy(alpha = 0.75f)
-                    } else {
-                        Color.White.copy(alpha = 0.90f)
-                    },
-                )
-                .border(
-                    BorderStroke(
-                        width = 1.dp,
-                        color = if (colors.isEInk) colors.divider else Color.White.copy(alpha = 0.22f),
-                    ),
-                    CircleShape,
-                )
+                .padding(10.dp)
+                .size(34.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(bounded = false, radius = 20.dp),
+                    indication = ripple(bounded = false, radius = 17.dp),
                     onClick = {
                         appHaptics.tap()
                         offset += 1
@@ -1667,11 +1591,11 @@ internal fun DiscoveryHeroStage(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Filled.Refresh,
+            StageFloatingIcon(
+                icon = Icons.Filled.Refresh,
                 contentDescription = stringResource(AYMR.strings.for_you_collage_reroll),
-                tint = if (colors.isDark && !colors.isEInk) colors.accent else colors.textPrimary,
-                modifier = Modifier.size(20.dp),
+                size = 21.dp,
+                tint = colors.accent,
             )
         }
 
@@ -1712,6 +1636,40 @@ internal fun DiscoveryHeroStage(
     }
 }
 
+/**
+ * Иконка поверх постера без подложки: тень-двойник держит читаемость на светлых и тёмных обложках.
+ * В e-ink тень не нужна — там иконка идёт сплошным чёрным.
+ */
+@Composable
+private fun StageFloatingIcon(
+    icon: ImageVector,
+    contentDescription: String?,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+) {
+    val colors = AuroraTheme.colors
+    val onDarkTheme = colors.isDark && !colors.isEInk
+    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+        if (!colors.isEInk) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (onDarkTheme) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.90f),
+                modifier = Modifier
+                    .size(size)
+                    .offset(y = 1.dp),
+            )
+        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint ?: if (onDarkTheme) Color.White else colors.textPrimary,
+            modifier = Modifier.size(size),
+        )
+    }
+}
+
 @Composable
 private fun StageNavButton(
     icon: ImageVector,
@@ -1719,25 +1677,9 @@ private fun StageNavButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = AuroraTheme.colors
     Box(
         modifier = modifier
             .size(32.dp)
-            .clip(CircleShape)
-            .background(
-                if (colors.isEInk) {
-                    colors.cardBackground
-                } else if (colors.isDark) {
-                    Color.Black.copy(alpha = 0.55f)
-                } else {
-                    Color.White.copy(alpha = 0.85f)
-                },
-            )
-            .border(
-                1.dp,
-                if (colors.isEInk) colors.divider else Color.White.copy(alpha = 0.20f),
-                CircleShape,
-            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(bounded = false, radius = 16.dp),
@@ -1745,12 +1687,7 @@ private fun StageNavButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = if (colors.isDark && !colors.isEInk) Color.White else colors.textPrimary,
-            modifier = Modifier.size(18.dp),
-        )
+        StageFloatingIcon(icon = icon, contentDescription = contentDescription, size = 22.dp)
     }
 }
 

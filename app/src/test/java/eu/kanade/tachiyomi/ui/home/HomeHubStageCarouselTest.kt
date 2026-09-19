@@ -121,14 +121,6 @@ class HomeHubStageCarouselTest {
     }
 
     @Test
-    fun `glow shader is used only on API 33 plus and never in e-ink`() {
-        shouldUseStageGlowShader(sdkInt = 32, isEInk = false) shouldBe false
-        shouldUseStageGlowShader(sdkInt = 33, isEInk = true) shouldBe false
-        shouldUseStageGlowShader(sdkInt = 33, isEInk = false) shouldBe true
-        shouldUseStageGlowShader(sdkInt = 34, isEInk = false) shouldBe true
-    }
-
-    @Test
     fun `stage prefers the full discovery pool and falls back to the teaser window`() {
         val pool = listOf(stageItem("Pool 1"), stageItem("Pool 2"))
         val teaser = listOf(stageItem("Teaser 1"))
