@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
 import eu.kanade.presentation.components.relativeDateTimeText
 import eu.kanade.presentation.entries.components.DotSeparatorText
 import eu.kanade.presentation.entries.components.aurora.AuroraCompactEntryRowCard
@@ -68,6 +69,7 @@ fun MangaChapterCardCompact(
     onChapterSwipe: (LibraryPreferences.ChapterSwipeAction) -> Unit,
     onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
 ) {
     val colors = AuroraTheme.colors
     val chapter = item.chapter
@@ -96,6 +98,7 @@ fun MangaChapterCardCompact(
     val chapterCard: @Composable () -> Unit = {
         AuroraCompactEntryRowCard(
             modifier = modifier,
+            hazeState = hazeState,
             selected = selected,
             highlighted = isNew && !chapter.read,
             dimmed = chapter.read,

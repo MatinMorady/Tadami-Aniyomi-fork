@@ -18,6 +18,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import eu.kanade.presentation.components.auroraMenuRimLightBrush
 import eu.kanade.presentation.theme.AuroraTheme
 
@@ -29,10 +33,31 @@ fun GlassmorphismCard(
     verticalPadding: Dp = 0.dp,
     innerPadding: Dp = 16.dp,
     overlayColor: Color? = null,
+    hazeState: HazeState? = null,
     content: @Composable () -> Unit,
 ) {
     val colors = AuroraTheme.colors
     val shape = RoundedCornerShape(cornerRadius)
+    // Live backdrop blur must sit INSIDE the clip and UNDER the frost gradient: applied via the
+    // incoming modifier it would cover the card's outer padding and leak as a hard-edged rect.
+    // Frost recipe mirrors the title-screen hero panel (AuroraHeroComponents): transparent base,
+    // faint white tint, 20dp blur, no noise; dark keeps a weaker tint to avoid milky washout.
+    val haze = hazeState?.takeIf { !colors.isEInk }
+    val hazeModifier = if (haze != null) {
+        Modifier.hazeEffect(
+            state = haze,
+            style = HazeStyle(
+                backgroundColor = Color.Transparent,
+                tint = HazeTint(
+                    Color.White.copy(alpha = if (colors.isDark) 0.10f else 0.18f),
+                ),
+                blurRadius = 20.dp,
+                noiseFactor = 0f,
+            ),
+        )
+    } else {
+        Modifier
+    }
 
     val cardModifier = if (!colors.isDark && !colors.isEInk) {
         // Brushes and tint lists are remembered so repeated recompositions of the
@@ -59,41 +84,53 @@ fun GlassmorphismCard(
             )
         }
 
+        val surfaceModifier = if (haze != null) {
+            // Title-screen hero frost surface: translucent white gradient + specular rim + underlays.
+            Modifier.auroraCoverHeroCardStyle(
+                colors = colors,
+                shape = shape,
+                cornerRadius = cornerRadius,
+            )
+        } else {
+            Modifier
+                .drawBehind {
+                    val radius = cornerRadius.toPx()
+                    val cornerRadiusPx = CornerRadius(radius, radius)
+
+                    val neutralOffsetY = 3.dp.toPx()
+                    val warmOffsetY = 5.dp.toPx()
+
+                    val neutralInset = 1.dp.toPx()
+                    val warmInset = 3.dp.toPx()
+
+                    // 1. Нейтральная тень
+                    drawRoundRect(
+                        color = Color.Black.copy(alpha = 0.035f),
+                        topLeft = Offset(x = neutralInset, y = neutralOffsetY),
+                        size = Size(width = size.width - neutralInset * 2, height = size.height),
+                        cornerRadius = cornerRadiusPx,
+                    )
+
+                    // 2. Акцентное свечение (под цвет темы)
+                    drawRoundRect(
+                        color = colors.accent.copy(alpha = 0.025f),
+                        topLeft = Offset(x = warmInset, y = warmOffsetY),
+                        size = Size(width = size.width - warmInset * 2, height = size.height),
+                        cornerRadius = cornerRadiusPx,
+                    )
+                }
+                .background(brush = backgroundBrush, shape = shape)
+                .border(
+                    width = 1.dp,
+                    brush = borderBrush,
+                    shape = shape,
+                )
+        }
         modifier
             .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-            .drawBehind {
-                val radius = cornerRadius.toPx()
-                val cornerRadiusPx = CornerRadius(radius, radius)
-
-                val neutralOffsetY = 3.dp.toPx()
-                val warmOffsetY = 5.dp.toPx()
-
-                val neutralInset = 1.dp.toPx()
-                val warmInset = 3.dp.toPx()
-
-                // 1. Нейтральная тень
-                drawRoundRect(
-                    color = Color.Black.copy(alpha = 0.035f),
-                    topLeft = Offset(x = neutralInset, y = neutralOffsetY),
-                    size = Size(width = size.width - neutralInset * 2, height = size.height),
-                    cornerRadius = cornerRadiusPx,
-                )
-
-                // 2. Акцентное свечение (под цвет темы)
-                drawRoundRect(
-                    color = colors.accent.copy(alpha = 0.025f),
-                    topLeft = Offset(x = warmInset, y = warmOffsetY),
-                    size = Size(width = size.width - warmInset * 2, height = size.height),
-                    cornerRadius = cornerRadiusPx,
-                )
-            }
             .clip(shape)
-            .background(brush = backgroundBrush, shape = shape)
-            .border(
-                width = 1.dp,
-                brush = borderBrush,
-                shape = shape,
-            )
+            .then(hazeModifier)
+            .then(surfaceModifier)
             .padding(innerPadding)
     } else {
         val bgColors = resolveAuroraDetailCardBackgroundColors(colors)
@@ -111,6 +148,7 @@ fun GlassmorphismCard(
         modifier
             .padding(horizontal = horizontalPadding, vertical = verticalPadding)
             .clip(shape)
+            .then(hazeModifier)
             .background(brush = backgroundBrush)
             .border(
                 width = 1.dp,

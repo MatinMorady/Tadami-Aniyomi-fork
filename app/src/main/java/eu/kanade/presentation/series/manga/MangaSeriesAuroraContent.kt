@@ -108,6 +108,7 @@ fun MangaSeriesAuroraContent(
     }
 
     val lazyListState = rememberLazyListState()
+    val hazeState = remember { HazeState() }
     val scrollOffsetState = remember { derivedStateOf { lazyListState.firstVisibleItemScrollOffset } }
     val firstVisibleItemIndexState = remember { derivedStateOf { lazyListState.firstVisibleItemIndex } }
 
@@ -129,6 +130,7 @@ fun MangaSeriesAuroraContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Crossfade(
+            modifier = Modifier.hazeSource(hazeState),
             targetState = heroManga,
             animationSpec = tween(durationMillis = 450),
             label = "series_hero_background",
@@ -165,6 +167,7 @@ fun MangaSeriesAuroraContent(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = null,
                         onClick = onBackClicked,
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -173,6 +176,7 @@ fun MangaSeriesAuroraContent(
                         icon = Icons.Default.Edit,
                         contentDescription = null,
                         onClick = { showRenameDialog = true },
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -181,6 +185,7 @@ fun MangaSeriesAuroraContent(
                         icon = Icons.Default.Image,
                         contentDescription = null,
                         onClick = onCoverClicked,
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -189,6 +194,7 @@ fun MangaSeriesAuroraContent(
                         icon = Icons.Default.Folder,
                         contentDescription = null,
                         onClick = { showCategoryDialog = true },
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -198,6 +204,7 @@ fun MangaSeriesAuroraContent(
                         contentDescription = null,
                         onClick = { showDeleteDialog = true },
                         iconTint = colors.accent,
+                        hazeState = hazeState,
                     )
                 }
             },
@@ -319,7 +326,8 @@ fun MangaSeriesAuroraContent(
                                 onRemove = { onRemoveEntryClicked(manga.id) },
                                 onClick = { onMangaClicked(manga) },
                                 modifier = Modifier.padding(vertical = 4.dp),
-                                    )
+                                hazeState = hazeState,
+                            )
                         }
                     }
                 } else {
@@ -344,7 +352,8 @@ fun MangaSeriesAuroraContent(
                                 onLongClick = {},
                                 onChapterSwipe = {},
                                 onDownloadChapter = null,
-                                    )
+                                hazeState = hazeState,
+                            )
                         }
                     }
                 }

@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
 import eu.kanade.presentation.components.relativeDateTimeText
 import eu.kanade.presentation.entries.components.aurora.AuroraCompactEntryRowCard
 import eu.kanade.presentation.entries.novel.components.NovelChapterActionButton
@@ -77,6 +78,7 @@ object NovelChapterCardCompactUi {
         downloaded: Boolean,
         downloading: Boolean,
         modifier: Modifier = Modifier,
+        hazeState: HazeState? = null,
     ) {
         val colors = AuroraTheme.colors
         val chapterDisplayNumber = displayNumber?.toDouble() ?: chapter.chapterNumber
@@ -97,6 +99,7 @@ object NovelChapterCardCompactUi {
         val chapterCard: @Composable () -> Unit = {
             AuroraCompactEntryRowCard(
                 modifier = modifier,
+                hazeState = hazeState,
                 selected = selected,
                 highlighted = isNew && !chapter.read,
                 dimmed = chapter.read,

@@ -106,6 +106,7 @@ fun NovelSeriesAuroraContent(
     }
 
     val lazyListState = rememberLazyListState()
+    val hazeState = remember { HazeState() }
 
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCategoryDialog by remember { mutableStateOf(false) }
@@ -126,6 +127,7 @@ fun NovelSeriesAuroraContent(
     Box(modifier = Modifier.fillMaxSize()) {
         // Background
         Crossfade(
+            modifier = Modifier.hazeSource(hazeState),
             targetState = heroNovel,
             animationSpec = tween(durationMillis = 450),
             label = "series_hero_background",
@@ -163,6 +165,7 @@ fun NovelSeriesAuroraContent(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = null,
                         onClick = onBackClicked,
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -171,6 +174,7 @@ fun NovelSeriesAuroraContent(
                         icon = Icons.Default.Edit,
                         contentDescription = null,
                         onClick = { showRenameDialog = true },
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -179,6 +183,7 @@ fun NovelSeriesAuroraContent(
                         icon = Icons.Default.Image,
                         contentDescription = null,
                         onClick = onCoverClicked,
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -187,6 +192,7 @@ fun NovelSeriesAuroraContent(
                         icon = Icons.Default.Folder,
                         contentDescription = null,
                         onClick = { showCategoryDialog = true },
+                        hazeState = hazeState,
                     )
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -196,6 +202,7 @@ fun NovelSeriesAuroraContent(
                         contentDescription = null,
                         onClick = { showDeleteDialog = true },
                         iconTint = colors.accent,
+                        hazeState = hazeState,
                     )
                 }
             },
@@ -317,7 +324,8 @@ fun NovelSeriesAuroraContent(
                                 onRemove = { onRemoveEntryClicked(novel.id) },
                                 onClick = { onNovelClicked(novel) },
                                 modifier = Modifier.padding(vertical = 4.dp),
-                                    )
+                                hazeState = hazeState,
+                            )
                         }
                     }
                 } else {
@@ -347,7 +355,8 @@ fun NovelSeriesAuroraContent(
                                 onChapterSwipe = {},
                                 downloaded = false,
                                 downloading = false,
-                                    )
+                                hazeState = hazeState,
+                            )
                         }
                     }
                 }
