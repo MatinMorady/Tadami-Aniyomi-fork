@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -47,13 +46,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import eu.kanade.presentation.entries.manga.components.aurora.FullscreenPosterBackground
 import eu.kanade.presentation.entries.manga.components.aurora.MangaChapterCardCompact
 import eu.kanade.presentation.series.components.SeriesCategoryDialog
@@ -62,6 +59,7 @@ import eu.kanade.presentation.series.manga.components.MangaSeriesEntryCard
 import eu.kanade.presentation.series.manga.components.MangaSeriesHeader
 import eu.kanade.presentation.series.manga.components.MangaSeriesReadingActionRow
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.tachiyomi.data.download.manga.model.MangaDownload
 import eu.kanade.tachiyomi.ui.entries.manga.ChapterList
 import eu.kanade.tachiyomi.ui.series.manga.MangaSeriesScreenModel
@@ -78,6 +76,7 @@ import tachiyomi.presentation.core.components.ListGroupHeader
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.TextButton
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.plus
 
 private const val MANGA_SERIES_TITLE_LIST_START_INDEX = 3
@@ -320,7 +319,7 @@ fun MangaSeriesAuroraContent(
                                 onRemove = { onRemoveEntryClicked(manga.id) },
                                 onClick = { onMangaClicked(manga) },
                                 modifier = Modifier.padding(vertical = 4.dp),
-                            )
+                                    )
                         }
                     }
                 } else {
@@ -345,7 +344,7 @@ fun MangaSeriesAuroraContent(
                                 onLongClick = {},
                                 onChapterSwipe = {},
                                 onDownloadChapter = null,
-                            )
+                                    )
                         }
                     }
                 }
@@ -437,37 +436,24 @@ private fun AuroraSeriesActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     iconTint: Color? = null,
+    hazeState: HazeState? = null,
 ) {
     val colors = AuroraTheme.colors
+    val appHaptics = LocalAppHaptics.current
     val tint = iconTint ?: colors.accent.copy(alpha = 0.95f)
 
     Box(
         modifier = modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        colors.surface.copy(alpha = 0.9f),
-                        colors.surface.copy(alpha = 0.6f),
-                    ),
-                    center = Offset(0.3f, 0.3f),
-                    radius = 0.8f,
-                ),
+            .auroraHeaderIconSurface(
+                colors = colors,
+                hazeState = hazeState,
+                isPosterMode = true,
             )
-            .drawBehind {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            colors.accent.copy(alpha = 0.15f),
-                            Color.Transparent,
-                        ),
-                        center = Offset(size.width * 0.3f, size.height * 0.3f),
-                        radius = size.width * 0.6f,
-                    ),
-                )
-            }
-            .clickable(onClick = onClick),
+            .size(44.dp)
+            .clickable(onClick = {
+                appHaptics.tap()
+                onClick()
+            }),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
