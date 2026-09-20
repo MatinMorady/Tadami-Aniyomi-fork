@@ -40,6 +40,8 @@ data class DiscoveryMeta(
     val description: String?,
     val genres: List<String>,
     val altTitle: String?,
+    /** Обложка провайдера — для lazy cover recovery карточек без thumbnail (NU). */
+    val coverUrl: String? = null,
 )
 
 enum class TrendSeason { CURRENT, NEXT, BOTH }
@@ -276,6 +278,7 @@ open class AniListTrendingSource(
                     media(search: ${'$'}search, type: ${'$'}type$formatArg) {
                       description(asHtml: false)
                       genres
+                      coverImage { large }
                       title { romaji english native }
                     }
                   }
@@ -316,6 +319,7 @@ open class AniListTrendingSource(
                 altTitle = (media["title"] as? JsonObject)?.let { t ->
                     t["english"]?.jsonPrimitive?.contentOrNull ?: t["native"]?.jsonPrimitive?.contentOrNull
                 },
+                coverUrl = (media["coverImage"] as? JsonObject)?.get("large")?.jsonPrimitive?.contentOrNull,
             )
             metaCache[title] = meta
             meta

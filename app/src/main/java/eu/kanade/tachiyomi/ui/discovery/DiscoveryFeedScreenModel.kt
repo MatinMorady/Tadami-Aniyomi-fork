@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.data.discovery.dedupeCrossRow
 import eu.kanade.tachiyomi.data.discovery.expandGenreSet
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
 import eu.kanade.tachiyomi.data.discovery.isBlacklisted
+import eu.kanade.tachiyomi.data.discovery.recoverMissingCovers
 import eu.kanade.tachiyomi.data.discovery.rrfScores
 import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
 import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
@@ -52,6 +53,8 @@ data class DiscoveryFeedUiState(
     val failedRows: Set<DiscoveryRowType> = emptySet(),
     // B2: «Скрыть всё с тегом X» — tag к числу затронутых подборок (undo-snackbar).
     val tagSnackbar: Pair<String, Int>? = null,
+    // Lazy cover recovery: инкремент после успешного своипа — ключ рекомпозиции обложек.
+    val coverRecoveryTick: Int = 0,
 )
 
 /** CSV ключей упавших рядов из prefs → набор [DiscoveryRowType]. */
@@ -229,6 +232,14 @@ class DiscoveryFeedScreenModel(
                     prefetchJob?.cancel()
                     prefetchJob = screenModelScope.launchIO {
                         prefetchDiscoveryMeta(mix, mediaType, trendingSource)
+                        recoverMissingCovers(
+                            mix,
+                            mediaType,
+                            trendingSource,
+                            onRecovered = {
+                                mutableState.update { s -> s.copy(coverRecoveryTick = s.coverRecoveryTick + 1) }
+                            },
+                        )
                     }
                 }
         }

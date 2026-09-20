@@ -87,6 +87,7 @@ import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.discovery.CompositeTrendingSource
+import eu.kanade.tachiyomi.data.discovery.DiscoveryCoverRecovery
 import eu.kanade.tachiyomi.data.discovery.DiscoveryMeta
 import eu.kanade.tachiyomi.ui.browse.anime.source.browse.BrowseAnimeSourceScreen
 import eu.kanade.tachiyomi.ui.browse.anime.source.globalsearch.GlobalAnimeSearchScreen
@@ -779,6 +780,7 @@ private fun FeedBody(
                     reason = reason,
                     isAdding = item.title in state.addingTitles,
                     coverMediaType = state.mediaType,
+                    coverRecoveryTick = state.coverRecoveryTick,
                     onClick = {
                         appHaptics.tap()
                         onItemClick(item)
@@ -803,6 +805,7 @@ private fun FeedCard(
     reason: String?,
     isAdding: Boolean,
     coverMediaType: DiscoveryMediaType,
+    coverRecoveryTick: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onAdd: () -> Unit,
@@ -812,8 +815,16 @@ private fun FeedCard(
     val context = LocalContext.current
     val fallbackPainter = rememberThemeAwareCoverErrorPainter(variant = AuroraCoverPlaceholderVariant.Portrait)
     val coverReloadTick = rememberCoverReloadTick()
-    val coverRequest = remember(context, item.coverUrl, item.provider, coverReloadTick) {
-        buildAuroraCoverImageRequest(context, discoveryCoverData(coverMediaType, item.provider, item.coverUrl))
+    val coverRequest = remember(context, item.coverUrl, item.provider, coverReloadTick, coverRecoveryTick) {
+        buildAuroraCoverImageRequest(
+            context,
+            discoveryCoverData(
+                coverMediaType,
+                item.provider,
+                item.coverUrl,
+                DiscoveryCoverRecovery.get(coverMediaType, item.cleanTitle),
+            ),
+        )
     }
     val containerShape = RoundedCornerShape(18.dp)
     val posterShape = RoundedCornerShape(16.dp)
