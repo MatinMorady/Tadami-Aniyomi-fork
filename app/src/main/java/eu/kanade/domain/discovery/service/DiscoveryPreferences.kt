@@ -7,7 +7,7 @@ import tachiyomi.domain.discovery.model.DiscoveryMediaType
 class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
 
     fun discoveryEnabled(): Preference<Boolean> = preferenceStore.getBoolean("discovery_enabled", true)
-    fun homeHeroMode(): Preference<String> = preferenceStore.getString("home_hero_mode", "continue")
+    fun homeHeroMode(): Preference<String> = preferenceStore.getString("home_hero_mode", "auto")
 
     fun rowLikeEnabled(): Preference<Boolean> = preferenceStore.getBoolean("discovery_row_like", true)
     fun rowTasteEnabled(): Preference<Boolean> = preferenceStore.getBoolean("discovery_row_taste", true)

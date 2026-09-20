@@ -8,10 +8,10 @@ import tachiyomi.core.common.preference.InMemoryPreferenceStore
 class DiscoveryPreferencesTest {
 
     @Test
-    fun `defaults are discovery-on, hero-continue, interval 12, teaser 16, seeds 3`() {
+    fun `defaults are discovery-on, hero-auto, interval 12, teaser 16, seeds 3`() {
         val prefs = DiscoveryPreferences(InMemoryPreferenceStore())
         prefs.discoveryEnabled().get() shouldBe true
-        prefs.homeHeroMode().get() shouldBe "continue"
+        prefs.homeHeroMode().get() shouldBe "auto"
         prefs.refreshIntervalHours().get() shouldBe 12
         prefs.teaserCount().get() shouldBe 16
         prefs.seedCount().get() shouldBe 3
@@ -40,6 +40,7 @@ class DiscoveryPreferencesTest {
 
     @Test
     fun `hero mode fromKey falls back to Continue`() {
+        HomeHeroMode.fromKey("auto") shouldBe HomeHeroMode.Auto
         HomeHeroMode.fromKey("hybrid") shouldBe HomeHeroMode.Hybrid
         HomeHeroMode.fromKey("collage") shouldBe HomeHeroMode.Collage
         HomeHeroMode.fromKey(null) shouldBe HomeHeroMode.Continue

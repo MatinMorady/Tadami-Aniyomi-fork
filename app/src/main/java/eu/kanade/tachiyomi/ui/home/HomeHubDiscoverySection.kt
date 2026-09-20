@@ -262,12 +262,15 @@ internal fun discoveryReasonText(
 
 /**
  * Режим hero с деградацией: Collage/Hybrid требуют включённый discovery с непустой лентой.
+ * Auto (дефолт) = кинематографичный Stage при работающем «Для тебя», иначе Continue.
  */
 internal fun resolveHeroPresentation(
     prefMode: HomeHeroMode,
     discoveryEnabled: Boolean,
     discoveryCount: Int,
 ): HomeHeroMode = when (prefMode) {
+    HomeHeroMode.Auto ->
+        if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Stage else HomeHeroMode.Continue
     HomeHeroMode.Continue -> HomeHeroMode.Continue
     HomeHeroMode.Collage ->
         if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Collage else HomeHeroMode.Continue

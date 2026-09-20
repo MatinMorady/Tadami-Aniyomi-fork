@@ -80,7 +80,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
         val seedActive14 by discoveryPreferences.seedActive14().collectAsStateWithLifecycle()
         val homeHeroMode by discoveryPreferences.homeHeroMode().collectAsStateWithLifecycle()
         val isCollageMode = homeHeroMode == "collage"
-        val isStageMode = homeHeroMode == "stage"
+        // Auto резолвится в Stage при включённом «Для тебя» — stage-поднастройки видны и в авто-режиме.
+        val isStageMode = homeHeroMode == "stage" || (homeHeroMode == "auto" && enabled)
 
         if (showResetHiddenDialog) {
             AlertDialog(
@@ -195,6 +196,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         Preference.PreferenceItem.ListPreference(
                             preference = discoveryPreferences.homeHeroMode(),
                             entries = persistentMapOf(
+                                "auto" to stringResource(AYMR.strings.pref_home_hero_mode_auto),
                                 "continue" to stringResource(AYMR.strings.pref_home_hero_mode_continue),
                                 "collage" to stringResource(AYMR.strings.pref_home_hero_mode_collage),
                                 "hybrid" to stringResource(AYMR.strings.pref_home_hero_mode_hybrid),

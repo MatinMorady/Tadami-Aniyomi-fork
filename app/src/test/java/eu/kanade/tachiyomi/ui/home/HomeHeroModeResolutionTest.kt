@@ -7,6 +7,18 @@ import org.junit.jupiter.api.Test
 class HomeHeroModeResolutionTest {
 
     @Test
+    fun `auto resolves to stage when discovery works, otherwise continue`() {
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = true, discoveryCount = 3) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = true, discoveryCount = 8) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = true, discoveryCount = 2) shouldBe
+            HomeHeroMode.Continue
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = false, discoveryCount = 5) shouldBe
+            HomeHeroMode.Continue
+    }
+
+    @Test
     fun `continue always stays continue`() {
         resolveHeroPresentation(HomeHeroMode.Continue, discoveryEnabled = true, discoveryCount = 5) shouldBe
             HomeHeroMode.Continue
