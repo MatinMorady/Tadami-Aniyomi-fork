@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.data.discovery.DiscoveryLibraryAdder
 import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
 import eu.kanade.tachiyomi.data.discovery.DiscoveryTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob
+import eu.kanade.tachiyomi.data.discovery.META_PREFETCH_COUNT
 import eu.kanade.tachiyomi.data.discovery.dedupeCrossRow
 import eu.kanade.tachiyomi.data.discovery.expandGenreSet
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
@@ -53,7 +54,7 @@ data class DiscoveryFeedUiState(
     val failedRows: Set<DiscoveryRowType> = emptySet(),
     // B2: «Скрыть всё с тегом X» — tag к числу затронутых подборок (undo-snackbar).
     val tagSnackbar: Pair<String, Int>? = null,
-    // Lazy cover recovery: инкремент после успешного своипа — ключ рекомпозиции обложек.
+    // Lazy cover recovery: инкремент на каждое восстановленное покрытие — ключ рекомпозиции обложек.
     val coverRecoveryTick: Int = 0,
 )
 
@@ -149,8 +150,6 @@ internal fun DiscoverySuggestion.toSuggestionItem(): SuggestionItem = Suggestion
         else -> SuggestionReason.SEARCH_TITLE
     },
 )
-
-internal const val META_PREFETCH_COUNT = 8
 
 /** SWR-прогрев globalMetaCache: шторка карточки открывается без спиннера. */
 internal suspend fun prefetchDiscoveryMeta(

@@ -63,6 +63,7 @@ import eu.kanade.presentation.components.rememberThemeAwareCoverErrorPainter
 import eu.kanade.presentation.entries.components.aurora.rememberAuroraPosterColorFilter
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.util.rememberSupportsBlurBehind
+import eu.kanade.tachiyomi.data.discovery.DiscoveryCoverRecovery
 import eu.kanade.tachiyomi.data.discovery.DiscoveryMeta
 import eu.kanade.tachiyomi.ui.home.LocalHomeHazeState
 import eu.kanade.tachiyomi.ui.home.discoveryReasonText
@@ -96,7 +97,15 @@ internal fun DiscoveryPreviewSheet(
     val appHaptics = LocalAppHaptics.current
     val coverReloadTick = rememberCoverReloadTick()
     val coverRequest = remember(context, item.coverUrl, item.provider, coverReloadTick) {
-        buildAuroraCoverImageRequest(context, discoveryCoverData(coverMediaType, item.provider, item.coverUrl))
+        buildAuroraCoverImageRequest(
+            context,
+            discoveryCoverData(
+                coverMediaType,
+                item.provider,
+                item.coverUrl,
+                DiscoveryCoverRecovery.get(coverMediaType, item.cleanTitle),
+            ),
+        )
     }
     val fallbackPainter = rememberThemeAwareCoverErrorPainter(variant = AuroraCoverPlaceholderVariant.Portrait)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)

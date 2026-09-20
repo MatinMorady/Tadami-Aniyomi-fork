@@ -7,14 +7,17 @@ import tachiyomi.domain.discovery.model.DiscoverySuggestion
 /**
  * Lazy-восстановление отсутствующих обложек discovery-карточек (NovelUpdates и др.
  * провайдеры без thumbnail): один фоновый meta-запрос на тайтл, результат живёт
- * в памяти до смены ленты. Без миграции схемы — URL подставляется в
+ * в памяти всё время процесса (clear() вызывается только из тестов). Без миграции
+ * схемы — URL подставляется в
  * AuroraPosterRequest (primary для null-обложек, fallback для будущих триггеров).
  */
 object DiscoveryCoverRecovery {
+    private const val MAX_RECOVERY_ATTEMPTS = 2
+
     private val cache = DiscoveryLruCache<String, String>(300)
-    private val attempted = java.util.Collections.newSetFromMap(
-        java.util.concurrent.ConcurrentHashMap<String, Boolean>(),
-    )
+
+    // Гоночные инкременты нестрогие — худший случай лишний retry, шторма сети это не даёт.
+    private val attempts = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     private fun key(mediaType: DiscoveryMediaType, cleanTitle: String) = "${mediaType.key}:$cleanTitle"
 
@@ -24,22 +27,30 @@ object DiscoveryCoverRecovery {
         cache.put(key(mediaType, cleanTitle), url)
     }
 
-    /** Защита от повторных запросов по тайтлам, у которых меты нет (null-cover провайдеры). */
+    /** Одноразовая защита от шторма; transient-сбой (оффлайн) прощает одну повторную попытку на следующем sweep. */
     fun markAttempted(
         mediaType: DiscoveryMediaType,
         cleanTitle: String,
-    ): Boolean = attempted.add(key(mediaType, cleanTitle))
+    ): Boolean {
+        val key = key(mediaType, cleanTitle)
+        val current = attempts[key] ?: 0
+        if (current >= MAX_RECOVERY_ATTEMPTS) return false
+        attempts[key] = current + 1
+        return true
+    }
 
-    /** Отмена запроса — не попытка: снять метку, чтобы следующий sweep повторил. */
+    /** Отмена запроса — не попытка: снять счёт полностью, следующий sweep повторит. */
     fun forgetAttempted(mediaType: DiscoveryMediaType, cleanTitle: String) {
-        attempted.remove(key(mediaType, cleanTitle))
+        attempts.remove(key(mediaType, cleanTitle))
     }
 
     fun clear() {
         cache.clear()
-        attempted.clear()
+        attempts.clear()
     }
 }
+
+internal const val META_PREFETCH_COUNT = 8
 
 internal fun coverRecoveryTargets(items: List<DiscoverySuggestion>): List<DiscoverySuggestion> =
     items.filter { it.coverUrl.isNullOrBlank() }
@@ -48,7 +59,7 @@ internal suspend fun recoverMissingCovers(
     items: List<DiscoverySuggestion>,
     mediaType: DiscoveryMediaType,
     trendingSource: DiscoveryTrendingSource,
-    limit: Int = eu.kanade.tachiyomi.ui.discovery.META_PREFETCH_COUNT,
+    limit: Int = META_PREFETCH_COUNT,
     onRecovered: () -> Unit = {},
 ): Int {
     var recovered = 0

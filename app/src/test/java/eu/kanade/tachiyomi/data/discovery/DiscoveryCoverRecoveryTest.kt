@@ -83,12 +83,14 @@ class DiscoveryCoverRecoveryTest {
     }
 
     @Test
-    fun `second sweep does not retry titles without meta`() = runTest {
+    fun `null-meta titles are retried once then give up`() = runTest {
         val fake = FakeTrending(emptyMap())
         recoverMissingCovers(listOf(sugg("NoMeta", null)), DiscoveryMediaType.NOVEL, fake)
-        // markAttempted уже пометил "nometa" — повторный sweep ничего не запрашивает (фейк не вызывается второй раз)
+        fake.calls shouldBe 1 // первый sweep — попытка 1 из 2
         recoverMissingCovers(listOf(sugg("NoMeta", null)), DiscoveryMediaType.NOVEL, fake) shouldBe 0
-        fake.calls shouldBe 1
+        fake.calls shouldBe 2 // transient-сбой (оффлайн) прощается — второй sweep повторяет запрос
+        recoverMissingCovers(listOf(sugg("NoMeta", null)), DiscoveryMediaType.NOVEL, fake) shouldBe 0
+        fake.calls shouldBe 2 // MAX_RECOVERY_ATTEMPTS достигнут — шторма сети нет
     }
 
     @Test

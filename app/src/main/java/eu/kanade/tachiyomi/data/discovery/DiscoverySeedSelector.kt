@@ -12,7 +12,7 @@ data class DiscoverySeedInput(
     val isCompleted: Boolean = false,
     val completedAt: Long? = null,
     val lastInteraction: Long? = null,
-    /** Пользовательский статус «Дропнуто»: не является сидом, жанры штрафуются в taste-профиле. */
+    /** Статус «Дропнуто» в трекер-сервисе: не является сидом, жанры штрафуются в taste-профиле. */
     val isDropped: Boolean = false,
 )
 

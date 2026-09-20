@@ -180,7 +180,7 @@ class DiscoveryMixTest {
             dateAdded = now - 2 * 24 * 3600_000L,
         )
         val profile = buildTasteProfile(listOf(dropped, active), nowMs = now).toMap()
-        (profile["Isekai"] == null || profile["Isekai"]!! <= 0.0) shouldBe true
+        profile.containsKey("Isekai") shouldBe false
         profile["Drama"]!! shouldBeGreaterThan 0.0
     }
 
