@@ -212,10 +212,11 @@ class DiscoveryTasteRowBuilder(
 }
 
 /**
- * Ряд «Источник» (C1): popular-витрина топ-N источников по весу библиотеки
- * (число тайтлов пользователя), round-robin интерлив; на ручном рефреше
- * порядок источников ротируется. Единственный источник остаётся в силе —
- * квота растягивается на весь ряд (прежние 20 карточек).
+ * Ряд «Источник» (C1): микс ⅘ Latest + ⅕ Popular топ-N источников по весу
+ * библиотеки (число тайтлов пользователя), round-robin интерлив; на ручном
+ * рефреше порядок источников ротируется, а latest шагается страницей.
+ * Единственный источник остаётся в силе — квота растягивается на весь ряд;
+ * при скудном latest квота добирается popular'ом.
  */
 class DiscoverySourceRowBuilder(
     private val catalog: DiscoverySourceCatalog,
@@ -232,11 +233,22 @@ class DiscoverySourceRowBuilder(
         val rotation = (context.pageOffset - 1).coerceAtLeast(0) % ids.size
         val ordered = ids.drop(rotation) + ids.take(rotation)
         val perSource = (rowCap + ordered.size - 1) / ordered.size
+        // Popular-витрина первой страницы почти статична, latest-обновления ротируются
+        // каждый час: основа ряда — Latest, Popular остаётся якорем качества (~20%).
+        val latestQuota = perSource - perSource / 5
         var failures = 0
         val parts = ordered.map { id ->
-            runCatching { catalog.popular(context.mediaType, id).take(perSource) }
-                .onFailure { failures++ }
-                .getOrDefault(emptyList())
+            val latestResult = runCatching { catalog.latest(context.mediaType, id, page = context.pageOffset) }
+            val latestItems = latestResult.getOrDefault(emptyList()).take(latestQuota)
+            val latestTitles = latestItems.mapTo(HashSet()) { it.cleanTitle }
+            val popularResult = runCatching { catalog.popular(context.mediaType, id) }
+            // Источник считается провалившимся, только если popular упал И latest ничего
+            // не дал — иначе ряд честно строится из реального контента.
+            if (popularResult.isFailure && latestItems.isEmpty()) failures++
+            val popularItems = popularResult.getOrDefault(emptyList())
+                .filterNot { it.cleanTitle in latestTitles }
+                .take(perSource - latestItems.size)
+            latestItems + popularItems
         }
         // Все источники упали — ряд помечается failed (кэш не затирается,
         // баннер «часть подборок не обновилась» честный), как в LIKE/TASTE.
