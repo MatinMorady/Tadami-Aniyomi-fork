@@ -2,12 +2,19 @@ package eu.kanade.tachiyomi.data.discovery
 
 import eu.kanade.tachiyomi.data.suggestions.SuggestionCoordinator
 import eu.kanade.tachiyomi.data.suggestions.SuggestionSeed
+import eu.kanade.tachiyomi.data.suggestions.SuggestionTitleResolver
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.data.suggestions.util.bestMatchScoreFor
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import java.io.IOException
+
+/** Кандидаты LIKE-сида: resolver дополняет сырой тайтл оригиналом из описания и нормализованными вариантами. */
+internal fun likeSeedCandidateTitles(seed: DiscoverySeedInput): List<String> =
+    (SuggestionTitleResolver.resolveCandidates(seed.title, seed.description) + seed.altTitles)
+        .filter { it.isNotBlank() }
+        .distinct()
 
 /**
  * Ряд «Похоже на X»: переиспользует существующий [SuggestionCoordinator]
@@ -30,7 +37,7 @@ class DiscoveryLikeRowBuilder(
             val suggestionSeed = SuggestionSeed(
                 mediaType = mediaType,
                 primaryTitle = seed.title,
-                candidateTitles = (listOf(seed.title) + seed.altTitles).distinct(),
+                candidateTitles = likeSeedCandidateTitles(seed),
                 description = seed.description,
                 author = seed.author,
                 genres = seed.genres.ifEmpty { null },
