@@ -12,6 +12,8 @@ data class DiscoverySeedInput(
     val isCompleted: Boolean = false,
     val completedAt: Long? = null,
     val lastInteraction: Long? = null,
+    /** Пользовательский статус «Дропнуто»: не является сидом, жанры штрафуются в taste-профиле. */
+    val isDropped: Boolean = false,
 )
 
 /**
@@ -46,7 +48,7 @@ class DiscoverySeedSelector(
         offset: Int = 0,
     ): List<DiscoverySeedInput> {
         val now = nowMs()
-        val valid = candidates.filter { it.title.isNotBlank() }
+        val valid = candidates.filter { it.title.isNotBlank() }.filter { !it.isDropped }
         val completedWindow = now - settings.completedWindowDays * DAY_MS
         val activeWindow = now - settings.activeWindowDays * DAY_MS
 

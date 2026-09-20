@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.data.discovery
 
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.doubles.plusOrMinus
+import io.kotest.matchers.doubles.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import org.junit.Test
 import tachiyomi.domain.discovery.model.DiscoveryRowType
@@ -160,6 +161,27 @@ class DiscoveryMixTest {
         profile.map { it.first } shouldBe listOf("Action", "Drama")
         (tasteScore(listOf("Action", "Comedy"), profile) > tasteScore(listOf("Drama"), profile)) shouldBe true
         matchedGenres(listOf("Drama", "Action"), profile) shouldBe listOf("Drama", "Action")
+    }
+
+    @Test
+    fun `dropped titles penalize their genres in taste profile`() {
+        val now = 1_000_000_000L
+        val dropped = DiscoverySeedInput(
+            entryId = 1,
+            title = "Dropped Isekai",
+            genres = listOf("Isekai"),
+            dateAdded = now - 2 * 24 * 3600_000L,
+            isDropped = true,
+        )
+        val active = DiscoverySeedInput(
+            entryId = 2,
+            title = "Active Drama",
+            genres = listOf("Drama"),
+            dateAdded = now - 2 * 24 * 3600_000L,
+        )
+        val profile = buildTasteProfile(listOf(dropped, active), nowMs = now).toMap()
+        (profile["Isekai"] == null || profile["Isekai"]!! <= 0.0) shouldBe true
+        profile["Drama"]!! shouldBeGreaterThan 0.0
     }
 
     @Test

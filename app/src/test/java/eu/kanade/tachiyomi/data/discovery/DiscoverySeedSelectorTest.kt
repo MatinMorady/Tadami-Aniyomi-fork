@@ -81,6 +81,27 @@ class DiscoverySeedSelectorTest {
     }
 
     @Test
+    fun `dropped candidates are never selected as seeds`() {
+        val dropped = seed(1).copy(
+            title = "Dropped One",
+            genres = listOf("Drama"),
+            isCompleted = true,
+            completedAt = now,
+            lastInteraction = now,
+            isDropped = true,
+        )
+        val active = seed(2).copy(
+            title = "Active One",
+            genres = listOf("Drama"),
+            isCompleted = true,
+            completedAt = now,
+            lastInteraction = now,
+        )
+        val out = selector.select(listOf(dropped, active), SeedSettings(maxSeeds = 3))
+        out.map { it.title } shouldBe listOf("Active One")
+    }
+
+    @Test
     fun `offset shifts selected seeds circularly`() {
         val seeds = (1..6).map { seed(it.toLong()).copy(isCompleted = true, completedAt = now) }
         val out0 = selector.select(seeds, SeedSettings(maxSeeds = 3), offset = 0)

@@ -150,9 +150,14 @@ internal fun mergeSeedResults(
         .sortedByDescending { it.score }
 }
 
+/** Вклад дропнутого тайтла в каждый его жанр вместо положительного freshness. */
+internal const val DROPPED_GENRE_PENALTY = 0.5
+
 /**
  * Жанровый профиль: топ-[topN] жанров библиотеки/истории за [windowDays] дней,
  * вес жанра = сумма freshness по тайтлам (freshness = 1 / (1 + возраст_в_днях / 30)).
+ * Дропнутые тайтлы вычитают [DROPPED_GENRE_PENALTY] из каждого своего жанра;
+ * жанры с неположительным итогом из профиля исключаются.
  */
 internal fun buildTasteProfile(
     candidates: List<DiscoverySeedInput>,
@@ -167,11 +172,13 @@ internal fun buildTasteProfile(
         if (interaction < windowStart) return@forEach
         val ageDays = ((nowMs - interaction) / DAY_MS).coerceAtLeast(0)
         val freshness = 1.0 / (1.0 + ageDays / 30.0)
+        val contribution = if (candidate.isDropped) -DROPPED_GENRE_PENALTY else freshness
         candidate.genres.forEach { genre ->
-            weights[genre] = (weights[genre] ?: 0.0) + freshness
+            weights[genre] = (weights[genre] ?: 0.0) + contribution
         }
     }
     return weights.entries
+        .filter { it.value > 0.0 }
         .sortedByDescending { it.value }
         .take(topN)
         .map { it.key to it.value }
