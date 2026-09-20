@@ -594,6 +594,17 @@ class AnimeScreenModel(
         }
     }
 
+    // Declared above `init` on purpose: init launches IO coroutines (fetchAnimeFromSource) that
+    // read this field, and Kotlin runs property initializers in declaration order - declaring it
+    // after init opens the same constructor-order race fixed in MangaScreenModel.
+    // Guarded by ScreenModelInitOrderTest.
+
+    // Lightweight in-memory TTL cache for recent anime details responses from source.
+    // Bypasses the network for re-opens within the TTL; manual refresh always bypasses the read
+    // but overwrites the entry with the fresh response. Never persists to disk.
+    private val recentAnimeDetailsCache =
+        TtlCache<Long, eu.kanade.tachiyomi.animesource.model.SAnime>(ttlMs = 90_000L)
+
     init {
         val restoredState = restoreStateFromCache(animeId)
         restoredState?.let {
@@ -887,12 +898,6 @@ class AnimeScreenModel(
     /**
      * Fetch anime information from source.
      */
-    // Lightweight in-memory TTL cache for recent anime details responses from source.
-    // Bypasses the network for re-opens within the TTL; manual refresh always bypasses the read
-    // but overwrites the entry with the fresh response. Never persists to disk.
-    private val recentAnimeDetailsCache =
-        TtlCache<Long, eu.kanade.tachiyomi.animesource.model.SAnime>(ttlMs = 90_000L)
-
     private suspend fun fetchAnimeFromSource(manualFetch: Boolean = false) {
         val state = successState ?: return
         try {
