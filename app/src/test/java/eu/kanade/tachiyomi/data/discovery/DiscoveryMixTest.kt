@@ -185,6 +185,39 @@ class DiscoveryMixTest {
     }
 
     @Test
+    fun `genreDecayDays maps categories and defaults to 30`() {
+        genreDecayDays("Science Fiction") shouldBe 180.0
+        genreDecayDays("исекай") shouldBe 20.0
+        genreDecayDays("romance") shouldBe 30.0
+    }
+
+    @Test
+    fun `fundamental genres decay slower than trendy ones`() {
+        val now = 1_000_000_000L
+        val age45 = now - 45L * 24 * 3600_000L
+        val profile = buildTasteProfile(
+            listOf(
+                DiscoverySeedInput(
+                    entryId = 1,
+                    title = "Old SciFi",
+                    genres = listOf("Science Fiction"),
+                    dateAdded = age45,
+                ),
+                DiscoverySeedInput(
+                    entryId = 2,
+                    title = "Old Isekai",
+                    genres = listOf("Isekai"),
+                    dateAdded = age45,
+                ),
+            ),
+            nowMs = now,
+        ).toMap()
+        // Дискриминация: со старым единым 30.0 оба веса равны (1/(1+45/30)); с per-genre:
+        // Science Fiction = 1/(1+45/180) = 0.8 > Isekai = 1/(1+45/20) ≈ 0.3077
+        profile.getValue("Science Fiction") shouldBeGreaterThan profile.getValue("Isekai")
+    }
+
+    @Test
     fun `expandGenreSet adds russian and english variants both ways`() {
         val fromRu = expandGenreSet(listOf("Фэнтези"))
         fromRu shouldContain "фэнтези"

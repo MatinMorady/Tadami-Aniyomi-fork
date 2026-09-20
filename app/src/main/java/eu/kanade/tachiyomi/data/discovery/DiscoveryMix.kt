@@ -153,9 +153,37 @@ internal fun mergeSeedResults(
 /** Вклад дропнутого тайтла в каждый его жанр вместо положительного freshness. */
 internal const val DROPPED_GENRE_PENALTY = 0.5
 
+/** Категория жанра: фундаментальные вкусы живут годами, трендовые приедаются. */
+internal fun genreDecayDays(genre: String): Double {
+    val g = genre.trim().lowercase()
+    return when (g) {
+        in FUNDAMENTAL_GENRES -> 180.0
+        in TRENDY_GENRES -> 20.0
+        else -> 30.0
+    }
+}
+
+private val FUNDAMENTAL_GENRES = setOf(
+    "science fiction", "sci-fi", "фантастика",
+    "psychological", "психологическое", "психология",
+    "thriller", "триллер",
+    "mystery", "детектив",
+    "drama", "драма",
+)
+
+private val TRENDY_GENRES = setOf(
+    "isekai",
+    "исекай",
+    "harem",
+    "гарем",
+    "slice of life",
+    "повседневность",
+)
+
 /**
  * Жанровый профиль: топ-[topN] жанров библиотеки/истории за [windowDays] дней,
- * вес жанра = сумма freshness по тайтлам (freshness = 1 / (1 + возраст_в_днях / 30)).
+ * вес жанра = сумма freshness по тайтлам (freshness = 1 / (1 + возраст_в_днях /
+ * [genreDecayDays]) — полураспад на каждый жанр свой).
  * Дропнутые тайтлы вычитают [DROPPED_GENRE_PENALTY] из каждого своего жанра;
  * жанры с неположительным итогом из профиля исключаются.
  */
@@ -171,9 +199,9 @@ internal fun buildTasteProfile(
         val interaction = (candidate.lastInteraction ?: candidate.dateAdded)
         if (interaction < windowStart) return@forEach
         val ageDays = ((nowMs - interaction) / DAY_MS).coerceAtLeast(0)
-        val freshness = 1.0 / (1.0 + ageDays / 30.0)
-        val contribution = if (candidate.isDropped) -DROPPED_GENRE_PENALTY else freshness
         candidate.genres.forEach { genre ->
+            val freshness = 1.0 / (1.0 + ageDays / genreDecayDays(genre))
+            val contribution = if (candidate.isDropped) -DROPPED_GENRE_PENALTY else freshness
             weights[genre] = (weights[genre] ?: 0.0) + contribution
         }
     }
