@@ -62,14 +62,4 @@ class HomeHubHistoryRowTest {
         val result = prependLastReadHero(hero(1L), history, HomeHeroMode.Collage, HomeHubSection.Novel)
         result.map { it.entryId } shouldBe listOf(1L, 2L)
     }
-
-    @Test
-    fun `highlight id only for collage and stage with hero`() {
-        lastReadHighlightId(hero(9L), HomeHeroMode.Stage) shouldBe 9L
-        lastReadHighlightId(hero(9L), HomeHeroMode.Collage) shouldBe 9L
-        lastReadHighlightId(hero(9L), HomeHeroMode.Continue) shouldBe null
-        lastReadHighlightId(hero(9L), HomeHeroMode.Hybrid) shouldBe null
-        lastReadHighlightId(hero(9L), HomeHeroMode.Auto) shouldBe null
-        lastReadHighlightId(null, HomeHeroMode.Stage) shouldBe null
-    }
 }

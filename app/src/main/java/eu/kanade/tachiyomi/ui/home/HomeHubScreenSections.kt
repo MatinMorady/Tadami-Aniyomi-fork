@@ -630,11 +630,11 @@ private fun HomeHubScreen(
         discovery = discovery,
     )
     // В Collage/Stage hero-слот занят «Для тебя»: возвращаем последний прочитанный
-    // тайтл первым элементом ряда «Недавно просмотренные» и подсвечиваем его кольцом.
+    // тайтл первым элементом ряда «Недавно просмотренные» (без визуального выделения —
+    // пользователь и так знает, что читал последним).
     val historyItems = remember(history, hero, heroPresentation, section) {
         prependLastReadHero(hero, history, heroPresentation, section)
     }
-    val highlightedEntryId = lastReadHighlightId(hero, heroPresentation)
     // Считается после historyItems: scroll-эвристика обязана видеть ряд вместе
     // с возвращённым последним прочитанным (иначе расхождение с рендером).
     val enableScroll = shouldEnableHomeHubScroll(
@@ -745,7 +745,6 @@ private fun HomeHubScreen(
                             history = historyItems,
                             recentCardMode = recentCardMode,
                             section = section,
-                            highlightedEntryId = highlightedEntryId,
                             onEntryClick = onEntryClick,
                             onViewAllClick = onHistoryClick,
                         )

@@ -37,7 +37,6 @@ internal fun HistoryRow(
     history: List<HomeHubHistory>,
     recentCardMode: HomeHubRecentCardMode,
     section: HomeHubSection,
-    highlightedEntryId: Long? = null,
     onEntryClick: (Long) -> Unit,
     onViewAllClick: () -> Unit,
 ) {
@@ -119,7 +118,6 @@ internal fun HistoryRow(
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
-                        highlighted = item.entryId == highlightedEntryId,
                     )
                 }
             }
@@ -147,7 +145,6 @@ internal fun HistoryRow(
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
-                        highlighted = item.entryId == highlightedEntryId,
                     )
                 }
             }
@@ -319,11 +316,3 @@ internal fun prependLastReadHero(
     )
     return (listOf(item) + history.filterNot { it.entryId == hero.entryId }).take(limit)
 }
-
-/** id карточки для акцентного кольца — только когда hero-слот занят discovery. */
-internal fun lastReadHighlightId(hero: HomeHubHero?, heroPresentation: HomeHeroMode): Long? =
-    if (hero != null && (heroPresentation == HomeHeroMode.Collage || heroPresentation == HomeHeroMode.Stage)) {
-        hero.entryId
-    } else {
-        null
-    }
