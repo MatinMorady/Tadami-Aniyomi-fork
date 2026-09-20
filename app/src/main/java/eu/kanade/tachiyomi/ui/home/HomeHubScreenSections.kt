@@ -635,6 +635,12 @@ private fun HomeHubScreen(
         hasHero = hero != null,
         discovery = discovery,
     )
+    // В Collage/Stage hero-слот занят «Для тебя»: возвращаем последний прочитанный
+    // тайтл первым элементом ряда «Недавно просмотренные» и подсвечиваем его кольцом.
+    val historyItems = remember(history, hero, heroPresentation, section) {
+        prependLastReadHero(hero, history, heroPresentation, section)
+    }
+    val highlightedEntryId = lastReadHighlightId(hero, heroPresentation)
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -731,12 +737,13 @@ private fun HomeHubScreen(
                     )
                 }
 
-                if (history.isNotEmpty()) {
+                if (historyItems.isNotEmpty()) {
                     item(key = "history", contentType = "home_hub_history") {
                         HistoryRow(
-                            history = history,
+                            history = historyItems,
                             recentCardMode = recentCardMode,
                             section = section,
+                            highlightedEntryId = highlightedEntryId,
                             onEntryClick = onEntryClick,
                             onViewAllClick = onHistoryClick,
                         )

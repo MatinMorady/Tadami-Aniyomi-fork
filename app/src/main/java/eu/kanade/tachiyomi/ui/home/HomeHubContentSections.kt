@@ -491,11 +491,21 @@ internal fun HomeHubRecentCard(
     deviceClass: AuroraDeviceClass,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
 ) {
     when (mode) {
         HomeHubRecentCardRenderMode.ClassicAuroraCard -> {
             AuroraCard(
-                modifier = modifier.aspectRatio(0.68f),
+                modifier = modifier
+                    .aspectRatio(0.68f)
+                    .then(
+                        // Вариант C (sign-off 2026-09-20): акцентное кольцо последнего прочитанного.
+                        if (highlighted) {
+                            Modifier.border(1.5.dp, AuroraTheme.colors.accent, RoundedCornerShape(12.dp))
+                        } else {
+                            Modifier
+                        },
+                    ),
                 title = title,
                 coverData = coverData,
                 subtitle = subtitle,
@@ -511,6 +521,7 @@ internal fun HomeHubRecentCard(
                 subtitle = subtitle,
                 deviceClass = deviceClass,
                 onClick = onClick,
+                highlighted = highlighted,
             )
         }
     }
@@ -524,6 +535,7 @@ internal fun HomeHubRecentPosterCard(
     deviceClass: AuroraDeviceClass,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -558,11 +570,30 @@ internal fun HomeHubRecentPosterCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(posterSpec.posterAspectRatio)
+                    .then(
+                        // Вариант C (sign-off 2026-09-20): свечение последнего прочитанного.
+                        // Цветная тень рендерится на API 28+, ниже — дефолтная (на тёмном незаметна).
+                        if (highlighted) {
+                            Modifier.shadow(
+                                elevation = 8.dp,
+                                shape = posterShape,
+                                ambientColor = colors.accent.copy(alpha = 0.55f),
+                                spotColor = colors.accent.copy(alpha = 0.55f),
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
                     .clip(posterShape)
                     .background(posterSurface)
                     .then(
-                        if (colors.isDark || colors.isEInk) {
-                            Modifier.border(
+                        when {
+                            highlighted -> Modifier.border(
+                                width = 1.5.dp,
+                                color = colors.accent,
+                                shape = posterShape,
+                            )
+                            colors.isDark || colors.isEInk -> Modifier.border(
                                 width = 1.dp,
                                 color = if (colors.isDark) {
                                     Color.White.copy(alpha = 0.06f)
@@ -571,8 +602,7 @@ internal fun HomeHubRecentPosterCard(
                                 },
                                 shape = posterShape,
                             )
-                        } else {
-                            Modifier
+                            else -> Modifier
                         },
                     ),
             ) {
@@ -601,15 +631,32 @@ internal fun HomeHubRecentPosterCard(
                     .padding(horizontal = posterSpec.textHorizontalPaddingDp.dp),
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = title,
-                    color = colors.textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = posterSpec.titleMaxLines,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 17.sp,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        color = colors.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = posterSpec.titleMaxLines,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (highlighted) {
+                        Spacer(Modifier.width(4.dp))
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .shadow(
+                                    elevation = 4.dp,
+                                    shape = CircleShape,
+                                    ambientColor = colors.accent,
+                                    spotColor = colors.accent,
+                                )
+                                .background(colors.accent, CircleShape),
+                        )
+                    }
+                }
 
                 if (subtitle != null) {
                     Text(

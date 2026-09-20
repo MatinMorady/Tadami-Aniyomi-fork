@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import eu.kanade.domain.ui.model.HomeHeroMode
 import eu.kanade.domain.ui.model.HomeHubRecentCardMode
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
@@ -36,6 +37,7 @@ internal fun HistoryRow(
     history: List<HomeHubHistory>,
     recentCardMode: HomeHubRecentCardMode,
     section: HomeHubSection,
+    highlightedEntryId: Long? = null,
     onEntryClick: (Long) -> Unit,
     onViewAllClick: () -> Unit,
 ) {
@@ -117,6 +119,7 @@ internal fun HistoryRow(
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
+                        highlighted = item.entryId == highlightedEntryId,
                     )
                 }
             }
@@ -144,6 +147,7 @@ internal fun HistoryRow(
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
+                        highlighted = item.entryId == highlightedEntryId,
                     )
                 }
             }
@@ -291,3 +295,35 @@ internal fun formatProgressNumber(section: HomeHubSection, number: Double): Stri
         HomeHubSection.Manga, HomeHubSection.Novel -> formatChapterNumber(number)
     }
 }
+
+/**
+ * В режимах Collage/Stage hero-слот занят лентой «Для тебя», а последний прочитанный
+ * тайтл исключён из истории screen-моделью (чтобы не дублировать hero). Возвращаем
+ * его первым элементом ряда — лимит ряда сохранён, хвост сдвигается.
+ */
+internal fun prependLastReadHero(
+    hero: HomeHubHero?,
+    history: List<HomeHubHistory>,
+    heroPresentation: HomeHeroMode,
+    section: HomeHubSection,
+    limit: Int = 6,
+): List<HomeHubHistory> {
+    if (hero == null) return history
+    if (heroPresentation != HomeHeroMode.Collage && heroPresentation != HomeHeroMode.Stage) return history
+    val item = HomeHubHistory(
+        entryId = hero.entryId,
+        title = hero.title,
+        progressNumber = hero.progressNumber,
+        coverData = hero.coverData,
+        section = section,
+    )
+    return (listOf(item) + history.filterNot { it.entryId == hero.entryId }).take(limit)
+}
+
+/** id карточки для акцентного кольца — только когда hero-слот занят discovery. */
+internal fun lastReadHighlightId(hero: HomeHubHero?, heroPresentation: HomeHeroMode): Long? =
+    if (hero != null && (heroPresentation == HomeHeroMode.Collage || heroPresentation == HomeHeroMode.Stage)) {
+        hero.entryId
+    } else {
+        null
+    }
