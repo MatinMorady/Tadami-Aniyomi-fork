@@ -612,12 +612,6 @@ private fun HomeHubScreen(
     val recommendations = filteredContent.recommendations
     val discovery = filteredContent.discovery
     val showWelcome = (state.showWelcome || state.showFilteredEmpty) && !isFiltering
-    val enableScroll = shouldEnableHomeHubScroll(
-        showWelcome = showWelcome,
-        historyCount = history.size,
-        recommendationCount = recommendations.size,
-        discoveryCount = discovery.size,
-    )
     val reserveHeroSlot = shouldReserveHomeHubHeroSlot(
         hasHero = state.hero != null,
         isLoading = state.isLoading,
@@ -641,6 +635,14 @@ private fun HomeHubScreen(
         prependLastReadHero(hero, history, heroPresentation, section)
     }
     val highlightedEntryId = lastReadHighlightId(hero, heroPresentation)
+    // Считается после historyItems: scroll-эвристика обязана видеть ряд вместе
+    // с возвращённым последним прочитанным (иначе расхождение с рендером).
+    val enableScroll = shouldEnableHomeHubScroll(
+        showWelcome = showWelcome,
+        historyCount = historyItems.size,
+        recommendationCount = recommendations.size,
+        discoveryCount = discovery.size,
+    )
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
