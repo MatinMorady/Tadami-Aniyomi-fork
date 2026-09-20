@@ -114,7 +114,8 @@ class DiscoveryRunner(
         }
 
         val currentSuggestions = runCatching { repository.subscribe(mediaType).firstOrNull() }.getOrNull().orEmpty()
-        val shownTitles = runCatching { repository.getShownTitles(mediaType) }.getOrDefault(emptySet())
+        val shownCutoffMap = runCatching { repository.getShownTitlesWithTimestamp(mediaType) }.getOrDefault(emptyMap())
+        val shownTitles = shownCutoffMap.keys
         val recentCleanTitles = if (isManualRefresh) {
             currentSuggestions.mapTo(HashSet()) { it.cleanTitle } + shownTitles
         } else {
@@ -134,6 +135,7 @@ class DiscoveryRunner(
             // C1: ряд SOURCE строится из топ-3 источников по весу библиотеки.
             sourceIds = rankSourceIds(candidates),
             recentCleanTitles = recentCleanTitles,
+            shownCutoffMap = shownCutoffMap,
             pageOffset = pageOffset,
         )
         // Выключенные в настройках ряды: чистим их записи в БД, чтобы UI не показывал «зомби».

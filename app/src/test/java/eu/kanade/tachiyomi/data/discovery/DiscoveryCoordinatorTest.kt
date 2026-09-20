@@ -67,6 +67,25 @@ class DiscoveryCoordinatorTest {
     }
 
     @Test
+    fun `stale backfill is ordered by least recently shown, untimestamped last`() = runTest {
+        val like = builder(
+            DiscoveryRowType.LIKE,
+            listOf(item("Fresh"), item("ShownRecent"), item("NoTimestamp"), item("ShownOld")),
+        )
+        val feed = DiscoveryCoordinator(listOf(like), rowLimit = 10).buildFeed(
+            baseContext.copy(
+                recentCleanTitles = setOf("shownrecent", "notimestamp", "shownold"),
+                shownCutoffMap = mapOf(
+                    "shownrecent" to 2_000L,
+                    "shownold" to 1_000L,
+                ),
+            ),
+        )
+        feed.rows[DiscoveryRowType.LIKE]?.map { it.title } shouldBe
+            listOf("Fresh", "ShownOld", "ShownRecent", "NoTimestamp")
+    }
+
+    @Test
     fun `failing builder yields empty row and failedRows marker, others survive`() = runTest {
         val like = builder(DiscoveryRowType.LIKE, emptyList(), fail = true)
         val trend = builder(DiscoveryRowType.TREND, listOf(item("Ok")))

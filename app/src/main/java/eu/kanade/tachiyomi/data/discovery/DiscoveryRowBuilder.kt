@@ -26,6 +26,8 @@ data class DiscoveryBuildContext(
     /** C1: источники библиотеки, упорядоченные по весу (топ-3) — для ряда SOURCE. */
     val sourceIds: List<Long> = emptyList(),
     val recentCleanTitles: Set<String> = emptySet(),
+    /** cleanTitle → таймстамп последнего показа (48h окно): порядок stale-добора в координаторе. */
+    val shownCutoffMap: Map<String, Long> = emptyMap(),
     val pageOffset: Int = 1,
 )
 
