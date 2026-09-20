@@ -4,8 +4,10 @@ import android.content.Context
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.domain.discovery.service.DiscoveryPreferences
+import eu.kanade.tachiyomi.data.discovery.CompositeTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryLibraryAdder
 import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
+import eu.kanade.tachiyomi.data.discovery.DiscoveryTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob
 import eu.kanade.tachiyomi.data.discovery.dedupeCrossRow
 import eu.kanade.tachiyomi.data.discovery.expandGenreSet
@@ -17,6 +19,7 @@ import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.util.system.isRunningFlow
 import eu.kanade.tachiyomi.util.system.workManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -144,6 +147,26 @@ internal fun DiscoverySuggestion.toSuggestionItem(): SuggestionItem = Suggestion
     },
 )
 
+internal const val META_PREFETCH_COUNT = 8
+
+/** SWR-прогрев globalMetaCache: шторка карточки открывается без спиннера. */
+internal suspend fun prefetchDiscoveryMeta(
+    items: List<DiscoverySuggestion>,
+    mediaType: DiscoveryMediaType,
+    trendingSource: DiscoveryTrendingSource,
+    limit: Int = META_PREFETCH_COUNT,
+) {
+    items.take(limit).forEach { item ->
+        try {
+            trendingSource.fetchMeta(item.title, mediaType)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Одна карточка без меты не должна останавливать прогрев остальных.
+        }
+    }
+}
+
 /**
  * Полный экран «Для тебя» v3: читает только кэш ленты из БД (ноль сети на рендер);
  *_mix_ = интерлив квот сигналов; табы/чипсы фильтруют поток; «+» добавляет в
@@ -156,9 +179,11 @@ class DiscoveryFeedScreenModel(
     private val repository: DiscoveryRepository = Injekt.get(),
     private val adder: DiscoveryLibraryAdder = DiscoveryLibraryAdder(),
     private val preferences: DiscoveryPreferences = Injekt.get(),
+    private val trendingSource: DiscoveryTrendingSource = CompositeTrendingSource(),
 ) : StateScreenModel<DiscoveryFeedUiState>(DiscoveryFeedUiState(mediaType = initialMedia)) {
 
     private var observeJob: Job? = null
+    private var prefetchJob: Job? = null
     private var lastHidden: DiscoverySuggestion? = null
     private var lastBlacklistedTag: String? = null
 
@@ -200,6 +225,10 @@ class DiscoveryFeedScreenModel(
                             isLoading = false,
                             failedRows = parseFailedRows(failedCsv),
                         )
+                    }
+                    prefetchJob?.cancel()
+                    prefetchJob = screenModelScope.launchIO {
+                        prefetchDiscoveryMeta(mix, mediaType, trendingSource)
                     }
                 }
         }
