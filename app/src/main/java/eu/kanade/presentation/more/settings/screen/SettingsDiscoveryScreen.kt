@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -25,8 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.discovery.service.DiscoveryPreferences
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.screen.discovery.DiscoverySourcesScreen
 import eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.persistentListOf
@@ -57,6 +61,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
     @Composable
     override fun getPreferences(): List<Preference> {
         val context = LocalContext.current
+        val navigator = LocalNavigator.currentOrThrow
         val scope = rememberCoroutineScope()
         val repository = remember { Injekt.get<DiscoveryRepository>() }
         var showResetHiddenDialog by remember { mutableStateOf(false) }
@@ -388,6 +393,13 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         preference = discoveryPreferences.rowSourceEnabled(),
                         title = stringResource(AYMR.strings.pref_discovery_row_source),
                         subtitle = stringResource(AYMR.strings.pref_discovery_row_source_summary),
+                        enabled = enabled,
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_sources_title),
+                        subtitle = stringResource(AYMR.strings.pref_discovery_sources_summary),
+                        icon = Icons.Outlined.Tune,
+                        onClick = { navigator.push(DiscoverySourcesScreen()) },
                         enabled = enabled,
                     ),
                 ),

@@ -278,4 +278,146 @@ class DiscoveryRunnerTest {
             DiscoveryRowType.SOURCE,
         )
     }
+
+    // ── Source participation (Task 2) ────────────────────────────────────────────
+
+    private fun weightedSeedSources() = object : DiscoverySeedSources {
+        override suspend fun candidates(mediaType: DiscoveryMediaType) = listOf(
+            DiscoverySeedInput(entryId = 1, title = "A", sourceId = 11L),
+            DiscoverySeedInput(entryId = 2, title = "B", sourceId = 11L),
+            DiscoverySeedInput(entryId = 3, title = "C", sourceId = 22L),
+        )
+
+        override suspend fun historyCleanTitles(mediaType: DiscoveryMediaType) = emptySet<String>()
+    }
+
+    private fun emptySeedSources() = object : DiscoverySeedSources {
+        override suspend fun candidates(mediaType: DiscoveryMediaType) = emptyList<DiscoverySeedInput>()
+        override suspend fun historyCleanTitles(mediaType: DiscoveryMediaType) = emptySet<String>()
+    }
+
+    private fun capturingBuilder(captured: MutableList<DiscoveryBuildContext>) = object : DiscoveryRowBuilder {
+        override val rowType = DiscoveryRowType.LIKE
+        override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+            captured += context
+            return emptyList()
+        }
+    }
+
+    private fun discoveryPrefs(vararg prefs: InMemoryPreferenceStore.InMemoryPreference<*>) =
+        DiscoveryPreferences(InMemoryPreferenceStore(prefs.asSequence()))
+
+    @Test
+    fun `excluded sources are filtered from context in auto mode`() = runTest {
+        val captured = mutableListOf<DiscoveryBuildContext>()
+        val runner = DiscoveryRunner(
+            repository = FakeRepository(),
+            preferences = discoveryPrefs(
+                InMemoryPreferenceStore.InMemoryPreference("discovery_source_excluded_novel", "p2", ""),
+            ),
+            seedSources = weightedSeedSources(),
+            coordinatorFactory = { DiscoveryCoordinator(listOf(capturingBuilder(captured))) },
+            sourcePreferencesProvider = ::testSourcePrefs,
+            installedPluginsProvider = {
+                listOf(
+                    DiscoveryInstalledPlugin("p1", listOf(11L)),
+                    DiscoveryInstalledPlugin("p2", listOf(22L)),
+                )
+            },
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        captured.single().sourceIds shouldBe listOf(11L)
+    }
+
+    @Test
+    fun `manual mode uses installed weight order and library-top primary`() = runTest {
+        val captured = mutableListOf<DiscoveryBuildContext>()
+        val runner = DiscoveryRunner(
+            repository = FakeRepository(),
+            preferences = discoveryPrefs(
+                InMemoryPreferenceStore.InMemoryPreference("discovery_source_mode_novel", "manual", "auto"),
+            ),
+            seedSources = weightedSeedSources(),
+            coordinatorFactory = { DiscoveryCoordinator(listOf(capturingBuilder(captured))) },
+            sourcePreferencesProvider = ::testSourcePrefs,
+            installedPluginsProvider = {
+                listOf(
+                    DiscoveryInstalledPlugin("p1", listOf(11L)),
+                    DiscoveryInstalledPlugin("p2", listOf(22L)),
+                    DiscoveryInstalledPlugin("p3", listOf(33L)),
+                )
+            },
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // weightOrder: библиотечные по весу (11×2, 22×1) + нулевой вес 33 хвостом.
+        captured.single().sourceIds shouldBe listOf(11L, 22L, 33L)
+        // lastUsed не задан (−1) → primary = топ библиотеки.
+        captured.single().sourceId shouldBe 11L
+    }
+
+    @Test
+    fun `manual mode caps sources at eight`() = runTest {
+        val captured = mutableListOf<DiscoveryBuildContext>()
+        val runner = DiscoveryRunner(
+            repository = FakeRepository(),
+            preferences = discoveryPrefs(
+                InMemoryPreferenceStore.InMemoryPreference("discovery_source_mode_novel", "manual", "auto"),
+            ),
+            seedSources = emptySeedSources(),
+            coordinatorFactory = { DiscoveryCoordinator(listOf(capturingBuilder(captured))) },
+            sourcePreferencesProvider = ::testSourcePrefs,
+            installedPluginsProvider = { (1L..10L).map { DiscoveryInstalledPlugin("p$it", listOf(it)) } },
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        captured.single().sourceIds shouldBe (1L..8L).toList()
+    }
+
+    @Test
+    fun `excluded lastUsed yields primary from allowed`() = runTest {
+        val captured = mutableListOf<DiscoveryBuildContext>()
+        val sourcePrefs = SourcePreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    // Preference.appStateKey("last_novel_catalogue_source"), default −1.
+                    InMemoryPreferenceStore.InMemoryPreference("__APP_STATE_last_novel_catalogue_source", 22L, -1L),
+                ),
+            ),
+        )
+        val runner = DiscoveryRunner(
+            repository = FakeRepository(),
+            preferences = discoveryPrefs(
+                InMemoryPreferenceStore.InMemoryPreference("discovery_source_excluded_novel", "p2", ""),
+            ),
+            seedSources = weightedSeedSources(),
+            coordinatorFactory = { DiscoveryCoordinator(listOf(capturingBuilder(captured))) },
+            sourcePreferencesProvider = { sourcePrefs },
+            installedPluginsProvider = {
+                listOf(
+                    DiscoveryInstalledPlugin("p1", listOf(11L)),
+                    DiscoveryInstalledPlugin("p2", listOf(22L)),
+                )
+            },
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        captured.single().sourceIds shouldBe listOf(11L)
+        captured.single().sourceId shouldBe 11L
+    }
+
+    @Test
+    fun `language variants of one plugin collapse into single pick source`() = runTest {
+        val captured = mutableListOf<DiscoveryBuildContext>()
+        val runner = DiscoveryRunner(
+            repository = FakeRepository(),
+            preferences = discoveryPrefs(),
+            seedSources = emptySeedSources(),
+            coordinatorFactory = { DiscoveryCoordinator(listOf(capturingBuilder(captured))) },
+            sourcePreferencesProvider = ::testSourcePrefs,
+            // Одно расширение с пятью языковыми вариантами — в ряд попадает один репрезентативный.
+            installedPluginsProvider = {
+                listOf(DiscoveryInstalledPlugin("multi.lang", listOf(101L, 102L, 103L, 104L, 105L)))
+            },
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        captured.single().sourceIds shouldBe listOf(101L)
+    }
 }

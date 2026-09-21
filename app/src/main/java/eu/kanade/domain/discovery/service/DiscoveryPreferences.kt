@@ -45,6 +45,18 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
     fun lastFailedRows(mediaType: DiscoveryMediaType): Preference<String> =
         preferenceStore.getString("discovery_failed_rows_" + mediaType.key, "")
 
+    /** Режим участия плагинов в подборках: "auto" (топ-3 по весу библиотеки) | "manual" (свой набор). */
+    fun discoverySourceMode(mediaType: DiscoveryMediaType): Preference<String> =
+        preferenceStore.getString("discovery_source_mode_" + mediaType.key, "auto")
+
+    /**
+     * CSV исключённых ключей плагинов (pkgName расширений / id novel-плагинов):
+     * хранятся ВЫКЛЮЧЕННЫЕ — новый плагин участвует автоматически.
+     * Ключ объединяет все языковые варианты расширения. Учитывается в обоих режимах.
+     */
+    fun discoverySourceExcluded(mediaType: DiscoveryMediaType): Preference<String> =
+        preferenceStore.getString("discovery_source_excluded_" + mediaType.key, "")
+
     fun teaserCount(): Preference<Int> = preferenceStore.getInt("discovery_teaser_count", 16)
     fun showReasons(): Preference<Boolean> = preferenceStore.getBoolean("discovery_show_reasons", true)
 

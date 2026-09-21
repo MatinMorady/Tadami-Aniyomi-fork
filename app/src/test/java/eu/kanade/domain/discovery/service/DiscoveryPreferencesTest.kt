@@ -39,6 +39,13 @@ class DiscoveryPreferencesTest {
     }
 
     @Test
+    fun `source participation defaults keep current behaviour`() {
+        val prefs = DiscoveryPreferences(InMemoryPreferenceStore())
+        prefs.discoverySourceMode(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL).get() shouldBe "auto"
+        prefs.discoverySourceExcluded(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL).get() shouldBe ""
+    }
+
+    @Test
     fun `hero mode fromKey falls back to Continue`() {
         HomeHeroMode.fromKey("auto") shouldBe HomeHeroMode.Auto
         HomeHeroMode.fromKey("hybrid") shouldBe HomeHeroMode.Hybrid
