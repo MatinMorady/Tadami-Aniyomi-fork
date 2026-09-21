@@ -14,10 +14,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.download.DownloadQueueItem
 import eu.kanade.presentation.download.DownloadQueueSectionHeader
 import eu.kanade.tachiyomi.ui.download.DownloadQueueUiMapper
+import eu.kanade.tachiyomi.ui.entries.manga.MangaScreen
 import kotlinx.coroutines.CoroutineScope
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.Scaffold
@@ -37,6 +40,7 @@ fun DownloadQueueScreen(
     val uiPreferences = Injekt.get<UiPreferences>()
     val theme = uiPreferences.appTheme().preferenceCollectAsState()
     val isAurora = theme.value.isAuroraStyle
+    val navigator = LocalNavigator.currentOrThrow
 
     Scaffold(
         containerColor = if (isAurora) Color.Transparent else MaterialTheme.colorScheme.background,
@@ -80,6 +84,7 @@ fun DownloadQueueScreen(
                         )
                         DownloadQueueItem(
                             item = uiItem,
+                            onClickEntry = { navigator.push(MangaScreen(download.manga.id)) },
                             onMoveToTop = {
                                 screenModel.reorder(
                                     reorderWithinHeader(

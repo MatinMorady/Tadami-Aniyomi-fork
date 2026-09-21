@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
@@ -66,6 +67,8 @@ import eu.kanade.tachiyomi.ui.download.DownloadQueueUiItem
 import eu.kanade.tachiyomi.ui.download.DownloadQueueUiModel
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.AppHaptics
+import tachiyomi.presentation.core.util.LocalAppHaptics
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle as preferenceCollectAsState
@@ -80,12 +83,14 @@ val LocalDownloadQueueNarutoRunnerEnabled = staticCompositionLocalOf { true }
 @Composable
 fun DownloadQueueItem(
     item: DownloadQueueUiItem,
+    onClickEntry: (() -> Unit)? = null,
     onMoveToTop: (() -> Unit)? = null,
     onMoveToBottom: (() -> Unit)? = null,
     onCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val appHaptics = LocalAppHaptics.current
     val sectionColor = Color(android.graphics.Color.parseColor(item.section.accentHex))
     val uiPreferences = Injekt.get<UiPreferences>()
     val theme = uiPreferences.appTheme().preferenceCollectAsState()
@@ -116,6 +121,7 @@ fun DownloadQueueItem(
     }
     var menuExpanded by remember(item.itemId) { mutableStateOf(false) }
     val hasActions = onMoveToTop != null || onMoveToBottom != null || onCancel != null
+    val actionsLabel = stringResource(AYMR.strings.download_queue_actions)
     val statusLineText = when (item.status) {
         DownloadQueueUiModel.QueueStatus.FAILED -> item.description.ifBlank { item.progressText }
         else -> item.progressText
@@ -167,7 +173,8 @@ fun DownloadQueueItem(
                     .size(width = 64.dp, height = 90.dp) // Sleeker cover dimensions
                     .clip(RoundedCornerShape(12.dp))
                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
-                    .background(Color.Black.copy(alpha = 0.2f)),
+                    .background(Color.Black.copy(alpha = 0.2f))
+                    .openEntryOnClick(onClickEntry, appHaptics),
             ) {
                 AsyncImage(
                     model = coverRequest,
@@ -209,7 +216,9 @@ fun DownloadQueueItem(
                             ).copy(alpha = 0.7f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 1.dp),
+                        modifier = Modifier
+                            .padding(top = 1.dp)
+                            .openEntryOnClick(onClickEntry, appHaptics),
                     )
                 }
 
@@ -275,7 +284,10 @@ fun DownloadQueueItem(
                             .clip(CircleShape)
                             .background(statusColor.copy(alpha = 0.08f))
                             .border(BorderStroke(1.5.dp, statusColor.copy(alpha = 0.28f)), CircleShape)
-                            .clickableNoRipple { menuExpanded = true },
+                            .clickableNoRipple { menuExpanded = true }
+                            // Own merge boundary: keeps this button a separate accessibility node
+                            // so the entry-open click merged into the row does not swallow it.
+                            .semantics(mergeDescendants = true) { contentDescription = actionsLabel },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -286,7 +298,7 @@ fun DownloadQueueItem(
                                 DownloadQueueUiModel.QueueStatus.FAILED -> Icons.Filled.Close
                                 else -> Icons.Filled.MoreVert
                             },
-                            contentDescription = stringResource(AYMR.strings.download_queue_actions),
+                            contentDescription = actionsLabel,
                             tint = statusColor,
                             modifier = Modifier.size(18.dp),
                         )
@@ -386,6 +398,22 @@ private fun NarutoProgressBar(
                 )
             }
         }
+    }
+}
+
+/**
+ * Bounded click that opens the entry this queue row belongs to. Ripple plus haptics only, so the
+ * card keeps its current look; a null [onClickEntry] leaves the element non-interactive.
+ */
+private fun Modifier.openEntryOnClick(
+    onClickEntry: (() -> Unit)?,
+    appHaptics: AppHaptics,
+): Modifier = if (onClickEntry == null) {
+    this
+} else {
+    clickable(role = Role.Button) {
+        appHaptics.tap()
+        onClickEntry()
     }
 }
 

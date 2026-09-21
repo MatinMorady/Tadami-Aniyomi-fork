@@ -17,9 +17,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.download.DownloadQueueItem
 import eu.kanade.tachiyomi.ui.download.DownloadQueueUiMapper
+import eu.kanade.tachiyomi.ui.entries.novel.NovelScreen
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.padding
@@ -39,6 +42,7 @@ fun NovelDownloadQueueScreen(
     val uiPreferences = Injekt.get<UiPreferences>()
     val theme = uiPreferences.appTheme().preferenceCollectAsState()
     val isAurora = theme.value.isAuroraStyle
+    val navigator = LocalNavigator.currentOrThrow
     val secondaryTextColor = if (isAurora) {
         androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
     } else {
@@ -80,6 +84,7 @@ fun NovelDownloadQueueScreen(
                     val uiItem = DownloadQueueUiMapper.toUiItem(task, progress)
                     DownloadQueueItem(
                         item = uiItem,
+                        onClickEntry = { navigator.push(NovelScreen(task.novel.id)) },
                         onCancel = { screenModel.cancel(task.novel.id, task.chapter.id) },
                     )
                 }
