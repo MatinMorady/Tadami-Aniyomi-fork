@@ -103,12 +103,21 @@ class HomeHubStageCarouselTest {
     }
 
     @Test
-    fun `flick projects flight from finger position and caps at two pages from touch slot`() {
-        // Средний флик влево: проекция полёта от позиции пальца, без прибавки к протащенному.
+    fun `small swipe always advances a single title regardless of flick velocity`() {
+        // Небольшой свайп = следующий тайтл: кап одного слота для драга < 1.25 страницы,
+        // скорость может дотолкнуть только до ближайшей границы — не дальше.
+        resolveStageDragTarget(4f, 4.2f, -0.03f, -0.20f, 0.16f) shouldBe 5
+        resolveStageDragTarget(4f, 3.6f, 0.03f, 0.20f, 0.16f) shouldBe 3
         resolveStageDragTarget(4f, 4.4f, -0.008f, -0.44f, 0.16f) shouldBe 5
-        // Сильный флик: потолок 2 слота от слота на касании — «3–4 вперёд» невозможно.
-        resolveStageDragTarget(4f, 4.2f, -0.03f, -0.20f, 0.16f) shouldBe 6
-        resolveStageDragTarget(4f, 3.6f, 0.03f, 0.20f, 0.16f) shouldBe 2
+    }
+
+    @Test
+    fun `long swipe or strong flick still reaches two pages`() {
+        // Драг ≥ 1.25 страницы — кап поднимается до двух: «больше порога = скролл».
+        resolveStageDragTarget(4f, 5.4f, -0.008f, -1.40f, 0.16f) shouldBe 6
+        // Длинный медленный драг: округление само даёт два слота, скорость не нужна.
+        resolveStageDragTarget(4f, 5.6f, 0f, -1.60f, 0.16f) shouldBe 6
+        resolveStageDragTarget(4f, 2.4f, 0f, 1.60f, 0.16f) shouldBe 2
     }
 
     @Test
@@ -122,7 +131,10 @@ class HomeHubStageCarouselTest {
     @Test
     fun `genuine reverse fling still projects backward`() {
         // Пользователь протащил вправо и рванул вправо: скорость и смещение в одну сторону — флик.
-        resolveStageDragTarget(4f, 3.4f, 0.02f, 0.60f, 0.16f) shouldBe 2
+        // Небольшой обратный рывок — один слот назад (кап небольшого драга).
+        resolveStageDragTarget(4f, 3.4f, 0.02f, 0.60f, 0.16f) shouldBe 3
+        // Длинный обратный рывок — два слота назад.
+        resolveStageDragTarget(4f, 2.6f, 0.02f, 1.40f, 0.16f) shouldBe 2
     }
 
     @Test

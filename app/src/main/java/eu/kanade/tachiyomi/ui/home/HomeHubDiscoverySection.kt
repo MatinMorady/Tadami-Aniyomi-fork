@@ -1403,6 +1403,13 @@ private const val STAGE_FLICK_VELOCITY_MIN_PAGES = 1f / 300f
 /** B1: потолок скорости броска (страниц/мс): реальные флики ~0.02, выше — цифрайзерные спайки. */
 private const val STAGE_FLICK_VELOCITY_MAX_PAGES = 0.03f
 
+/**
+ * B1: драг меньше этой величины — максимум ОДИН слот за отпускание, независимо от скорости:
+ * «небольшой свайп = следующий тайтл». До двух страниц доходит только длинный свайп
+ * (примерно треть экрана при пути 1:1) — «больше порога = запускается скролл».
+ */
+private const val STAGE_SINGLE_STEP_DRAG_PAGES = 1.25f
+
 /** B1: миллисекунды «свободного полёта», которые скорость проецирует после отпускания. */
 private const val STAGE_FLING_PROJECTION_MILLIS = 120f
 
@@ -1493,6 +1500,8 @@ internal fun resolveStageMotionSpec(speed: String, isEInk: Boolean, animationsEn
  * в страницах: px конвертируются в месте жеста, поэтому проекция не зависит от плотности экрана.
  * Скорость не ПРИБАВЛЯЕТ страницы к протащенному смещению (иначе сосед + флик = +3), а проецирует
  * продолжение полёта от позиции пальца; суммарный шаг от слота на касании ограничен [maxPages].
+ * Драг меньше [STAGE_SINGLE_STEP_DRAG_PAGES] — шаг ограничен одним слотом: небольшой свайп
+ * всегда даёт следующий тайтл, до двух доходит только длинный свайп.
  * Флик действует только когда скорость СОВПАДАЕТ по направлению с драгом: отскок пальца при
  * подъёме (скорость против смещения) — это не флик, сцена доводится к ближайшему слоту.
  * Микро-драг (< [flickMinPages]) всегда возвращает к слоту на касании.
@@ -1515,7 +1524,9 @@ internal fun resolveStageDragTarget(
     } else {
         intent
     }
-    val delta = (projected.roundToInt() - base).coerceIn(-maxPages, maxPages)
+    // Небольшой драг — максимум один слот: скорость лишь доталкивает до границы, не дальше.
+    val deltaCap = if (abs(displacementPages) < STAGE_SINGLE_STEP_DRAG_PAGES) 1 else maxPages
+    val delta = (projected.roundToInt() - base).coerceIn(-deltaCap, deltaCap)
     return base + delta
 }
 
