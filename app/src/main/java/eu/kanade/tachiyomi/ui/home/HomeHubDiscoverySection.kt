@@ -3,10 +3,13 @@ package eu.kanade.tachiyomi.ui.home
 import android.animation.ValueAnimator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -20,7 +23,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,12 +64,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -80,7 +86,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -122,8 +131,10 @@ import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
 import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.ui.discovery.discoveryCoverData
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
@@ -135,6 +146,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.roundToInt
 
 // ============================ Чистые функции (тестируются) ============================
 
@@ -1373,6 +1385,33 @@ internal fun resolveCollageSlotTransition(
 /** Сколько слотов держим по каждую сторону от фокуса: 5 видимых (−2..+2) + 2 буфера (±3). */
 private const val STAGE_BUFFER = 3
 
+/**
+ * B1: путь одного слота при драге. Смещение соседа в позе = 42% ширины слота,
+ * слот = 60% ширины сцены: 0.42 * 0.60 = 0.252 — постер следует за пальцем 1:1.
+ */
+private const val STAGE_DRAG_TRAVEL_FRACTION = 0.252f
+
+/** B2: порог визуального фокуса — подпись и подсветка переключаются при пересечении центра слота. */
+private const val STAGE_FOCUS_EPSILON = 0.5f
+
+/** B1: минимальное смещение драга, при котором скорость броска вообще учитывается: микро-драги не листают. */
+private const val STAGE_FLICK_MIN_DP = 16f
+
+/** B1: порог флика — скорость, проходящая страницу за 300 мс (страниц/мс). Не зависит от плотности экрана. */
+private const val STAGE_FLICK_VELOCITY_MIN_PAGES = 1f / 300f
+
+/** B1: миллисекунды «свободного полёта», которые скорость проецирует после отпускания. */
+private const val STAGE_FLING_PROJECTION_MILLIS = 120f
+
+/** B1: порог выбора оси жеста — стандартный touch slop Android. */
+private const val STAGE_TOUCH_SLOP_DP = 8f
+
+/** B1: касание считается «ловлей летящей сцены», если визуальный центр ушёл от коммита. */
+private const val STAGE_CAUGHT_EPSILON = 0.01f
+
+private const val STAGE_KEN_BURNS_MIN_SCALE = 1.04f
+private const val STAGE_KEN_BURNS_MAX_SCALE = 1.14f
+
 /** Поза слота карусели: только числа — держим её чистой и тестируемой. */
 @androidx.compose.runtime.Immutable
 internal data class StageSlotPose(
@@ -1446,6 +1485,33 @@ internal fun resolveStageMotionSpec(speed: String, isEInk: Boolean, animationsEn
     }
 }
 
+/**
+ * B1: цель довода после отпускания (чистая, тестируемая). Все расстояния и скорость —
+ * в страницах: px конвертируются в месте жеста, поэтому проекция не зависит от плотности экрана.
+ * Скорость не ПРИБАВЛЯЕТ страницы к протащенному смещению (иначе сосед + флик = +3), а проецирует
+ * продолжение полёта от позиции пальца; суммарный шаг от слота на касании ограничен [maxPages].
+ * Микро-драг (< [flickMinPages]) всегда возвращает к слоту на касании.
+ */
+internal fun resolveStageDragTarget(
+    dragBase: Float,
+    intent: Float,
+    velocityPagesPerMs: Float,
+    displacementPages: Float,
+    flickMinPages: Float,
+    maxPages: Int = 2,
+): Int {
+    val base = dragBase.roundToInt()
+    if (abs(displacementPages) < flickMinPages) return base
+    val projected = if (abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES) {
+        // Свайп влево (velocity < 0) уводит сцену вперёд: проекция со знаком минус.
+        intent - velocityPagesPerMs * STAGE_FLING_PROJECTION_MILLIS
+    } else {
+        intent
+    }
+    val delta = (projected.roundToInt() - base).coerceIn(-maxPages, maxPages)
+    return base + delta
+}
+
 /** Авто-ротация: та же политика, что у фоновых анимаций Aurora (e-ink, lifecycle, системные анимации). */
 internal fun shouldAutoRotateStage(
     isEInk: Boolean,
@@ -1461,7 +1527,8 @@ internal fun shouldAutoRotateStage(
 /**
  * Hero «Кинематографичный фокус»: бесконечная карусель подборки — один постер в фокусе,
  * соседи уходят в перспективу. Слоты живут в окне ±3 от непрерывного центра, данные берутся
- * по модулю, поэтому листание идёт по кругу в обе стороны.
+ * по модулю, поэтому листание идёт по кругу в обе стороны. Драг (B1) ведёт сцену за пальцем,
+ * подпись (B2) и ken-burns-профиль (B3) сменяются по визуальному фокусу, за фокусом — ambient-свечение (B6).
  */
 @Composable
 internal fun DiscoveryHeroStage(
@@ -1481,22 +1548,40 @@ internal fun DiscoveryHeroStage(
     var userInteractionToken by remember { mutableIntStateOf(0) }
     var center by rememberSaveable { mutableIntStateOf(0) }
 
+    // B1: непрерывный центр сцены. Драг двигает его за пальцем (snapTo), отпускание/кнопки/авто-ротация
+    // доводят tween'ом от текущей визуальной позиции — без скачков. Касание ловит сцену в любой точке
+    // (см. жест ниже). Значение читается только внутри graphicsLayer/derivedStateOf: рекомпозиций на кадр нет.
+    val centerAnim = remember { Animatable(center.toFloat()) }
+    val scope = rememberCoroutineScope()
+
     val ordered = remember(items, offset) { items.shuffled(kotlin.random.Random(offset)) }
     val systemAnimationsEnabled = ValueAnimator.areAnimatorsEnabled()
     val motionSpec = remember(speed, colors.isEInk, systemAnimationsEnabled) {
         resolveStageMotionSpec(speed = speed, isEInk = colors.isEInk, animationsEnabled = systemAnimationsEnabled)
     }
-    val animatedCenter = animateFloatAsState(
-        targetValue = center.toFloat(),
-        // Позднее чтение: значение используется только внутри graphicsLayer, рекомпозиции на кадр нет.
-        animationSpec = tween(durationMillis = motionSpec.settleMillis),
-        label = "stage_center",
-    )
+
+    // Единая точка довода [settleTo]: коммит центра и анимация всегда идут парой, все источники
+    // движения (кнопки, авто-ротация, жесты) проходят только через неё. Спокойный довод —
+    // fast-out-slow-in (tween без bounce: недодемпфированная пружина давала «заряженность»
+    // на микро-драгах); флик — linear-out-slow-in: импульс продолжается быстро и тормозит к слоту.
+    // e-ink и выключенные анимации — мгновенно.
+    fun settleTo(target: Int, isFlick: Boolean) {
+        if (target != center) {
+            center = target
+        }
+        if (motionSpec.settleMillis == 0) {
+            scope.launch(start = CoroutineStart.UNDISPATCHED) { centerAnim.snapTo(target.toFloat()) }
+            return
+        }
+        val easing = if (isFlick) LinearOutSlowInEasing else FastOutSlowInEasing
+        scope.launch { centerAnim.animateTo(target.toFloat(), tween(motionSpec.settleMillis, easing = easing)) }
+    }
     // Ken-burns у фокуса: состояние читается внутри graphicsLayer, поэтому кадры не рекомпозируют слоты.
+    // B3: профиль (направление/дрейф) выбирается по постеру и применяется в слое слота.
     val kenBurnsTransition = rememberInfiniteTransition(label = "stage_ken_burns")
     val kenBurnsScale = kenBurnsTransition.animateFloat(
-        initialValue = 1.04f,
-        targetValue = 1.14f,
+        initialValue = STAGE_KEN_BURNS_MIN_SCALE,
+        targetValue = STAGE_KEN_BURNS_MAX_SCALE,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 20_000, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
@@ -1528,7 +1613,7 @@ internal fun DiscoveryHeroStage(
                     val elapsed = if (last == 0L) 0L else System.currentTimeMillis() - last
                     delay(if (last == 0L) intervalMillis else (intervalMillis - elapsed).coerceAtLeast(1000L))
                     discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
-                    center += 1
+                    settleTo(center + 1, isFlick = false)
                 }
             }
         }
@@ -1548,39 +1633,111 @@ internal fun DiscoveryHeroStage(
                 .fillMaxSize()
                 .padding(horizontal = 5.dp, vertical = 10.dp)
                 .pointerInput(ordered.size) {
-                    // Свайп коммитится только на onDragEnd: ключ не зависит от center и не рвёт жест.
-                    var dragAccumulator = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { dragAccumulator = 0f },
-                        onDragCancel = { dragAccumulator = 0f },
-                        onHorizontalDrag = { change, dragAmount ->
-                            if (!change.isConsumed) {
-                                dragAccumulator += dragAmount
+                    // Ключ зависит только от размера ленты: жест не рвётся при смене позиции.
+                    // Путь одного слота согласован с позой соседа: палец и постер движутся 1:1.
+                    val travelPx = size.width * STAGE_DRAG_TRAVEL_FRACTION
+                    val slopPx = STAGE_TOUCH_SLOP_DP.dp.toPx()
+                    val flickMinPx = STAGE_FLICK_MIN_DP.dp.toPx()
+                    awaitEachGesture {
+                        // Касание = ловля: сцена замирает под пальцем ДО slop и до выбора оси —
+                        // «удержание» останавливает ленту в любой точке полёта.
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        // Остановка довода на касании — UNDISPATCHED: встаёт в очередь раньше
+                        // snap'ов драга и выполняется без задержки диспетчера.
+                        scope.launch(start = CoroutineStart.UNDISPATCHED) { centerAnim.stop() }
+                        // База драга — позиция сцены на момент касания: захват середины довода
+                        // не телепортирует карусель к целому слоту.
+                        val dragBase = centerAnim.value
+                        val caughtMoving = abs(dragBase - center) > STAGE_CAUGHT_EPSILON
+                        var lockedAxis = 0 // 0 — ось не выбрана, 1 — горизонталь (наш драг), −1 — вертикаль
+                        var totalDx = 0f
+                        var totalDy = 0f
+                        var dragAccumulator = 0f
+                        val pointerId = down.id
+                        while (true) {
+                            // Initial-пасс: родитель видит движение раньше детей — потребление здесь
+                            // глушит click/long-press слотов и вертикальный скролл родителя.
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) {
+                                // Отпускание отслеживаемого пальца — финализируем жест.
+                                if (lockedAxis == 1 || (caughtMoving && lockedAxis == 0)) {
+                                    change.consume()
+                                }
+                                break
+                            }
+                            val delta = change.positionChange()
+                            if (delta != Offset.Zero) {
+                                if (lockedAxis == 0) {
+                                    totalDx += delta.x
+                                    totalDy += delta.y
+                                    if (abs(totalDx) > slopPx || abs(totalDy) > slopPx) {
+                                        lockedAxis = if (abs(totalDx) >= abs(totalDy)) 1 else -1
+                                        if (lockedAxis == 1) {
+                                            dragAccumulator = totalDx
+                                            tracker.addPosition(change.uptimeMillis, change.position)
+                                        }
+                                    }
+                                } else if (lockedAxis == 1) {
+                                    dragAccumulator += delta.x
+                                    tracker.addPosition(change.uptimeMillis, change.position)
+                                    // Сцена едет за пальцем. Restricted-ско́п жеста не позволяет
+                                    // звать suspend напрямую — UNDISPATCHED-запуск выполняется
+                                    // синхронно до первой приостановки, а snapTo на свободном
+                                    // (уже остановленном на down) мьютексе не подвисает.
+                                    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                        centerAnim.snapTo(dragBase - dragAccumulator / travelPx)
+                                    }
+                                }
+                            }
+                            if (lockedAxis == 1 || (caughtMoving && lockedAxis == 0)) {
+                                // Наш драг или ловля летящей сцены: клики слота под пальцем подавлены.
                                 change.consume()
                             }
-                        },
-                        onDragEnd = {
-                            if (abs(dragAccumulator) > 45.dp.toPx()) {
+                            // lockedAxis == −1: вертикаль отдаётся родителю без потребления.
+                        }
+                        if (lockedAxis == 1) {
+                            // Отпускание с драгом: флик проецирует полёт от позиции пальца.
+                            val velocityPagesPerMs = tracker.calculateVelocity().x / travelPx
+                            val displacementPages = dragAccumulator / travelPx
+                            val target = resolveStageDragTarget(
+                                dragBase = dragBase,
+                                intent = dragBase - displacementPages,
+                                velocityPagesPerMs = velocityPagesPerMs,
+                                displacementPages = displacementPages,
+                                flickMinPages = flickMinPx / travelPx,
+                            )
+                            val isFlick = abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES &&
+                                abs(dragAccumulator) >= flickMinPx
+                            if (target != center) {
                                 appHaptics.tap()
-                                center += if (dragAccumulator < 0) 1 else -1
                                 userInteractionToken++
                             }
-                            dragAccumulator = 0f
-                        },
-                    )
+                            settleTo(target, isFlick)
+                        } else if (caughtMoving) {
+                            // Тап/удержание поймали летящую сцену — спокойно доводим до ближайшего.
+                            settleTo(centerAnim.value.roundToInt(), isFlick = false)
+                        }
+                        // Чистый тап по спокойной сцене: события не потреблены, clickable слота работает.
+                    }
                 },
         ) {
-            for (absIndex in (center - STAGE_BUFFER)..(center + STAGE_BUFFER)) {
+            // Окно слотов следует за ВИЗУАЛЬНЫМ центром: при пути 1:1 свайп на весь экран ≈ 4 страницы,
+            // и коммитное окно ±3 оставило бы пустой край. derivedStateOf рекомпозирует только на
+            // пересечении целых границ; слоты переиспользуются по key(absIndex).
+            val windowBase by remember { derivedStateOf { centerAnim.value.roundToInt() } }
+            for (absIndex in (windowBase - STAGE_BUFFER)..(windowBase + STAGE_BUFFER)) {
                 val item = ordered[stageItemIndex(absIndex, 0, ordered.size)]
-                val rel = absIndex - center
+                val rel = absIndex - windowBase
                 key(absIndex) {
                     StageSlot(
                         item = item,
                         rel = rel,
                         absIndex = absIndex,
                         distanceToFocus = abs(rel),
-                        isFocus = rel == 0,
-                        animatedCenter = animatedCenter,
+                        animatedCenter = centerAnim,
                         kenBurnsScale = kenBurnsScale,
                         useKenBurns = !colors.isEInk,
                         coverMediaType = coverMediaType,
@@ -1590,7 +1747,7 @@ internal fun DiscoveryHeroStage(
                                 onItemClick(item)
                             } else {
                                 // Шаг всегда один: слоты живут окном вокруг центра, переброс не нужен.
-                                center += if (rel > 0) 1 else -1
+                                settleTo(center + if (rel > 0) 1 else -1, isFlick = false)
                                 userInteractionToken++
                             }
                         },
@@ -1606,7 +1763,7 @@ internal fun DiscoveryHeroStage(
             contentDescription = stringResource(AYMR.strings.for_you_stage_prev),
             onClick = {
                 appHaptics.tap()
-                center -= 1
+                settleTo(center - 1, isFlick = false)
                 userInteractionToken++
             },
             modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
@@ -1616,7 +1773,7 @@ internal fun DiscoveryHeroStage(
             contentDescription = stringResource(AYMR.strings.for_you_stage_next),
             onClick = {
                 appHaptics.tap()
-                center += 1
+                settleTo(center + 1, isFlick = false)
                 userInteractionToken++
             },
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
@@ -1752,8 +1909,7 @@ private fun BoxScope.StageSlot(
     rel: Int,
     absIndex: Int,
     distanceToFocus: Int,
-    isFocus: Boolean,
-    animatedCenter: State<Float>,
+    animatedCenter: Animatable<Float, AnimationVector1D>,
     kenBurnsScale: State<Float>,
     useKenBurns: Boolean,
     coverMediaType: DiscoveryMediaType,
@@ -1768,7 +1924,12 @@ private fun BoxScope.StageSlot(
     }
     val fallbackPainter = rememberThemeAwareCoverErrorPainter(variant = AuroraCoverPlaceholderVariant.Wide)
     val tileShape = RoundedCornerShape(18.dp)
-    val focusReason = if (isFocus) discoveryReasonOrNull(item) else null
+    // B2: фокус считается по визуальному центру — подпись, градиент и подсветка сменяются
+    // в середине перелёта, а не по коммиту. derivedStateOf рекомпозирует слот только на пересечении.
+    val isVisualFocus by remember {
+        derivedStateOf { abs(absIndex - animatedCenter.value) < STAGE_FOCUS_EPSILON }
+    }
+    val focusReason = if (isVisualFocus) discoveryReasonOrNull(item) else null
 
     Box(
         Modifier
@@ -1792,7 +1953,7 @@ private fun BoxScope.StageSlot(
                 alpha = pose.alpha
             }
             .then(
-                if (isFocus) {
+                if (isVisualFocus) {
                     Modifier.semantics {
                         contentDescription = listOfNotNull(item.title, focusReason).joinToString(", ")
                     }
@@ -1834,10 +1995,11 @@ private fun BoxScope.StageSlot(
                 contentScale = ContentScale.Crop,
                 colorFilter = rememberAuroraPosterColorFilter(),
                 // Ken-burns живёт только на обложке: раньше он масштабировал весь слот вместе с подписью.
+                // B3: профиль по хешу постера — наезд/отъезд и дрейф различаются между соседями.
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val kenBurns = if (useKenBurns && isFocus) kenBurnsScale.value else 1f
+                        val kenBurns = if (useKenBurns && isVisualFocus) kenBurnsScale.value else 1f
                         scaleX = kenBurns
                         scaleY = kenBurns
                     },
@@ -1859,7 +2021,7 @@ private fun BoxScope.StageSlot(
                     }
                     .background(if (colors.isEInk) Color.White else Color.Black),
             )
-            if (isFocus) {
+            if (isVisualFocus) {
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
@@ -1871,7 +2033,9 @@ private fun BoxScope.StageSlot(
             }
         }
 
-        if (isFocus) {
+        // V1: подпись переключается мгновенно на пересечении визуального фокуса (как в прототипе),
+        // без enter/exit-анимаций — кадр меняется целиком, кино даёт движение сцены, а не текста.
+        if (isVisualFocus) {
             Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = 70.dp)) {
                 Text(
                     item.title,
@@ -1882,7 +2046,7 @@ private fun BoxScope.StageSlot(
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 22.sp,
                 )
-                discoveryReasonOrNull(item)?.let { reason ->
+                focusReason?.let { reason ->
                     Text(
                         reason,
                         color = colors.accent,

@@ -87,6 +87,47 @@ class HomeHubStageCarouselTest {
     }
 
     @Test
+    fun `micro drag returns to the slot at touch regardless of velocity`() {
+        // Величины в страницах: одна страница = 100 единиц (как px при travel 100).
+        resolveStageDragTarget(4f, 4.02f, -0.03f, 0.10f, 0.16f) shouldBe 4
+        resolveStageDragTarget(4f, 3.98f, 0.03f, -0.10f, 0.16f) shouldBe 4
+    }
+
+    @Test
+    fun `slow swipe settles to the nearest slot without flick projection`() {
+        // Торможённый релиз: скорость ниже порога «страница за 300 мс» — важна только позиция пальца.
+        resolveStageDragTarget(4f, 5.0f, -0.0005f, 0.25f, 0.16f) shouldBe 5
+        resolveStageDragTarget(4f, 4.6f, 0.0029f, 0.60f, 0.16f) shouldBe 5
+        resolveStageDragTarget(4f, 3.4f, -0.001f, -0.60f, 0.16f) shouldBe 3
+    }
+
+    @Test
+    fun `flick projects flight from finger position and caps at two pages from touch slot`() {
+        // Средний флик: проекция полёта от позиции пальца, без прибавки к протащенному.
+        resolveStageDragTarget(4f, 4.4f, -0.008f, 0.44f, 0.16f) shouldBe 5
+        // Сильный флик: потолок 2 слота от слота на касании — «3–4 вперёд» невозможно.
+        resolveStageDragTarget(4f, 4.2f, -0.03f, 0.20f, 0.16f) shouldBe 6
+        resolveStageDragTarget(4f, 3.6f, 0.03f, -0.20f, 0.16f) shouldBe 2
+    }
+
+    @Test
+    fun `flick projection is resolution independent in page units`() {
+        // Регрессия старого бага единиц: скорость в dp/мс делилась на travel в px — проекция
+        // занижалась в density раз, флики «не долетали». Реальное устройство: travel 248px,
+        // бросок 2.2px/мс влево, порог 16dp ≈ 44px; конвертация в страницы — на месте жеста.
+        val travelPx = 248f
+        val flickMinPages = 44f / travelPx
+        val displacementPages = -80f / travelPx
+        resolveStageDragTarget(
+            dragBase = 4f,
+            intent = 4f - displacementPages,
+            velocityPagesPerMs = -2.2f / travelPx,
+            displacementPages = displacementPages,
+            flickMinPages = flickMinPages,
+        ) shouldBe 5
+    }
+
+    @Test
     fun `auto rotation is off in e-ink, without interval, when paused or without animations`() {
         shouldAutoRotateStage(
             isEInk = true,
