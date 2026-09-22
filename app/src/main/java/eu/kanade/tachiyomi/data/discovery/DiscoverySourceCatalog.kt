@@ -18,6 +18,7 @@ import tachiyomi.domain.source.manga.service.MangaSourceManager
 import tachiyomi.domain.source.novel.service.NovelSourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.IOException
 
 /**
  * Ряд «Источник»: popular-витрина выбранного источника расширения
@@ -88,6 +89,12 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         }
     } catch (e: CancellationException) {
         throw e
+    } catch (e: OutOfMemoryError) {
+        // Тяжёлый источник (напр. Hitomi с in-memory индексом всех галерей) исчерпал heap:
+        // Error не ловится catch(Exception) и без этого-guard убивает весь процесс.
+        // Ряд выживает без источника, буферы становятся мусором после выхода из catch.
+        logcat { "[DiscoverySourceCatalog] latest OOM source=$sourceId" }
+        emptyList()
     } catch (e: Exception) {
         logcat { "[DiscoverySourceCatalog] latest FAILED source=$sourceId: ${e.message}" }
         emptyList()
@@ -128,6 +135,10 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         }
     } catch (e: CancellationException) {
         throw e
+    } catch (e: OutOfMemoryError) {
+        // Не даём Error убить генератор ленты: ряд честно помечается failed через IOException.
+        logcat { "[DiscoverySourceCatalog] OOM source=$sourceId" }
+        throw IOException("source $sourceId OOM", e)
     } catch (e: Exception) {
         // Пробрасываем: ряд SOURCE помечается failed, кэш не затирается.
         logcat { "[DiscoverySourceCatalog] FAILED source=$sourceId: ${e.message}" }
