@@ -1400,6 +1400,9 @@ private const val STAGE_FLICK_MIN_DP = 16f
 /** B1: порог флика — скорость, проходящая страницу за 300 мс (страниц/мс). Не зависит от плотности экрана. */
 private const val STAGE_FLICK_VELOCITY_MIN_PAGES = 1f / 300f
 
+/** B1: потолок скорости броска (страниц/мс): реальные флики ~0.02, выше — цифрайзерные спайки. */
+private const val STAGE_FLICK_VELOCITY_MAX_PAGES = 0.03f
+
 /** B1: миллисекунды «свободного полёта», которые скорость проецирует после отпускания. */
 private const val STAGE_FLING_PROJECTION_MILLIS = 120f
 
@@ -1490,6 +1493,8 @@ internal fun resolveStageMotionSpec(speed: String, isEInk: Boolean, animationsEn
  * в страницах: px конвертируются в месте жеста, поэтому проекция не зависит от плотности экрана.
  * Скорость не ПРИБАВЛЯЕТ страницы к протащенному смещению (иначе сосед + флик = +3), а проецирует
  * продолжение полёта от позиции пальца; суммарный шаг от слота на касании ограничен [maxPages].
+ * Флик действует только когда скорость СОВПАДАЕТ по направлению с драгом: отскок пальца при
+ * подъёме (скорость против смещения) — это не флик, сцена доводится к ближайшему слоту.
  * Микро-драг (< [flickMinPages]) всегда возвращает к слоту на касании.
  */
 internal fun resolveStageDragTarget(
@@ -1502,7 +1507,9 @@ internal fun resolveStageDragTarget(
 ): Int {
     val base = dragBase.roundToInt()
     if (abs(displacementPages) < flickMinPages) return base
-    val projected = if (abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES) {
+    val isFlick = abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES &&
+        velocityPagesPerMs * displacementPages > 0f
+    val projected = if (isFlick) {
         // Свайп влево (velocity < 0) уводит сцену вперёд: проекция со знаком минус.
         intent - velocityPagesPerMs * STAGE_FLING_PROJECTION_MILLIS
     } else {
@@ -1663,6 +1670,9 @@ internal fun DiscoveryHeroStage(
                             val change = event.changes.firstOrNull { it.id == pointerId } ?: break
                             if (!change.pressed) {
                                 // Отпускание отслеживаемого пальца — финализируем жест.
+                                // Якорь финальной позиции: без него VelocityTracker считает скорость
+                                // по устаревшим сэмплам и выдаёт спайк при подъёме пальца.
+                                tracker.addPosition(change.uptimeMillis, change.position)
                                 if (lockedAxis == 1 || (caughtMoving && lockedAxis == 0)) {
                                     change.consume()
                                 }
@@ -1700,7 +1710,12 @@ internal fun DiscoveryHeroStage(
                         }
                         if (lockedAxis == 1) {
                             // Отпускание с драгом: флик проецирует полёт от позиции пальца.
-                            val velocityPagesPerMs = tracker.calculateVelocity().x / travelPx
+                            // Клампа скорости: реальные флики ~0.02 стр/мс, выше — цифрайзерные
+                            // спайки (завышенная или развёрнутая скорость при подъёме пальца).
+                            val maxVelocityPxPerMs = STAGE_FLICK_VELOCITY_MAX_PAGES * travelPx
+                            val velocityPxPerMs = tracker.calculateVelocity().x
+                                .coerceIn(-maxVelocityPxPerMs, maxVelocityPxPerMs)
+                            val velocityPagesPerMs = velocityPxPerMs / travelPx
                             val displacementPages = dragAccumulator / travelPx
                             val target = resolveStageDragTarget(
                                 dragBase = dragBase,
@@ -1710,7 +1725,8 @@ internal fun DiscoveryHeroStage(
                                 flickMinPages = flickMinPx / travelPx,
                             )
                             val isFlick = abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES &&
-                                abs(dragAccumulator) >= flickMinPx
+                                abs(dragAccumulator) >= flickMinPx &&
+                                velocityPagesPerMs * dragAccumulator > 0f
                             if (target != center) {
                                 appHaptics.tap()
                                 userInteractionToken++
