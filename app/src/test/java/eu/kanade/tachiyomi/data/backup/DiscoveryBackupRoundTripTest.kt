@@ -144,4 +144,5 @@ private class FakeDiscoveryRepository : DiscoveryRepository {
         timestamp: Long,
     ) = Unit
     override suspend fun clearShown(mediaType: DiscoveryMediaType) = Unit
+    override suspend fun hasUnboundSourceRows(): Boolean = false
 }

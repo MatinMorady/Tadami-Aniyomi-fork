@@ -73,6 +73,7 @@ class DiscoveryRunnerTest {
         override suspend fun clearShown(mediaType: DiscoveryMediaType) {
             markedShown.clear()
         }
+        override suspend fun hasUnboundSourceRows(): Boolean = false
     }
 
     private class FakeSeedSources : DiscoverySeedSources {

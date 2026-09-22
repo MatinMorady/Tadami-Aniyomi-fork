@@ -42,4 +42,10 @@ interface DiscoveryRepository {
         timestamp: Long = System.currentTimeMillis(),
     )
     suspend fun clearShown(mediaType: DiscoveryMediaType)
+
+    /**
+     * Backfill после апгрейда: есть ли SOURCE-строки кэша без plugin-привязки
+     * (source_id NULL — кэш старше миграции 58). Для разовой тихой перегенерации ленты.
+     */
+    suspend fun hasUnboundSourceRows(): Boolean
 }

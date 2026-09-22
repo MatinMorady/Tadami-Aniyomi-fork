@@ -2195,6 +2195,7 @@
     <string name="for_you_empty_title">Nothing here yet</string>
     <string name="for_you_empty_subtitle">The feed refreshes in the background. Pull fresh picks manually.</string>
     <string name="for_you_retry">Retry</string>
+    <string name="for_you_direct_open_badge">Opens directly in the source</string>
     <string name="pref_discovery_title">For You suggestions</string>
     <string name="pref_discovery_summary">Personalized feed on the Home screen</string>
     <string name="pref_discovery_group_general">General</string>

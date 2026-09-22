@@ -130,5 +130,26 @@ class DiscoveryUpdateJob(context: Context, workerParams: WorkerParameters) :
                 request,
             )
         }
+
+        private const val TAG_BACKFILL = "DiscoveryUpdateBackfill"
+
+        /**
+         * Разовая тихая перегенерация после апгрейда: SOURCE-строки кэша до миграции 58
+         * не имеют plugin-привязки (source_id NULL), и на них direct open деградирует
+         * в шторку. Без TAG_MANUAL — обычная генерация (без ротации сидов) по всем медиатипам.
+         */
+        fun backfillRefresh(context: Context) {
+            val preferences = Injekt.get<DiscoveryPreferences>()
+            if (!preferences.discoveryEnabled().get()) return
+            val request = OneTimeWorkRequestBuilder<DiscoveryUpdateJob>()
+                .addTag(TAG_BACKFILL)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(networkType(preferences))
+                        .build(),
+                )
+                .build()
+            context.workManager.enqueueUniqueWork(TAG_BACKFILL, ExistingWorkPolicy.REPLACE, request)
+        }
     }
 }

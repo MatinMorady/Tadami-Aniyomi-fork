@@ -1829,6 +1829,7 @@
     <string name="for_you_empty_title">Пока пусто</string>
     <string name="for_you_empty_subtitle">Лента обновляется в фоне. Обновите подборки вручную.</string>
     <string name="for_you_retry">Повторить</string>
+    <string name="for_you_direct_open_badge">Откроется сразу в источнике</string>
     <string name="pref_discovery_title">Подборки «Для тебя»</string>
     <string name="pref_discovery_summary">Персональная лента на главном экране</string>
     <string name="pref_discovery_group_general">Общее</string>

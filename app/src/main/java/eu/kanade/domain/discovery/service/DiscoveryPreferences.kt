@@ -57,6 +57,14 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
     fun discoverySourceExcluded(mediaType: DiscoveryMediaType): Preference<String> =
         preferenceStore.getString("discovery_source_excluded_" + mediaType.key, "")
 
+    /**
+     * Version code, при котором уже выполнен backfill-чек привязок подборок:
+     * после апгрейда Home разово проверяет кэш на SOURCE-строки без source_id
+     * и при наличии запрашивает тихую перегенерацию ленты.
+     */
+    fun bindingBackfillVersion(): Preference<Int> =
+        preferenceStore.getInt("discovery_binding_backfill_version", 0)
+
     fun teaserCount(): Preference<Int> = preferenceStore.getInt("discovery_teaser_count", 16)
     fun showReasons(): Preference<Boolean> = preferenceStore.getBoolean("discovery_show_reasons", true)
 

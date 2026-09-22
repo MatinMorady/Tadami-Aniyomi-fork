@@ -114,6 +114,9 @@ class DiscoveryRepositoryImpl(
         handler.await { db -> db.discovery_blacklist_tagsQueries.deleteAllByMedia(mediaType.key) }
     }
 
+    override suspend fun hasUnboundSourceRows(): Boolean =
+        handler.await { db -> db.discovery_suggestionsQueries.countUnboundSourceRows().executeAsOne() } > 0
+
     override suspend fun getHiddenEntries(mediaType: DiscoveryMediaType): List<DiscoveryHiddenEntry> =
         handler.awaitList { db ->
             db.discovery_hiddenQueries.selectAllByMedia(mediaType.key) { _, clean_title, hidden_at ->

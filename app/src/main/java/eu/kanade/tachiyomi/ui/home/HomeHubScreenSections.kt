@@ -76,6 +76,7 @@ import eu.kanade.tachiyomi.ui.browse.manga.source.browse.BrowseMangaSourceScreen
 import eu.kanade.tachiyomi.ui.browse.manga.source.globalsearch.GlobalMangaSearchScreen
 import eu.kanade.tachiyomi.ui.browse.novel.source.browse.BrowseNovelSourceScreen
 import eu.kanade.tachiyomi.ui.browse.novel.source.globalsearch.GlobalNovelSearchScreen
+import eu.kanade.tachiyomi.ui.discovery.DiscoveryDirectOpenResolver
 import eu.kanade.tachiyomi.ui.discovery.DiscoveryFeedScreen
 import eu.kanade.tachiyomi.ui.discovery.DiscoveryPreviewSheet
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
@@ -188,6 +189,7 @@ internal fun AnimeHomeHub(
         onDiscoveryBlacklistTag = onDiscoveryBlacklistTag,
         contentPadding = contentPadding,
         onEntryClick = { navigator.push(AnimeScreen(it)) },
+        openDirectEntry = { navigator.push(AnimeScreen(it, fromSource = true)) },
         onPlayHero = { screenModel.playHeroEpisode(context) },
         onSearchClick = { query ->
             val sourceId = screenModel.getLastUsedAnimeSourceId()
@@ -323,6 +325,7 @@ internal fun MangaHomeHub(
         onDiscoveryBlacklistTag = onDiscoveryBlacklistTag,
         contentPadding = contentPadding,
         onEntryClick = { navigator.push(MangaScreen(it)) },
+        openDirectEntry = { navigator.push(MangaScreen(it, fromSource = true)) },
         onPlayHero = { screenModel.readHeroChapter(context) },
         onSearchClick = { query ->
             val sourceId = screenModel.getLastUsedMangaSourceId()
@@ -460,6 +463,7 @@ internal fun NovelHomeHub(
         onDiscoveryBlacklistTag = onDiscoveryBlacklistTag,
         contentPadding = contentPadding,
         onEntryClick = { navigator.push(NovelScreen(it)) },
+        openDirectEntry = { navigator.push(NovelScreen(it, fromSource = true)) },
         onPlayHero = {
             screenModel.getHeroChapterId()?.let { chapterId ->
                 navigator.push(NovelReaderScreen(chapterId))
@@ -540,6 +544,8 @@ private fun HomeHubScreen(
     onForYouMoreClick: () -> Unit,
     onDiscoveryRefreshClick: (() -> Unit)? = null,
     onDiscoveryItemClick: (HomeHubDiscoveryItem) -> Unit,
+    // Direct open тизера: пушит экран тайтла своего медиатипа (fromSource = true).
+    openDirectEntry: ((Long) -> Unit)? = null,
 ) {
     val trimmedQuery = searchQuery?.trim().orEmpty()
     val filteredContent = remember(
@@ -597,7 +603,33 @@ private fun HomeHubScreen(
     var previewMeta by remember { mutableStateOf<DiscoveryMeta?>(null) }
     var previewMetaLoading by remember { mutableStateOf(false) }
     var longPressItem by remember { mutableStateOf<HomeHubDiscoveryItem?>(null) }
+    var openingTeaser by remember { mutableStateOf<HomeHubDiscoveryItem?>(null) }
     val trendingSource = remember { CompositeTrendingSource() }
+    val directOpenResolver = remember { DiscoveryDirectOpenResolver() }
+
+    // Direct open для Home-тизеров: plugin-bound карточка открывает экран тайтла
+    // напрямую (materialize по sourceId/sourceUrl); неполная привязка, неустановленный
+    // источник или любая ошибка деградирует в прежнюю шторку предпросмотра.
+    // Guard повторного тапа: openingTeaser сбрасывается в finally (в т.ч. при отмене).
+    val openTeaser: (HomeHubDiscoveryItem) -> Unit = openDirectEntry?.let { openEntry ->
+        { item ->
+            if (openingTeaser != item) {
+                scope.launch {
+                    openingTeaser = item
+                    val entryId = try {
+                        directOpenResolver.resolveEntryId(item.toDiscoverySuggestion())
+                    } finally {
+                        openingTeaser = null
+                    }
+                    if (entryId != null) {
+                        openEntry(entryId)
+                    } else {
+                        previewItem = item
+                    }
+                }
+            }
+        }
+    } ?: { item -> previewItem = item }
 
     LaunchedEffect(previewItem) {
         val item = previewItem ?: return@LaunchedEffect
@@ -664,7 +696,7 @@ private fun HomeHubScreen(
                             items = discovery,
                             coverMediaType = section.toDiscoveryMediaType(),
                             onMoreClick = onForYouMoreClick,
-                            onItemClick = { previewItem = it },
+                            onItemClick = { openTeaser(it) },
                             onLongClick = { longPressItem = it },
                         )
                     }
@@ -686,14 +718,14 @@ private fun HomeHubScreen(
                                 items = resolveStageItems(filteredContent.discoveryPool, discovery),
                                 coverMediaType = section.toDiscoveryMediaType(),
                                 onMoreClick = onForYouMoreClick,
-                                onItemClick = { previewItem = it },
+                                onItemClick = { openTeaser(it) },
                                 onLongClick = { longPressItem = it },
                             )
                             heroPresentation == HomeHeroMode.Collage -> DiscoveryHeroCollage(
                                 items = discovery,
                                 coverMediaType = section.toDiscoveryMediaType(),
                                 onMoreClick = onForYouMoreClick,
-                                onItemClick = { previewItem = it },
+                                onItemClick = { openTeaser(it) },
                                 onLongClick = { longPressItem = it },
                             )
                             heroPresentation == HomeHeroMode.Hybrid && hero != null -> Column {
@@ -709,7 +741,7 @@ private fun HomeHubScreen(
                                     items = discovery,
                                     coverMediaType = section.toDiscoveryMediaType(),
                                     onMoreClick = onForYouMoreClick,
-                                    onItemClick = { previewItem = it },
+                                    onItemClick = { openTeaser(it) },
                                     onLongClick = { longPressItem = it },
                                     isRefreshing = state.isDiscoveryRefreshing,
                                     onRefreshClick = onDiscoveryRefreshClick,
@@ -762,7 +794,7 @@ private fun HomeHubScreen(
                             items = forYouItems,
                             coverMediaType = section.toDiscoveryMediaType(),
                             onMoreClick = onForYouMoreClick,
-                            onItemClick = { previewItem = it },
+                            onItemClick = { openTeaser(it) },
                             onLongClick = { longPressItem = it },
                             isRefreshing = state.isDiscoveryRefreshing,
                             onRefreshClick = onDiscoveryRefreshClick,

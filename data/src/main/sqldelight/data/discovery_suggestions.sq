@@ -33,3 +33,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 lastUpdatedAt:
 SELECT IFNULL(MAX(created_at), 0) FROM discovery_suggestions
 WHERE media_type = ?;
+
+-- Backfill после апгрейда: SOURCE-строки кэша до миграции 58 без привязки (source_id NULL).
+countUnboundSourceRows:
+SELECT COUNT(*) FROM discovery_suggestions
+WHERE row_type = 'source' AND source_id IS NULL;

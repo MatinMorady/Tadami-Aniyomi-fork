@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.LabelOff
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -289,6 +290,8 @@ internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem
     provider = provider,
     rowType = rowType,
     mediaType = mediaType,
+    sourceId = sourceId,
+    sourceUrl = sourceUrl,
 )
 
 internal fun HomeHubDiscoveryItem.toSuggestionItem(): SuggestionItem = SuggestionItem(
@@ -326,6 +329,8 @@ internal fun HomeHubDiscoveryItem.toDiscoverySuggestion(): DiscoverySuggestion =
     score = 1.0,
     position = 0L,
     createdAt = 0L,
+    sourceId = sourceId,
+    sourceUrl = sourceUrl,
 )
 
 // ============================ UI ============================
@@ -375,6 +380,8 @@ internal fun DiscoveryPosterCard(
     coverMediaType: DiscoveryMediaType? = null,
     coverProvider: String? = null,
     onLongClick: (() -> Unit)? = null,
+    // Бейдж «откроется напрямую»: микро-молния в углу постера, читается до тапа.
+    showsDirectOpenBadge: Boolean = false,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -450,6 +457,9 @@ internal fun DiscoveryPosterCard(
                     error = fallbackPainter,
                     fallback = fallbackPainter,
                 )
+                if (showsDirectOpenBadge) {
+                    DirectOpenBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+                }
             }
             Spacer(Modifier.height(posterSpec.textTopSpacingDp.dp))
             Column(
@@ -580,6 +590,42 @@ internal fun DiscoveryPosterCard(
         ) {
             cardContent()
         }
+    }
+}
+
+/**
+ * Микро-бейдж «откроется напрямую» (молния) на привязанных карточках: ожидание
+ * читается до тапа. Полупрозрачная подложка + тонкий бордер — как плавающие
+ * иконки Stage, читается на светлых и тёмных обложках; в e-ink — контурно.
+ */
+@Composable
+internal fun DirectOpenBadge(modifier: Modifier = Modifier) {
+    val colors = AuroraTheme.colors
+    val badgeShape = CircleShape
+    Box(
+        modifier = modifier
+            .size(18.dp)
+            .clip(badgeShape)
+            .background(
+                if (colors.isEInk) {
+                    Color.White.copy(alpha = 0.85f)
+                } else {
+                    Color.Black.copy(alpha = 0.45f)
+                },
+            )
+            .border(
+                width = 1.dp,
+                color = if (colors.isEInk) colors.divider else Color.White.copy(alpha = 0.35f),
+                shape = badgeShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.Bolt,
+            contentDescription = stringResource(AYMR.strings.for_you_direct_open_badge),
+            tint = if (colors.isEInk) Color.Black else colors.accent,
+            modifier = Modifier.size(11.dp),
+        )
     }
 }
 
@@ -774,6 +820,7 @@ internal fun ForYouSection(
                     deviceClass = auroraAdaptiveSpec.deviceClass,
                     coverMediaType = coverMediaType,
                     coverProvider = item.provider,
+                    showsDirectOpenBadge = item.showsDirectOpenBadge(),
                     onLongClick = onLongClick?.let { { it(item) } },
                     onClick = {
                         appHaptics.tap()
@@ -884,6 +931,7 @@ internal fun HybridDiscoveryStrip(
                     deviceClass = stripAdaptiveSpec.deviceClass,
                     coverMediaType = coverMediaType,
                     coverProvider = item.provider,
+                    showsDirectOpenBadge = item.showsDirectOpenBadge(),
                     onClick = {
                         appHaptics.tap()
                         onItemClick(item)

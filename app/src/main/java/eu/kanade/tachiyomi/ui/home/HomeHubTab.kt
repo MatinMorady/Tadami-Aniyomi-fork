@@ -725,7 +725,14 @@ internal data class HomeHubDiscoveryItem(
     val provider: String,
     val rowType: tachiyomi.domain.discovery.model.DiscoveryRowType,
     val mediaType: tachiyomi.domain.discovery.model.DiscoveryMediaType,
+    // Plugin-binding для direct open (Home-тизеры): полная связка открывает экран тайтла.
+    val sourceId: Long? = null,
+    val sourceUrl: String? = null,
 )
+
+/** Бейдж «откроется напрямую»: только полная привязка (id + непустой url). */
+internal fun HomeHubDiscoveryItem.showsDirectOpenBadge(): Boolean =
+    sourceId != null && !sourceUrl.isNullOrBlank()
 
 object HomeHubTab : Tab {
 
@@ -936,6 +943,18 @@ object HomeHubTab : Tab {
         // покрывает первый запуск, dev-сборки (миграция 208f) и восстановление после очистки данных.
         LaunchedEffect(Unit) {
             eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob.setupTask(context)
+            // Backfill после апгрейда: кэш старше миграции 58 хранит SOURCE-строки без
+            // привязки (source_id NULL) — на них direct open деградировал бы в шторку,
+            // пока ленту не обновили вручную. Разовый чек на версию приложения + тихая
+            // перегенерация при наличии непривязанных SOURCE-строк.
+            val backfillDoneVersion = discoveryPreferences.bindingBackfillVersion().get()
+            val currentVersion = eu.kanade.tachiyomi.AppInfo.getVersionCode()
+            if (backfillDoneVersion < currentVersion) {
+                discoveryPreferences.bindingBackfillVersion().set(currentVersion)
+                if (discoveryRepository.hasUnboundSourceRows()) {
+                    eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob.backfillRefresh(context)
+                }
+            }
         }
         // Per-media bootstrap: если лента активной вкладки никогда не генерировалась —
         // one-shot сразу (фикс дыры: после успеха аниме манга/новеллы ждали бы до 24ч).
