@@ -64,7 +64,9 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularManga(page)
                 }
-                pageData.mangas.mapIndexed { idx, m -> rowItem(m.title, m.thumbnail_url, source.name, idx) }
+                pageData.mangas.mapIndexed { idx, m ->
+                    rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
+                }
             }
             DiscoveryMediaType.ANIME -> {
                 val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
@@ -74,7 +76,9 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularAnime(page)
                 }
-                pageData.animes.mapIndexed { idx, a -> rowItem(a.title, a.thumbnail_url, source.name, idx) }
+                pageData.animes.mapIndexed { idx, a ->
+                    rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
+                }
             }
             DiscoveryMediaType.NOVEL -> {
                 val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
@@ -84,7 +88,9 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularNovels(page)
                 }
-                pageData.novels.mapIndexed { idx, n -> rowItem(n.title, n.thumbnail_url, source.name, idx) }
+                pageData.novels.mapIndexed { idx, n ->
+                    rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
+                }
             }
         }
     } catch (e: CancellationException) {
@@ -114,7 +120,9 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 // а не popular-выдача под видом «твоего вкуса».
                 if (genres != null && filters == null) return emptyList()
                 val page = if (filters == null) source.getPopularManga(1) else source.getSearchManga(1, "", filters)
-                page.mangas.mapIndexed { idx, m -> rowItem(m.title, m.thumbnail_url, source.name, idx) }
+                page.mangas.mapIndexed { idx, m ->
+                    rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
+                }
             }
             DiscoveryMediaType.ANIME -> {
                 val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
@@ -122,7 +130,9 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val filters = if (genres != null) withAnimeGenreFilters(source.getFilterList(), genres) else null
                 if (genres != null && filters == null) return emptyList()
                 val page = if (filters == null) source.getPopularAnime(1) else source.getSearchAnime(1, "", filters)
-                page.animes.mapIndexed { idx, a -> rowItem(a.title, a.thumbnail_url, source.name, idx) }
+                page.animes.mapIndexed { idx, a ->
+                    rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
+                }
             }
             DiscoveryMediaType.NOVEL -> {
                 val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
@@ -130,7 +140,9 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val filters = if (genres != null) withNovelGenreFilters(source.getFilterList(), genres) else null
                 if (genres != null && filters == null) return emptyList()
                 val page = if (filters == null) source.getPopularNovels(1) else source.getSearchNovels(1, "", filters)
-                page.novels.mapIndexed { idx, n -> rowItem(n.title, n.thumbnail_url, source.name, idx) }
+                page.novels.mapIndexed { idx, n ->
+                    rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
+                }
             }
         }
     } catch (e: CancellationException) {
@@ -145,7 +157,14 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         throw e
     }
 
-    private fun rowItem(title: String, thumbnailUrl: String?, sourceName: String, index: Int) = DiscoveryRowItem(
+    private fun rowItem(
+        title: String,
+        thumbnailUrl: String?,
+        sourceName: String,
+        index: Int,
+        sourceId: Long,
+        sourceUrl: String?,
+    ) = DiscoveryRowItem(
         title = title,
         cleanTitle = normalizeDiscoveryTitle(title),
         coverUrl = thumbnailUrl,
@@ -153,6 +172,8 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         seedTitle = null,
         provider = sourceName,
         score = 1.0 - index * 0.01,
+        sourceId = sourceId,
+        sourceUrl = sourceUrl,
     )
 
     private fun withMangaGenreFilters(filters: FilterList, genres: List<String>): FilterList? {

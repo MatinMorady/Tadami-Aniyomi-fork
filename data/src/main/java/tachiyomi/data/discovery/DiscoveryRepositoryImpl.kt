@@ -25,6 +25,8 @@ object DiscoveryMapper {
         score = row.score,
         position = row.position,
         createdAt = row.created_at,
+        sourceId = row.source_id,
+        sourceUrl = row.source_url,
     )
 }
 
@@ -62,6 +64,8 @@ class DiscoveryRepositoryImpl(
                     score = item.score,
                     position = index.toLong(),
                     created_at = item.createdAt,
+                    source_id = item.sourceId,
+                    source_url = item.sourceUrl,
                 )
             }
         }

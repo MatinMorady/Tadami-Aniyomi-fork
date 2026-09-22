@@ -11,6 +11,8 @@ data class DiscoveryRowItem(
     val seedTitle: String?,
     val provider: String,
     val score: Double,
+    val sourceId: Long? = null,
+    val sourceUrl: String? = null,
 )
 
 data class DiscoveryBuildContext(

@@ -37,6 +37,8 @@ data class DiscoverySuggestion(
     val score: Double,
     val position: Long,
     val createdAt: Long,
+    val sourceId: Long? = null,
+    val sourceUrl: String? = null,
 )
 
 /** Строка `discovery_hidden` для backup (негативный сигнал пользователя). */

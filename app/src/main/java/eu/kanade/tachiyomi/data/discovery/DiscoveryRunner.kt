@@ -319,6 +319,8 @@ class DiscoveryRunner(
                         // Перезаписывается индексом списка внутри replaceRows.
                         position = 0L,
                         createdAt = System.currentTimeMillis(),
+                        sourceId = item.sourceId,
+                        sourceUrl = item.sourceUrl,
                     )
                 },
             )

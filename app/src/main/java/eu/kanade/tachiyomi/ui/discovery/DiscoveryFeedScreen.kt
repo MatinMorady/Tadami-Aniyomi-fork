@@ -95,6 +95,9 @@ import eu.kanade.tachiyomi.ui.browse.manga.source.browse.BrowseMangaSourceScreen
 import eu.kanade.tachiyomi.ui.browse.manga.source.globalsearch.GlobalMangaSearchScreen
 import eu.kanade.tachiyomi.ui.browse.novel.source.browse.BrowseNovelSourceScreen
 import eu.kanade.tachiyomi.ui.browse.novel.source.globalsearch.GlobalNovelSearchScreen
+import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
+import eu.kanade.tachiyomi.ui.entries.manga.MangaScreen
+import eu.kanade.tachiyomi.ui.entries.novel.NovelScreen
 import eu.kanade.tachiyomi.ui.entries.suggestions.toDirectEntryScreenOrNull
 import eu.kanade.tachiyomi.ui.entries.suggestions.toGlobalSearchScreen
 import eu.kanade.tachiyomi.ui.home.discoveryReasonText
@@ -211,7 +214,33 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
                     top = if (topBarHeightDp > 0.dp) topBarHeightDp + 8.dp else 140.dp,
                     bottom = 24.dp,
                 ),
-                onItemClick = { sheetItem = it },
+                // Прямое открытие plugin-bound карточки; guard от повторного тапа
+                // на время резолва, fallback в шторку при неполной привязке/ошибке.
+                onItemClick = { item ->
+                    if (state.openingItem != item) {
+                        scope.launch {
+                            screenModel.setOpenPending(item)
+                            // finally: pending сбрасывается и при отмене (rotation/back),
+                            // иначе guard залипнет на пережившем config change ScreenModel.
+                            val entryId = try {
+                                screenModel.resolveEntryId(item)
+                            } finally {
+                                screenModel.setOpenPending(null)
+                            }
+                            if (entryId != null) {
+                                navigator.push(
+                                    when (item.mediaType) {
+                                        DiscoveryMediaType.ANIME -> AnimeScreen(entryId, fromSource = true)
+                                        DiscoveryMediaType.MANGA -> MangaScreen(entryId, fromSource = true)
+                                        DiscoveryMediaType.NOVEL -> NovelScreen(entryId, fromSource = true)
+                                    },
+                                )
+                            } else {
+                                sheetItem = item
+                            }
+                        }
+                    }
+                },
                 onItemLongClick = { longPressItem = it },
                 onItemAdd = { screenModel.addToLibrary(it) },
                 onRetry = { screenModel.refreshNow() },

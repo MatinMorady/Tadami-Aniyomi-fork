@@ -420,4 +420,38 @@ class DiscoveryRunnerTest {
         runner.run(listOf(DiscoveryMediaType.NOVEL))
         captured.single().sourceIds shouldBe listOf(101L)
     }
+
+    // ── Прямое открытие plugin-bound подборок (Task 1, data-срез) ───────────────
+
+    @Test
+    fun `row item source binding is persisted into suggestion`() = runTest {
+        val repo = FakeRepository()
+        val boundBuilder = object : DiscoveryRowBuilder {
+            // SOURCE: по спеку привязка рождается в каталоге плагина (LIKE всегда null).
+            override val rowType = DiscoveryRowType.SOURCE
+            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> = listOf(
+                DiscoveryRowItem(
+                    title = "Bound Title",
+                    cleanTitle = "bound title",
+                    coverUrl = null,
+                    reason = null,
+                    seedTitle = "Seed One",
+                    provider = "source-77",
+                    score = 1.0,
+                    sourceId = 77L,
+                    sourceUrl = "/manga/77",
+                ),
+            )
+        }
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = DiscoveryPreferences(InMemoryPreferenceStore()),
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = { DiscoveryCoordinator(listOf(boundBuilder)) },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        repo.replaced.single().third.single().sourceId shouldBe 77L
+        repo.replaced.single().third.single().sourceUrl shouldBe "/manga/77"
+    }
 }
