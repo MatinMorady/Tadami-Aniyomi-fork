@@ -50,4 +50,16 @@ class DiscoverySourcesLogicTest {
         isOverloadWarn(List(8) { entry("p$it") }) shouldBe false
         isOverloadWarn(List(9) { entry("p$it", excluded = it < 2) }) shouldBe false
     }
+
+    @Test
+    fun `selected first keeps weight order within groups`() {
+        val entries = listOf(
+            entry("p1", excluded = false),
+            entry("p2", excluded = true),
+            entry("p3", excluded = false),
+            entry("p4", excluded = true),
+        )
+        selectedFirst(entries).map { it.pluginKey } shouldBe listOf("p1", "p3", "p2", "p4")
+        selectedFirst(emptyList()) shouldBe emptyList()
+    }
 }

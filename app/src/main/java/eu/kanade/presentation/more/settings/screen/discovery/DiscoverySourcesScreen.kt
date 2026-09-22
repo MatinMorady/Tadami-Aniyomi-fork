@@ -131,12 +131,13 @@ class DiscoverySourcesScreen : ParentScreen() {
                                 )
                             }
                         }
-                        // Sticky media-табы на скриме — список не paints под ними.
+                        // Sticky media-табы: отступ сверху от шапки, снизу — минимальный
+                        // зазор до контента (просьба пользователя по вертикальному ритму).
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(resolveAuroraTopBarScrimColor(colors))
-                                .padding(bottom = 10.dp),
+                                .padding(top = 8.dp, bottom = 6.dp),
                         ) {
                             DiscoveryMediaTabs(
                                 selected = state.mediaType,
@@ -153,12 +154,13 @@ class DiscoverySourcesScreen : ParentScreen() {
                         .fillMaxSize(),
                 ) {
                     val filtered = remember(state.entries, state.query) {
-                        filterSourcePicks(state.entries, state.query)
+                        // В ручном режиме выбранные плагины всегда сверху списка.
+                        filterSourcePicks(selectedFirst(state.entries), state.query)
                     }
-                    // Отступ сверху больше таб-скрима: контент не прилипает к шапке.
+                    // Табы уже дают воздушный зазор — контент стартует ближе к ним.
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 24.dp),
+                        contentPadding = PaddingValues(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         item(key = "mode") {
@@ -282,6 +284,8 @@ private fun DiscoveryMediaTabs(
         selectedIndex = mediaTypes.indexOf(selected).coerceAtLeast(0),
         onTabSelected = { index -> mediaTypes.getOrNull(index)?.let(onSelect) },
         scrollable = false,
+        // Compact: «Ранобэ» + бейдж должны влезать в треть ширины без обрезания.
+        compact = true,
     )
 }
 
@@ -374,6 +378,8 @@ private fun AutoTopCard(
                             fontSize = 9.5.sp,
                             fontFamily = FontFamily.Monospace,
                             color = colors.textSecondary,
+                            maxLines = 1,
+                            softWrap = false,
                         )
                     }
                 }
@@ -578,6 +584,11 @@ private fun SourcePickRow(
                     fontSize = 9.5.sp,
                     fontFamily = FontFamily.Monospace,
                     color = colors.textSecondary,
+                    // Вес уступает место чипам и эллипсизируется: узкий Text иначе
+                    // уходил в «вертикальную ленту» и растягивал ряд по высоте.
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
                 if (entry.isTop3Auto) {
                     SourceBadge(
@@ -609,6 +620,10 @@ private fun SourceBadge(text: String, color: Color) {
         fontWeight = FontWeight.ExtraBold,
         letterSpacing = 0.4.sp,
         color = color,
+        // Чип всегда в одну строку и центрирован: перенос («ТОП-3 / АВТО») ломал ряды.
+        maxLines = 1,
+        softWrap = false,
+        textAlign = TextAlign.Center,
         modifier = Modifier
             .clip(shape)
             .background(color.copy(alpha = 0.10f))
@@ -759,24 +774,31 @@ private fun PluginIcon(
     model: DiscoverySourcesScreenModel,
     size: Int,
 ) {
-    val modifier = Modifier.size(size.dp)
-    when (mediaType) {
-        DiscoveryMediaType.ANIME ->
-            model.animePlugin(entry.pluginKey)?.let { AnimeExtensionIcon(extension = it, modifier = modifier) }
-        DiscoveryMediaType.MANGA ->
-            model.mangaPlugin(entry.pluginKey)?.let { MangaExtensionIcon(extension = it, modifier = modifier) }
-        DiscoveryMediaType.NOVEL -> {
-            val plugin = model.novelPlugin(entry.pluginKey)
-            Box(modifier = modifier) {
+    // Фиксированный клип-бокс: ни одна ветка иконки (bitmap произвольного размера,
+    // AsyncImage, loading-Box) не может диктовать ряду свою высоту/ширину.
+    Box(
+        modifier = Modifier
+            .size(size.dp)
+            .clip(RoundedCornerShape(10.dp)),
+    ) {
+        when (mediaType) {
+            DiscoveryMediaType.ANIME ->
+                model.animePlugin(entry.pluginKey)?.let {
+                    AnimeExtensionIcon(extension = it, modifier = Modifier.matchParentSize())
+                }
+            DiscoveryMediaType.MANGA ->
+                model.mangaPlugin(entry.pluginKey)?.let {
+                    MangaExtensionIcon(extension = it, modifier = Modifier.matchParentSize())
+                }
+            DiscoveryMediaType.NOVEL -> {
+                val plugin = model.novelPlugin(entry.pluginKey)
                 if (plugin != null && shouldLoadNovelPluginIcon(plugin.iconUrl)) {
                     AsyncImage(
                         model = plugin.iconUrl,
                         contentDescription = null,
                         placeholder = ColorPainter(Color(0x1F888888)),
                         error = painterResource(R.mipmap.ic_default_source),
-                        modifier = Modifier
-                            .matchParentSize()
-                            .clip(MaterialTheme.shapes.extraSmall),
+                        modifier = Modifier.matchParentSize(),
                     )
                 } else {
                     Image(

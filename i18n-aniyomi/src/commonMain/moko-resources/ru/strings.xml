@@ -1927,8 +1927,8 @@
     <string name="discovery_sources_mode_manual">Вручную</string>
     <string name="discovery_sources_auto_card_title">Топ-3 по весу библиотеки</string>
     <string name="discovery_sources_auto_card_body">Подборки строятся из плагинов, где у вас больше всего тайтлов. Порядок обновляется автоматически.</string>
-    <string name="discovery_sources_badge_top3">ТОП-3 АВТО</string>
-    <string name="discovery_sources_badge_last_used">последний использованный</string>
+    <string name="discovery_sources_badge_top3">ТОП-3</string>
+    <string name="discovery_sources_badge_last_used">Недавний</string>
     <string name="discovery_sources_search_hint">Поиск по плагинам…</string>
     <string name="discovery_sources_select_all">Выбрать все</string>
     <string name="discovery_sources_deselect_all">Снять все</string>

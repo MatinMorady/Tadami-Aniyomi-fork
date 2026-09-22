@@ -2293,8 +2293,8 @@
     <string name="discovery_sources_mode_manual">Manual</string>
     <string name="discovery_sources_auto_card_title">Top 3 by library weight</string>
     <string name="discovery_sources_auto_card_body">Picks are built from the plugins holding most of your titles. The order updates automatically.</string>
-    <string name="discovery_sources_badge_top3">TOP-3 AUTO</string>
-    <string name="discovery_sources_badge_last_used">last used</string>
+    <string name="discovery_sources_badge_top3">TOP-3</string>
+    <string name="discovery_sources_badge_last_used">Recent</string>
     <string name="discovery_sources_search_hint">Search plugins…</string>
     <string name="discovery_sources_select_all">Select all</string>
     <string name="discovery_sources_deselect_all">Deselect all</string>

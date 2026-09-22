@@ -81,6 +81,13 @@ internal fun isOverloadWarn(entries: List<SourcePickUi>): Boolean =
     entries.count { !it.excluded } > 8
 
 /**
+ * Ручной режим: выбранные плагины поднимаются наверх списка, исключённые уходят вниз.
+ * sortedBy стабилен — внутри групп сохраняется порядок по весу библиотеки.
+ */
+internal fun selectedFirst(entries: List<SourcePickUi>): List<SourcePickUi> =
+    entries.sortedBy { it.excluded }
+
+/**
  * ScreenModel пикера «Источники подборок»: установленные плагины (расширения) на медиатип,
  * веса библиотеки, режим/исключения из prefs. Единица участия — расширение: все языковые
  * варианты источника схлопываются в одну строку и один источник в рядах ленты.
