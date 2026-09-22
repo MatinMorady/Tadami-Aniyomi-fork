@@ -736,7 +736,7 @@ private fun DiscoveryRefreshIconButton(isRefreshing: Boolean, onClick: () -> Uni
         Icon(
             Icons.Filled.Refresh,
             contentDescription = stringResource(AYMR.strings.for_you_refresh),
-            tint = if (colors.isDark && !colors.isEInk) colors.accent else colors.textPrimary,
+            tint = colors.textPrimary,
             modifier = Modifier
                 .size(16.dp)
                 .graphicsLayer { rotationZ = rotationAngle },

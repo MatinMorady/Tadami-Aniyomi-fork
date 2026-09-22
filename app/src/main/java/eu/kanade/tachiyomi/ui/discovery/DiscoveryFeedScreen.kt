@@ -465,7 +465,7 @@ private fun FeedToolbar(
                 Icon(
                     Icons.Filled.Refresh,
                     contentDescription = stringResource(AYMR.strings.for_you_refresh),
-                    tint = colors.accent,
+                    tint = colors.textPrimary,
                     modifier = Modifier.size(22.dp),
                 )
             }
