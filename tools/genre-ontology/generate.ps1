@@ -229,24 +229,64 @@ function Add-Alias([string]$canonical, [string]$alias) {
     if (-not $aliasIndex.ContainsKey($n)) { $aliasIndex[$n] = [System.Collections.Generic.HashSet[string]]::new() }
     [void]$aliasIndex[$n].Add($canonical)
 }
+# Display-label sanity: wikidata labels of "anime/manga genre" classes and film-sense
+# labels are descriptive phrases; never let them reach the picker UI.
+# NOTE: this script must stay ASCII-only (PS 5.1 reads BOM-less .ps1 as CP1251),
+# so Cyrillic stop-markers below are unicode-escaped.
+function Test-CleanLabel([string]$s) {
+    if (-not $s) { return $false }
+    if ($s.Split(' ').Count -gt 3) { return $false }
+    # Stop-markers: anime|manga|film|genre + Cyrillic equivalents in \u form.
+    if ($s -match 'anime|manga|film|genre|\u0444\u0438\u043b\u044c\u043c|\u0430\u043d\u0438\u043c\u0435|\u043c\u0430\u043d\u0433\u0430|\u0436\u0430\u043d\u0440') { return $false }
+    return $true
+}
+# Humanized canonical key -> Title Case EN fallback ('slice of life' -> 'Slice of Life').
+function Humanize-Key([string]$s) {
+    ($s -split '[\s-]+' | ForEach-Object {
+        if ($_.Length -le 2) { return $_ }
+        $_.Substring(0, 1).ToUpperInvariant() + $_.Substring(1)
+    }) -join ' '
+}
+# Curated display names (priority 1), UTF-8 JSON (manual-display.json):
+# film-sense and descriptive wikidata labels must never reach the UI.
+# Research: agy research-muebnrs3-7964fa66.
+$manualDisplay = @{}
+$mdJson = Get-Content -Raw -Encoding UTF8 (Join-Path $PSScriptRoot 'manual-display.json') | ConvertFrom-Json
+foreach ($prop in $mdJson.PSObject.Properties) {
+    $manualDisplay[$prop.Name] = @{ en = [string]$prop.Value.en; ru = [string]$prop.Value.ru }
+}
 foreach ($s in $seeds) {
     $enDisp = $s; $ruDisp = $null
+    $wdEn = @(); $wdRu = @()
     foreach ($qid in @($qidMap[$s])) {
         if ($qid -and $entityAliases.ContainsKey($qid)) {
             $e = $entityAliases[$qid]
-            if ($e.en -and $enDisp -eq $s) { $enDisp = $e.en }
-            if (-not $ruDisp -and $e.ru) { $ruDisp = $e.ru }
+            if ($e.en) { $wdEn += [string]$e.en; Add-Alias $s $e.en }
+            if ($e.ru) { $wdRu += [string]$e.ru; Add-Alias $s $e.ru }
             foreach ($a in $e.aliases) { Add-Alias $s $a }
-            if ($e.en) { Add-Alias $s $e.en }
-            if ($e.ru) { Add-Alias $s $e.ru }
         }
     }
     Add-Alias $s $s
-    $sN = Normalize $s
+    $shikiRu = @(); $legacyRu = @()
     foreach ($probe in @($s) + @($seedSparqlAliases[$s])) {
         $pn = Normalize $probe
-        if ($shikiPairs.ContainsKey($pn)) { foreach ($ru in $shikiPairs[$pn]) { Add-Alias $s $ru; if (-not $ruDisp) { $ruDisp = $ru } } }
-        if ($legacy.ContainsKey($pn)) { foreach ($ru in $legacy[$pn]) { Add-Alias $s $ru; if (-not $ruDisp) { $ruDisp = $ru } } }
+        if ($shikiPairs.ContainsKey($pn)) { foreach ($ru in $shikiPairs[$pn]) { Add-Alias $s $ru; $shikiRu += [string]$ru } }
+        if ($legacy.ContainsKey($pn)) { foreach ($ru in $legacy[$pn]) { Add-Alias $s $ru; $legacyRu += [string]$ru } }
+    }
+    if ($manualDisplay.ContainsKey($s)) {
+        # Priority 1: curated manual display map.
+        $enDisp = $manualDisplay[$s].en
+        $ruDisp = $manualDisplay[$s].ru
+        Add-Alias $s $enDisp
+        Add-Alias $s $ruDisp
+    } else {
+        # EN: first clean wikidata label, else humanized key.
+        $enClean = $wdEn | Where-Object { Test-CleanLabel $_ } | Select-Object -First 1
+        if ($enClean) { $enDisp = $enClean } else { $enDisp = Humanize-Key $s }
+        # RU: Shikimori (community names) -> legacy dict -> clean wikidata -> null.
+        $ruDisp = $shikiRu | Select-Object -First 1
+        if (-not $ruDisp) { $ruDisp = $legacyRu | Select-Object -First 1 }
+        if (-not $ruDisp) { $ruDisp = $wdRu | Where-Object { Test-CleanLabel $_ } | Select-Object -First 1 }
     }
     $display[$s] = @{ en = $enDisp; ru = $ruDisp }
 }

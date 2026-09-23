@@ -755,7 +755,13 @@ private fun GenreFilterDialog(
             .sortedBy { (it.value.second ?: it.value.first).lowercase() }
             .toList()
     }
-    val popular = remember { allGenres.take(8) }
+    // «Популярные» — курированный порядок реально частых жанров, НЕ take(N) по алфавиту.
+    val popular = remember {
+        listOf(
+            "action", "adventure", "comedy", "drama", "fantasy",
+            "romance", "sci-fi", "slice of life", "mystery", "thriller",
+        ).mapNotNull { key -> allGenres.firstOrNull { it.key == key } }
+    }
 
     var mode by remember { mutableStateOf(1) } // 0=ignored, 1=priority, 2=required
     var search by remember { mutableStateOf("") }
@@ -1251,7 +1257,7 @@ private fun GenreFilterDialog(
                         ) {
                             chipGenres.forEach { (key, names) ->
                                 GenreFrostChip(
-                                    label = names.second ?: names.first,
+                                    label = genreDisplayLabel(names),
                                     selected = key in activeCanon,
                                     occupied = key in othersCanon,
                                     selectedColor = selectedColor,
@@ -1382,6 +1388,19 @@ private fun GenreFilterDialog(
             }
         }
     }
+}
+
+/**
+ * Лейбл жанра для чипа: RU-название, если оно короткое и человекоподобное;
+ * иначе EN; иначе ключ. Часть RU-значений онтологии — wikidata-описания
+ * («аниме или манга в жанре ужасы») — такие на чипах не показываем.
+ */
+private fun genreDisplayLabel(names: Pair<String, String?>): String {
+    val ru = names.second
+    if (ru != null && ru.length <= 20 && ru.split(' ').size <= 2) return ru
+    val en = names.first
+    if (en.length <= 24 && en.split(' ').size <= 3) return en
+    return ru ?: en
 }
 
 /**
