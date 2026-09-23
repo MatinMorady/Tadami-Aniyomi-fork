@@ -51,7 +51,11 @@ import androidx.compose.ui.unit.dp
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.track.model.AutoTrackState
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.more.settings.AuroraTopBarIconButton
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
@@ -151,22 +155,47 @@ object SettingsTrackingScreen : SearchableSettings {
                     )
                 }
                 DiscordRpcWarningDialog -> {
-                    AlertDialog(
-                        onDismissRequest = { dialog = null },
-                        title = { Text(stringResource(MR.strings.pref_discord_rpc_warning_title)) },
-                        text = { Text(stringResource(MR.strings.pref_discord_rpc_warning)) },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                discordPreferences.enabled().set(true)
-                                dialog = null
-                            }) { Text(stringResource(MR.strings.pref_discord_rpc_warning_confirm)) }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { dialog = null }) {
-                                Text(stringResource(MR.strings.action_cancel))
-                            }
-                        },
-                    )
+                    val dialogContent: @Composable () -> Unit = {
+                        Text(stringResource(MR.strings.pref_discord_rpc_warning))
+                    }
+                    if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                        AuroraFrostDialog(
+                            onDismiss = { dialog = null },
+                            title = stringResource(MR.strings.pref_discord_rpc_warning_title),
+                            footer = {
+                                AuroraFrostCancel(
+                                    label = stringResource(MR.strings.action_cancel),
+                                    onClick = { dialog = null },
+                                )
+                                AuroraFrostConfirm(
+                                    label = stringResource(MR.strings.pref_discord_rpc_warning_confirm),
+                                    onClick = {
+                                        discordPreferences.enabled().set(true)
+                                        dialog = null
+                                    },
+                                )
+                            },
+                        ) {
+                            dialogContent()
+                        }
+                    } else {
+                        AlertDialog(
+                            onDismissRequest = { dialog = null },
+                            title = { Text(stringResource(MR.strings.pref_discord_rpc_warning_title)) },
+                            text = { dialogContent() },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    discordPreferences.enabled().set(true)
+                                    dialog = null
+                                }) { Text(stringResource(MR.strings.pref_discord_rpc_warning_confirm)) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { dialog = null }) {
+                                    Text(stringResource(MR.strings.action_cancel))
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -452,90 +481,122 @@ object SettingsTrackingScreen : SearchableSettings {
         var processing by remember { mutableStateOf(false) }
         var inputError by remember { mutableStateOf(false) }
 
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = stringResource(MR.strings.login_title, tracker.name),
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = onDismissRequest) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = stringResource(MR.strings.action_close),
-                        )
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = username,
-                        onValueChange = { username = it },
-                        label = { Text(text = stringResource(uNameStringRes)) },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                        singleLine = true,
-                        isError = inputError && !processing,
-                    )
-
-                    var hidePassword by remember { mutableStateOf(true) }
-                    OutlinedTextField(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text(text = stringResource(MR.strings.password)) },
-                        trailingIcon = {
-                            IconButton(onClick = { hidePassword = !hidePassword }) {
-                                Icon(
-                                    imageVector = if (hidePassword) {
-                                        Icons.Filled.Visibility
-                                    } else {
-                                        Icons.Filled.VisibilityOff
-                                    },
-                                    contentDescription = null,
-                                )
-                            }
-                        },
-                        visualTransformation = if (hidePassword) {
-                            PasswordVisualTransformation()
-                        } else {
-                            VisualTransformation.None
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done,
-                        ),
-                        singleLine = true,
-                        isError = inputError && !processing,
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
+        val dialogContent: @Composable () -> Unit = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !processing && username.text.isNotBlank() && password.text.isNotBlank(),
-                    onClick = {
-                        scope.launchIO {
-                            processing = true
-                            val result = checkLogin(
-                                context = context,
-                                tracker = tracker,
-                                username = username.text,
-                                password = password.text,
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text(text = stringResource(uNameStringRes)) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    singleLine = true,
+                    isError = inputError && !processing,
+                )
+
+                var hidePassword by remember { mutableStateOf(true) }
+                OutlinedTextField(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text(text = stringResource(MR.strings.password)) },
+                    trailingIcon = {
+                        IconButton(onClick = { hidePassword = !hidePassword }) {
+                            Icon(
+                                imageVector = if (hidePassword) {
+                                    Icons.Filled.Visibility
+                                } else {
+                                    Icons.Filled.VisibilityOff
+                                },
+                                contentDescription = null,
                             )
-                            inputError = !result
-                            if (result) onDismissRequest()
-                            processing = false
                         }
                     },
-                ) {
-                    val id = if (processing) MR.strings.loading else MR.strings.login
-                    Text(text = stringResource(id))
-                }
-            },
-        )
+                    visualTransformation = if (hidePassword) {
+                        PasswordVisualTransformation()
+                    } else {
+                        VisualTransformation.None
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done,
+                    ),
+                    singleLine = true,
+                    isError = inputError && !processing,
+                )
+            }
+        }
+
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            val id = if (processing) MR.strings.loading else MR.strings.login
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = stringResource(MR.strings.login_title, tracker.name),
+                footer = {
+                    AuroraFrostConfirm(
+                        label = stringResource(id),
+                        enabled = !processing && username.text.isNotBlank() && password.text.isNotBlank(),
+                        onClick = {
+                            scope.launchIO {
+                                processing = true
+                                val result = checkLogin(
+                                    context = context,
+                                    tracker = tracker,
+                                    username = username.text,
+                                    password = password.text,
+                                )
+                                inputError = !result
+                                if (result) onDismissRequest()
+                                processing = false
+                            }
+                        },
+                    )
+                },
+            ) {
+                dialogContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = stringResource(MR.strings.login_title, tracker.name),
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = onDismissRequest) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = stringResource(MR.strings.action_close),
+                            )
+                        }
+                    }
+                },
+                text = { dialogContent() },
+                confirmButton = {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !processing && username.text.isNotBlank() && password.text.isNotBlank(),
+                        onClick = {
+                            scope.launchIO {
+                                processing = true
+                                val result = checkLogin(
+                                    context = context,
+                                    tracker = tracker,
+                                    username = username.text,
+                                    password = password.text,
+                                )
+                                inputError = !result
+                                if (result) onDismissRequest()
+                                processing = false
+                            }
+                        },
+                    ) {
+                        val id = if (processing) MR.strings.loading else MR.strings.login
+                        Text(text = stringResource(id))
+                    }
+                },
+            )
+        }
     }
 
     private suspend fun checkLogin(
@@ -561,40 +622,61 @@ object SettingsTrackingScreen : SearchableSettings {
         onDismissRequest: () -> Unit,
     ) {
         val context = LocalContext.current
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = {
-                Text(
-                    text = stringResource(MR.strings.logout_title, tracker.name),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall)) {
-                    OutlinedButton(
-                        modifier = Modifier.weight(1f),
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = stringResource(MR.strings.logout_title, tracker.name),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
                         onClick = onDismissRequest,
-                    ) {
-                        Text(text = stringResource(MR.strings.action_cancel))
-                    }
-                    Button(
-                        modifier = Modifier.weight(1f),
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.logout),
                         onClick = {
                             tracker.logout()
                             onDismissRequest()
                             context.toast(MR.strings.logout_success)
                         },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError,
-                        ),
-                    ) {
-                        Text(text = stringResource(MR.strings.logout))
+                    )
+                },
+            ) {}
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = {
+                    Text(
+                        text = stringResource(MR.strings.logout_title, tracker.name),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall)) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            onClick = onDismissRequest,
+                        ) {
+                            Text(text = stringResource(MR.strings.action_cancel))
+                        }
+                        Button(
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                tracker.logout()
+                                onDismissRequest()
+                                context.toast(MR.strings.logout_success)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                        ) {
+                            Text(text = stringResource(MR.strings.logout))
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        }
     }
 
     @Composable
@@ -659,127 +741,153 @@ object SettingsTrackingScreen : SearchableSettings {
             NovelUpdates.PLAN_TO_READ.toString() to stringResource(MR.strings.plan_to_read),
         )
 
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = { Text(stringResource(AYMR.strings.novel_updates_list_mapping_title)) },
-            text = {
-                Column(
+        val dialogContent: @Composable () -> Unit = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            stringResource(AYMR.strings.novel_updates_list_mapping_loaded, availableLists.size),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        OutlinedButton(
-                            onClick = {
-                                isLoading = true
-                                scope.launchIO {
-                                    val lists = trackerManager.novelUpdates.getAvailableReadingLists()
-                                    if (lists.isNotEmpty()) {
-                                        trackPreferences.novelUpdatesCachedLists().set(
-                                            Json.encodeToString(
-                                                lists.map { listOf(it.first, it.second) },
-                                            ),
-                                        )
-                                        trackPreferences.novelUpdatesLastListRefresh().set(
-                                            System.currentTimeMillis(),
-                                        )
-                                    }
-                                    withUIContext {
-                                        isLoading = false
-                                        if (lists.isNotEmpty()) {
-                                            availableLists = lists
-                                        }
-                                        if (lists.isEmpty()) {
-                                            context.toast(failedRefreshMessage)
-                                        }
-                                    }
-                                }
-                            },
-                            enabled = !isLoading,
-                        ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                            } else {
-                                Text(stringResource(AYMR.strings.novel_updates_list_mapping_refresh))
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    statuses.forEach { (statusId, statusName) ->
-                        var expanded by remember { mutableStateOf(false) }
-                        val selectedListId = mappings[statusId] ?: "0"
-                        val selectedName = availableLists.find { it.first == selectedListId }?.second
-                            ?: stringResource(AYMR.strings.novel_updates_list_mapping_unknown_list, selectedListId)
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                text = statusName,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(0.4f),
-                            )
-                            Box(modifier = Modifier.weight(0.6f)) {
-                                OutlinedButton(
-                                    onClick = { expanded = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(
-                                        selectedName,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
+                    Text(
+                        stringResource(AYMR.strings.novel_updates_list_mapping_loaded, availableLists.size),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            isLoading = true
+                            scope.launchIO {
+                                val lists = trackerManager.novelUpdates.getAvailableReadingLists()
+                                if (lists.isNotEmpty()) {
+                                    trackPreferences.novelUpdatesCachedLists().set(
+                                        Json.encodeToString(
+                                            lists.map { listOf(it.first, it.second) },
+                                        ),
+                                    )
+                                    trackPreferences.novelUpdatesLastListRefresh().set(
+                                        System.currentTimeMillis(),
                                     )
                                 }
-                                DropdownMenu(
-                                    expanded = expanded,
-                                    onDismissRequest = { expanded = false },
-                                ) {
-                                    availableLists.forEach { (listId, listName) ->
-                                        DropdownMenuItem(
-                                            text = { Text(listName) },
-                                            onClick = {
-                                                mappings = mappings.toMutableMap().apply {
-                                                    put(statusId, listId)
-                                                }
-                                                expanded = false
-                                            },
-                                        )
+                                withUIContext {
+                                    isLoading = false
+                                    if (lists.isNotEmpty()) {
+                                        availableLists = lists
                                     }
+                                    if (lists.isEmpty()) {
+                                        context.toast(failedRefreshMessage)
+                                    }
+                                }
+                            }
+                        },
+                        enabled = !isLoading,
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        } else {
+                            Text(stringResource(AYMR.strings.novel_updates_list_mapping_refresh))
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                statuses.forEach { (statusId, statusName) ->
+                    var expanded by remember { mutableStateOf(false) }
+                    val selectedListId = mappings[statusId] ?: "0"
+                    val selectedName = availableLists.find { it.first == selectedListId }?.second
+                        ?: stringResource(AYMR.strings.novel_updates_list_mapping_unknown_list, selectedListId)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = statusName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(0.4f),
+                        )
+                        Box(modifier = Modifier.weight(0.6f)) {
+                            OutlinedButton(
+                                onClick = { expanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    selectedName,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = expanded,
+                                onDismissRequest = { expanded = false },
+                            ) {
+                                availableLists.forEach { (listId, listName) ->
+                                    DropdownMenuItem(
+                                        text = { Text(listName) },
+                                        onClick = {
+                                            mappings = mappings.toMutableMap().apply {
+                                                put(statusId, listId)
+                                            }
+                                            expanded = false
+                                        },
+                                    )
                                 }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        trackPreferences.novelUpdatesCustomListMapping().set(
-                            Json.encodeToString(mappings),
-                        )
-                        onDismissRequest()
-                    },
-                ) {
-                    Text(stringResource(MR.strings.action_save))
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = onDismissRequest) {
-                    Text(stringResource(MR.strings.action_cancel))
-                }
-            },
-        )
+            }
+        }
+
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = stringResource(AYMR.strings.novel_updates_list_mapping_title),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = onDismissRequest,
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_save),
+                        onClick = {
+                            trackPreferences.novelUpdatesCustomListMapping().set(
+                                Json.encodeToString(mappings),
+                            )
+                            onDismissRequest()
+                        },
+                    )
+                },
+            ) {
+                dialogContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = { Text(stringResource(AYMR.strings.novel_updates_list_mapping_title)) },
+                text = { dialogContent() },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            trackPreferences.novelUpdatesCustomListMapping().set(
+                                Json.encodeToString(mappings),
+                            )
+                            onDismissRequest()
+                        },
+                    ) {
+                        Text(stringResource(MR.strings.action_save))
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = onDismissRequest) {
+                        Text(stringResource(MR.strings.action_cancel))
+                    }
+                },
+            )
+        }
     }
 
     private fun defaultNovelUpdatesMapping() = mapOf(

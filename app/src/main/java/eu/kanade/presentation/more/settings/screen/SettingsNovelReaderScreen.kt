@@ -53,7 +53,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.widget.BasePreferenceWidget
 import eu.kanade.presentation.more.settings.widget.PrefsHorizontalPadding
 import eu.kanade.presentation.reader.novel.NOVEL_READER_BACKGROUND_PRESET_AGED_PAGE_ID
@@ -957,41 +962,60 @@ object SettingsNovelReaderScreen : SearchableSettings {
         )
 
         renameTarget?.let { target ->
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { renameTargetId = null },
-                title = { Text(text = stringResource(AYMR.strings.editor_action_rename)) },
-                text = {
-                    TextField(
-                        value = renameInput,
-                        onValueChange = { renameInput = it },
-                        singleLine = true,
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val renamed = renameNovelReaderCustomBackgroundItem(
-                                context = context,
-                                id = target.id,
-                                displayName = renameInput,
-                            ).getOrNull()
-                            if (renamed == null) {
-                                Toast.makeText(context, importFailedMessage, Toast.LENGTH_SHORT).show()
-                            } else {
-                                backgroundCatalogVersion += 1
-                                renameTargetId = null
-                            }
-                        },
-                    ) {
-                        Text(text = stringResource(AYMR.strings.editor_action_rename))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { renameTargetId = null }) {
-                        Text(text = stringResource(AYMR.strings.novel_reader_background_action_cancel))
-                    }
-                },
-            )
+            val dialogContent: @Composable () -> Unit = {
+                TextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    singleLine = true,
+                )
+            }
+            val onRename = {
+                val renamed = renameNovelReaderCustomBackgroundItem(
+                    context = context,
+                    id = target.id,
+                    displayName = renameInput,
+                ).getOrNull()
+                if (renamed == null) {
+                    Toast.makeText(context, importFailedMessage, Toast.LENGTH_SHORT).show()
+                } else {
+                    backgroundCatalogVersion += 1
+                    renameTargetId = null
+                }
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = { renameTargetId = null },
+                    title = stringResource(AYMR.strings.editor_action_rename),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(AYMR.strings.novel_reader_background_action_cancel),
+                            onClick = { renameTargetId = null },
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(AYMR.strings.editor_action_rename),
+                            onClick = onRename,
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { renameTargetId = null },
+                    title = { Text(text = stringResource(AYMR.strings.editor_action_rename)) },
+                    text = { dialogContent() },
+                    confirmButton = {
+                        TextButton(onClick = onRename) {
+                            Text(text = stringResource(AYMR.strings.editor_action_rename))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { renameTargetId = null }) {
+                            Text(text = stringResource(AYMR.strings.novel_reader_background_action_cancel))
+                        }
+                    },
+                )
+            }
         }
 
         return Preference.PreferenceGroup(

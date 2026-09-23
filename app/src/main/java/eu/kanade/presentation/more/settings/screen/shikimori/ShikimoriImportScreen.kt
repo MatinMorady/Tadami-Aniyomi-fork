@@ -72,12 +72,17 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import eu.kanade.presentation.components.AuroraBackground
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.components.AuroraTabRow
 import eu.kanade.presentation.components.TabContent
 import eu.kanade.presentation.entries.components.aurora.AuroraGlassCtaSurface
 import eu.kanade.presentation.entries.components.aurora.AuroraHeroCtaMode
 import eu.kanade.presentation.entries.components.aurora.GlassmorphismCard
 import eu.kanade.presentation.more.settings.AuroraTopBarIconButton
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.theme.AuroraColors
 import eu.kanade.presentation.theme.AuroraSurfaceLevel
 import eu.kanade.presentation.theme.AuroraTheme
@@ -720,73 +725,95 @@ class ShikimoriImportScreen : ParentScreen() {
         model: ShikimoriImportScreenModel,
     ) {
         val colors = AuroraTheme.colors
-        AlertDialog(
-            onDismissRequest = model::dismissManualSearch,
-            containerColor = resolveAuroraSurfaceColor(colors, AuroraSurfaceLevel.Strong),
-            titleContentColor = colors.textPrimary,
-            textContentColor = colors.textSecondary,
-            title = { Text(stringResource(AYMR.strings.shikimori_import_manual_search_title)) },
-            text = {
-                Column {
-                    TextField(
-                        value = manual.query,
-                        onValueChange = model::setManualSearchQuery,
+        val dialogContent: @Composable () -> Unit = {
+            Column {
+                TextField(
+                    value = manual.query,
+                    onValueChange = model::setManualSearchQuery,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(importFallbackPanel(colors)),
+                    placeholder = {
+                        Text(
+                            text = stringResource(AYMR.strings.shikimori_import_manual_search_hint),
+                            color = colors.textSecondary,
+                        )
+                    },
+                    singleLine = true,
+                    enabled = !manual.loading,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = colors.accent,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                    ),
+                )
+                if (manual.loading) {
+                    CircularProgressIndicator(
+                        color = colors.accent,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(importFallbackPanel(colors)),
-                        placeholder = {
-                            Text(
-                                text = stringResource(AYMR.strings.shikimori_import_manual_search_hint),
-                                color = colors.textSecondary,
-                            )
-                        },
-                        singleLine = true,
-                        enabled = !manual.loading,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            cursorColor = colors.accent,
-                            focusedTextColor = colors.textPrimary,
-                            unfocusedTextColor = colors.textPrimary,
-                        ),
+                            .padding(top = 16.dp)
+                            .align(Alignment.CenterHorizontally),
                     )
-                    if (manual.loading) {
-                        CircularProgressIndicator(
+                }
+            }
+        }
+
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = model::dismissManualSearch,
+                title = stringResource(AYMR.strings.shikimori_import_manual_search_title),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(AYMR.strings.novel_reader_background_action_cancel),
+                        onClick = { if (!manual.loading) model.dismissManualSearch() },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(AYMR.strings.anixart_import_start_matching),
+                        onClick = model::runManualSearch,
+                        enabled = manual.query.isNotBlank() && !manual.loading,
+                    )
+                },
+            ) {
+                dialogContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = model::dismissManualSearch,
+                containerColor = resolveAuroraSurfaceColor(colors, AuroraSurfaceLevel.Strong),
+                titleContentColor = colors.textPrimary,
+                textContentColor = colors.textSecondary,
+                title = { Text(stringResource(AYMR.strings.shikimori_import_manual_search_title)) },
+                text = { dialogContent() },
+                confirmButton = {
+                    TextButton(
+                        onClick = model::runManualSearch,
+                        enabled = manual.query.isNotBlank() && !manual.loading,
+                    ) {
+                        Text(
+                            text = stringResource(AYMR.strings.anixart_import_start_matching),
                             color = colors.accent,
-                            modifier = Modifier
-                                .padding(top = 16.dp)
-                                .align(Alignment.CenterHorizontally),
                         )
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = model::runManualSearch,
-                    enabled = manual.query.isNotBlank() && !manual.loading,
-                ) {
-                    Text(
-                        text = stringResource(AYMR.strings.anixart_import_start_matching),
-                        color = colors.accent,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = model::dismissManualSearch,
-                    enabled = !manual.loading,
-                ) {
-                    Text(
-                        text = stringResource(AYMR.strings.novel_reader_background_action_cancel),
-                        color = colors.textSecondary,
-                    )
-                }
-            },
-        )
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = model::dismissManualSearch,
+                        enabled = !manual.loading,
+                    ) {
+                        Text(
+                            text = stringResource(AYMR.strings.novel_reader_background_action_cancel),
+                            color = colors.textSecondary,
+                        )
+                    }
+                },
+            )
+        }
     }
 
     @Composable

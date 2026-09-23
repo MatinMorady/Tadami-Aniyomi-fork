@@ -62,13 +62,18 @@ import eu.kanade.domain.source.model.IncognitoPolicy
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.source.service.SourcePreferences.DataSaver
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.components.GlitchPalette
 import eu.kanade.presentation.components.RiftBreachDirective
 import eu.kanade.presentation.components.RiftCorruptTerminal
 import eu.kanade.presentation.components.heartbeat
 import eu.kanade.presentation.components.quakeOffset
 import eu.kanade.presentation.components.rememberGlitchTime
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.screen.advanced.ClearAnimeDatabaseScreen
 import eu.kanade.presentation.more.settings.screen.advanced.ClearDatabaseScreen
 import eu.kanade.presentation.more.settings.screen.advanced.ClearNovelDatabaseScreen
@@ -579,84 +584,153 @@ object SettingsAdvancedScreen : SearchableSettings {
 
         if (shizukuMissing) {
             val dismiss = { shizukuMissing = false }
-            AlertDialog(
-                onDismissRequest = dismiss,
-                title = { Text(text = stringResource(MR.strings.ext_installer_shizuku)) },
-                text = {
-                    Text(
-                        text = stringResource(MR.strings.ext_installer_shizuku_unavailable_dialog),
-                    )
-                },
-                dismissButton = {
-                    TextButton(onClick = dismiss) {
-                        Text(text = stringResource(MR.strings.action_cancel))
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            dismiss()
-                            uriHandler.openUri("https://shizuku.rikka.app/download")
-                        },
-                    ) {
-                        Text(text = stringResource(MR.strings.action_ok))
-                    }
-                },
-            )
+            val dialogContent: @Composable () -> Unit = {
+                Text(
+                    text = stringResource(MR.strings.ext_installer_shizuku_unavailable_dialog),
+                )
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = dismiss,
+                    title = stringResource(MR.strings.ext_installer_shizuku),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(MR.strings.action_cancel),
+                            onClick = dismiss,
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(MR.strings.action_ok),
+                            onClick = {
+                                dismiss()
+                                uriHandler.openUri("https://shizuku.rikka.app/download")
+                            },
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = dismiss,
+                    title = { Text(text = stringResource(MR.strings.ext_installer_shizuku)) },
+                    text = { dialogContent() },
+                    dismissButton = {
+                        TextButton(onClick = dismiss) {
+                            Text(text = stringResource(MR.strings.action_cancel))
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                dismiss()
+                                uriHandler.openUri("https://shizuku.rikka.app/download")
+                            },
+                        ) {
+                            Text(text = stringResource(MR.strings.action_ok))
+                        }
+                    },
+                )
+            }
         }
         if (dhizukuMissing) {
             val dismiss = { dhizukuMissing = false }
-            AlertDialog(
-                onDismissRequest = dismiss,
-                title = { Text(text = stringResource(MR.strings.ext_installer_dhizuku)) },
-                text = {
-                    Text(
-                        text = stringResource(MR.strings.ext_installer_dhizuku_unavailable_dialog),
-                    )
-                },
-                dismissButton = {
-                    TextButton(onClick = dismiss) {
-                        Text(text = stringResource(MR.strings.action_cancel))
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            dismiss()
-                            uriHandler.openUri("https://github.com/iamr0s/Dhizuku")
-                        },
-                    ) {
-                        Text(text = stringResource(MR.strings.action_ok))
-                    }
-                },
-            )
+            val dialogContent: @Composable () -> Unit = {
+                Text(
+                    text = stringResource(MR.strings.ext_installer_dhizuku_unavailable_dialog),
+                )
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = dismiss,
+                    title = stringResource(MR.strings.ext_installer_dhizuku),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(MR.strings.action_cancel),
+                            onClick = dismiss,
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(MR.strings.action_ok),
+                            onClick = {
+                                dismiss()
+                                uriHandler.openUri("https://github.com/iamr0s/Dhizuku")
+                            },
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = dismiss,
+                    title = { Text(text = stringResource(MR.strings.ext_installer_dhizuku)) },
+                    text = { dialogContent() },
+                    dismissButton = {
+                        TextButton(onClick = dismiss) {
+                            Text(text = stringResource(MR.strings.action_cancel))
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                dismiss()
+                                uriHandler.openUri("https://github.com/iamr0s/Dhizuku")
+                            },
+                        ) {
+                            Text(text = stringResource(MR.strings.action_ok))
+                        }
+                    },
+                )
+            }
         }
         if (autoUpdateSecurityNotice) {
             val dismiss = { autoUpdateSecurityNotice = false }
-            AlertDialog(
-                onDismissRequest = dismiss,
-                title = { Text(text = stringResource(MR.strings.ext_auto_update_security_title)) },
-                text = {
-                    Text(
-                        text = stringResource(MR.strings.ext_auto_update_security_dialog),
-                    )
-                },
-                dismissButton = {
-                    TextButton(onClick = dismiss) {
-                        Text(text = stringResource(MR.strings.action_cancel))
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            dismiss()
-                            autoUpdatePref.set(true)
-                        },
-                    ) {
-                        Text(text = stringResource(MR.strings.action_ok))
-                    }
-                },
-            )
+            val dialogContent: @Composable () -> Unit = {
+                Text(
+                    text = stringResource(MR.strings.ext_auto_update_security_dialog),
+                )
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = dismiss,
+                    title = stringResource(MR.strings.ext_auto_update_security_title),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(MR.strings.action_cancel),
+                            onClick = dismiss,
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(MR.strings.action_ok),
+                            onClick = {
+                                dismiss()
+                                autoUpdatePref.set(true)
+                            },
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = dismiss,
+                    title = { Text(text = stringResource(MR.strings.ext_auto_update_security_title)) },
+                    text = { dialogContent() },
+                    dismissButton = {
+                        TextButton(onClick = dismiss) {
+                            Text(text = stringResource(MR.strings.action_cancel))
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                dismiss()
+                                autoUpdatePref.set(true)
+                            },
+                        ) {
+                            Text(text = stringResource(MR.strings.action_ok))
+                        }
+                    },
+                )
+            }
         }
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.label_extensions),

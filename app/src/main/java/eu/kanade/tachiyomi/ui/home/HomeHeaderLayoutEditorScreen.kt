@@ -64,6 +64,9 @@ import eu.kanade.domain.ui.UserProfilePreferences
 import eu.kanade.domain.ui.model.HomeHeaderLayoutElement
 import eu.kanade.domain.ui.model.HomeHeaderLayoutSpec
 import eu.kanade.domain.ui.model.HomeStreakCounterStyle
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.more.settings.AURORA_SETTINGS_CARD_SHAPE
 import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.SettingsScaffold
@@ -124,55 +127,79 @@ class HomeHeaderLayoutEditorScreen : Screen() {
             }
 
             if (showResetConfirm) {
-                AlertDialog(
-                    onDismissRequest = { showResetConfirm = false },
-                    containerColor = if (isAurora) {
-                        settingsDialogContainerColor()
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
-                    title = {
-                        Text(
-                            text = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_title),
-                            color = if (isAurora) {
-                                auroraColors.textPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_message),
-                            color = if (isAurora) {
-                                auroraColors.textSecondary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(
-                            onClick = {
-                                workingLayout = HomeHeaderLayoutSpec.default()
-                                showResetConfirm = false
-                            },
-                        ) {
-                            Text(
-                                text = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_action),
-                                color = if (isAurora) accent else MaterialTheme.colorScheme.primary,
+                val dialogContent: @Composable () -> Unit = {
+                    Text(
+                        text = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_message),
+                        color = if (isAurora) {
+                            auroraColors.textSecondary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+
+                if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                    AuroraFrostDialog(
+                        onDismiss = { showResetConfirm = false },
+                        title = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_title),
+                        footer = {
+                            AuroraFrostCancel(
+                                label = stringResource(AYMR.strings.home_header_layout_editor_cancel),
+                                onClick = { showResetConfirm = false },
                             )
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showResetConfirm = false }) {
-                            Text(
-                                text = stringResource(AYMR.strings.home_header_layout_editor_cancel),
-                                color = if (isAurora) accent else MaterialTheme.colorScheme.primary,
+                            AuroraFrostConfirm(
+                                label = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_action),
+                                onClick = {
+                                    workingLayout = HomeHeaderLayoutSpec.default()
+                                    showResetConfirm = false
+                                },
                             )
-                        }
-                    },
-                )
+                        },
+                    ) {
+                        dialogContent()
+                    }
+                } else {
+                    AlertDialog(
+                        onDismissRequest = { showResetConfirm = false },
+                        containerColor = if (isAurora) {
+                            settingsDialogContainerColor()
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        title = {
+                            Text(
+                                text = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_title),
+                                color = if (isAurora) {
+                                    auroraColors.textPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                        },
+                        text = { dialogContent() },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    workingLayout = HomeHeaderLayoutSpec.default()
+                                    showResetConfirm = false
+                                },
+                            ) {
+                                Text(
+                                    text = stringResource(AYMR.strings.home_header_layout_editor_reset_confirm_action),
+                                    color = if (isAurora) accent else MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showResetConfirm = false }) {
+                                Text(
+                                    text = stringResource(AYMR.strings.home_header_layout_editor_cancel),
+                                    color = if (isAurora) accent else MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                    )
+                }
             }
 
             SettingsScaffold(

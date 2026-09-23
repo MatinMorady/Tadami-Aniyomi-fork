@@ -63,6 +63,9 @@ import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import com.hippo.unifile.UniFile
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.more.resolveAuroraMoreCardBorderColor
 import eu.kanade.presentation.more.resolveAuroraMoreCardContainerColor
 import eu.kanade.presentation.more.settings.AuroraTopBarIconButton
@@ -182,21 +185,37 @@ object SettingsDataScreen : SearchableSettings {
         var storageTestFailure by remember { mutableStateOf<StorageWriteTestFailure?>(null) }
 
         storageTestFailure?.let { failure ->
-            AlertDialog(
-                onDismissRequest = { storageTestFailure = null },
-                title = { Text(text = stringResource(MR.strings.storage_location_unavailable)) },
-                text = {
-                    Column {
-                        Text(text = stringResource(MR.strings.storage_location_unavailable_message))
-                        Text(text = stringResource(MR.strings.storage_location_unavailable_step, failure.step))
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { storageTestFailure = null }) {
-                        Text(text = stringResource(MR.strings.action_ok))
-                    }
-                },
-            )
+            val dialogContent: @Composable () -> Unit = {
+                Column {
+                    Text(text = stringResource(MR.strings.storage_location_unavailable_message))
+                    Text(text = stringResource(MR.strings.storage_location_unavailable_step, failure.step))
+                }
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = { storageTestFailure = null },
+                    title = stringResource(MR.strings.storage_location_unavailable),
+                    footer = {
+                        AuroraFrostConfirm(
+                            label = stringResource(MR.strings.action_ok),
+                            onClick = { storageTestFailure = null },
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = { storageTestFailure = null },
+                    title = { Text(text = stringResource(MR.strings.storage_location_unavailable)) },
+                    text = { dialogContent() },
+                    confirmButton = {
+                        TextButton(onClick = { storageTestFailure = null }) {
+                            Text(text = stringResource(MR.strings.action_ok))
+                        }
+                    },
+                )
+            }
         }
 
         return rememberLauncherForActivityResult(
@@ -822,82 +841,124 @@ object SettingsDataScreen : SearchableSettings {
         ) { }
 
         if (showPurgeDialog) {
-            AlertDialog(
-                onDismissRequest = { showPurgeDialog = false },
-                title = { Text(stringResource(AYMR.strings.pref_google_drive_purge_sync_data)) },
-                text = { Text(stringResource(AYMR.strings.pref_purge_confirmation_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showPurgeDialog = false
-                            scope.launchNonCancellable {
-                                try {
-                                    val status = GoogleDriveSyncService(context).deleteSyncDataFromGoogleDrive()
-                                    withUIContext {
-                                        when (status) {
-                                            GoogleDriveSyncService.DeleteSyncDataStatus.SUCCESS -> {
-                                                context.toast(AYMR.strings.google_drive_sync_data_purged)
-                                            }
-                                            GoogleDriveSyncService.DeleteSyncDataStatus.NO_FILES -> {
-                                                context.toast(AYMR.strings.google_drive_sync_data_not_found)
-                                            }
-                                            GoogleDriveSyncService.DeleteSyncDataStatus.NOT_INITIALIZED,
-                                            GoogleDriveSyncService.DeleteSyncDataStatus.ERROR,
-                                            -> {
-                                                context.toast(AYMR.strings.google_drive_sync_data_purge_error)
-                                            }
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    withUIContext {
-                                        context.toast(AYMR.strings.google_drive_sync_data_purge_error)
-                                    }
+            val dialogContent: @Composable () -> Unit = {
+                Text(stringResource(AYMR.strings.pref_purge_confirmation_message))
+            }
+            val onConfirm = {
+                showPurgeDialog = false
+                scope.launchNonCancellable {
+                    try {
+                        val status = GoogleDriveSyncService(context).deleteSyncDataFromGoogleDrive()
+                        withUIContext {
+                            when (status) {
+                                GoogleDriveSyncService.DeleteSyncDataStatus.SUCCESS -> {
+                                    context.toast(AYMR.strings.google_drive_sync_data_purged)
+                                }
+                                GoogleDriveSyncService.DeleteSyncDataStatus.NO_FILES -> {
+                                    context.toast(AYMR.strings.google_drive_sync_data_not_found)
+                                }
+                                GoogleDriveSyncService.DeleteSyncDataStatus.NOT_INITIALIZED,
+                                GoogleDriveSyncService.DeleteSyncDataStatus.ERROR,
+                                -> {
+                                    context.toast(AYMR.strings.google_drive_sync_data_purge_error)
                                 }
                             }
-                        },
-                    ) {
-                        Text(stringResource(MR.strings.action_ok))
+                        }
+                    } catch (e: Exception) {
+                        withUIContext {
+                            context.toast(AYMR.strings.google_drive_sync_data_purge_error)
+                        }
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showPurgeDialog = false }) {
-                        Text(stringResource(MR.strings.action_cancel))
-                    }
-                },
-            )
+                }
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = { showPurgeDialog = false },
+                    title = stringResource(AYMR.strings.pref_google_drive_purge_sync_data),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(MR.strings.action_cancel),
+                            onClick = { showPurgeDialog = false },
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(MR.strings.action_ok),
+                            onClick = { onConfirm() },
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = { showPurgeDialog = false },
+                    title = { Text(stringResource(AYMR.strings.pref_google_drive_purge_sync_data)) },
+                    text = { dialogContent() },
+                    confirmButton = {
+                        TextButton(onClick = { onConfirm() }) {
+                            Text(stringResource(MR.strings.action_ok))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPurgeDialog = false }) {
+                            Text(stringResource(MR.strings.action_cancel))
+                        }
+                    },
+                )
+            }
         }
 
         var showSignOutDialog by remember { mutableStateOf(false) }
 
         if (showSignOutDialog) {
-            AlertDialog(
-                onDismissRequest = { showSignOutDialog = false },
-                title = { Text(stringResource(AYMR.strings.pref_sign_out_confirmation_title)) },
-                text = { Text(stringResource(AYMR.strings.pref_sign_out_confirmation_message)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showSignOutDialog = false
-                            scope.launchNonCancellable {
-                                googleDriveService.signOut()
-                                syncPreferences.syncService().set(SyncPreferences.SYNC_SERVICE_NONE)
-                                cloudSyncEnabledPref.set(false)
-                                SyncJob.setupTask(context, 0)
-                                withUIContext {
-                                    context.toast(AYMR.strings.pref_google_drive_sign_out)
-                                }
-                            }
-                        },
-                    ) {
-                        Text(stringResource(AYMR.strings.pref_google_drive_sign_out))
+            val dialogContent: @Composable () -> Unit = {
+                Text(stringResource(AYMR.strings.pref_sign_out_confirmation_message))
+            }
+            val onConfirm = {
+                showSignOutDialog = false
+                scope.launchNonCancellable {
+                    googleDriveService.signOut()
+                    syncPreferences.syncService().set(SyncPreferences.SYNC_SERVICE_NONE)
+                    cloudSyncEnabledPref.set(false)
+                    SyncJob.setupTask(context, 0)
+                    withUIContext {
+                        context.toast(AYMR.strings.pref_google_drive_sign_out)
                     }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showSignOutDialog = false }) {
-                        Text(stringResource(MR.strings.action_cancel))
-                    }
-                },
-            )
+                }
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = { showSignOutDialog = false },
+                    title = stringResource(AYMR.strings.pref_sign_out_confirmation_title),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(MR.strings.action_cancel),
+                            onClick = { showSignOutDialog = false },
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(AYMR.strings.pref_google_drive_sign_out),
+                            onClick = { onConfirm() },
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = { showSignOutDialog = false },
+                    title = { Text(stringResource(AYMR.strings.pref_sign_out_confirmation_title)) },
+                    text = { dialogContent() },
+                    confirmButton = {
+                        TextButton(onClick = { onConfirm() }) {
+                            Text(stringResource(AYMR.strings.pref_google_drive_sign_out))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showSignOutDialog = false }) {
+                            Text(stringResource(MR.strings.action_cancel))
+                        }
+                    },
+                )
+            }
         }
 
         return Preference.PreferenceGroup(
@@ -1134,79 +1195,100 @@ object SettingsDataScreen : SearchableSettings {
         var authorSelected by remember { mutableStateOf(options.includeAuthor) }
         var artistSelected by remember { mutableStateOf(options.includeArtist) }
 
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = {
-                Text(text = stringResource(MR.strings.migration_dialog_what_to_include))
-            },
-            text = {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = titleSelected,
-                            onCheckedChange = { checked ->
-                                titleSelected = checked
-                                if (!checked) {
-                                    authorSelected = false
-                                    artistSelected = false
-                                    typeSelected = false
-                                }
-                            },
-                        )
-                        Text(text = stringResource(MR.strings.title))
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = typeSelected,
-                            onCheckedChange = { typeSelected = it },
-                            enabled = titleSelected,
-                        )
-                        Text(text = stringResource(AYMR.strings.type))
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = authorSelected,
-                            onCheckedChange = { authorSelected = it },
-                            enabled = titleSelected,
-                        )
-                        Text(text = stringResource(MR.strings.author))
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = artistSelected,
-                            onCheckedChange = { artistSelected = it },
-                            enabled = titleSelected,
-                        )
-                        Text(text = stringResource(MR.strings.artist))
-                    }
+        val dialogContent: @Composable () -> Unit = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = titleSelected,
+                        onCheckedChange = { checked ->
+                            titleSelected = checked
+                            if (!checked) {
+                                authorSelected = false
+                                artistSelected = false
+                                typeSelected = false
+                            }
+                        },
+                    )
+                    Text(text = stringResource(MR.strings.title))
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onConfirm(
-                            ExportOptions(
-                                includeTitle = titleSelected,
-                                includeType = typeSelected,
-                                includeAuthor = authorSelected,
-                                includeArtist = artistSelected,
-                            ),
-                        )
-                        onDismissRequest()
-                    },
-                ) {
-                    Text(text = stringResource(MR.strings.action_save))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = typeSelected,
+                        onCheckedChange = { typeSelected = it },
+                        enabled = titleSelected,
+                    )
+                    Text(text = stringResource(AYMR.strings.type))
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissRequest) {
-                    Text(text = stringResource(MR.strings.action_cancel))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = authorSelected,
+                        onCheckedChange = { authorSelected = it },
+                        enabled = titleSelected,
+                    )
+                    Text(text = stringResource(MR.strings.author))
                 }
-            },
-        )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = artistSelected,
+                        onCheckedChange = { artistSelected = it },
+                        enabled = titleSelected,
+                    )
+                    Text(text = stringResource(MR.strings.artist))
+                }
+            }
+        }
+
+        val onSave = {
+            onConfirm(
+                ExportOptions(
+                    includeTitle = titleSelected,
+                    includeType = typeSelected,
+                    includeAuthor = authorSelected,
+                    includeArtist = artistSelected,
+                ),
+            )
+            onDismissRequest()
+        }
+
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = stringResource(MR.strings.migration_dialog_what_to_include),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = onDismissRequest,
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_save),
+                        onClick = onSave,
+                    )
+                },
+            ) {
+                dialogContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = {
+                    Text(text = stringResource(MR.strings.migration_dialog_what_to_include))
+                },
+                text = { dialogContent() },
+                confirmButton = {
+                    TextButton(onClick = onSave) {
+                        Text(text = stringResource(MR.strings.action_save))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissRequest) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+            )
+        }
     }
 
     @Composable
