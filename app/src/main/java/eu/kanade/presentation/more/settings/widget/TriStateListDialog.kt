@@ -29,6 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.settingsAccentColor
 import eu.kanade.presentation.more.settings.settingsDialogContainerColor
 import eu.kanade.presentation.more.settings.settingsSubtitleColor
@@ -66,90 +71,110 @@ fun <T> TriStateListDialog(
             .toMutableStateList()
     }
     val accentColor = settingsAccentColor()
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        title = { Text(text = title, color = settingsTitleColor()) },
-        text = {
-            Column {
-                if (message != null) {
-                    Text(
-                        text = message,
-                        color = settingsSubtitleColor(),
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                }
+    val applySelection: () -> Unit = {
+        val included = items.mapIndexedNotNull { index, category ->
+            if (selected[index] == State.CHECKED) category else null
+        }
+        val excluded = items.mapIndexedNotNull { index, category ->
+            if (selected[index] == State.INVERSED) category else null
+        }
+        onValueChanged(included, excluded)
+    }
+    val dialogContent: @Composable () -> Unit = {
+        Column {
+            if (message != null) {
+                Text(
+                    text = message,
+                    color = settingsSubtitleColor(),
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
 
-                Box {
-                    val listState = rememberLazyListState()
-                    LazyColumn(state = listState) {
-                        itemsIndexed(items = items) { index, item ->
-                            val state = selected[index]
-                            Row(
-                                modifier = Modifier
-                                    .clip(MaterialTheme.shapes.small)
-                                    .clickable {
-                                        selected[index] = when (state) {
-                                            State.UNCHECKED -> State.CHECKED
-                                            State.CHECKED -> State.INVERSED
-                                            State.INVERSED -> State.UNCHECKED
-                                        }
+            Box {
+                val listState = rememberLazyListState()
+                LazyColumn(state = listState) {
+                    itemsIndexed(items = items) { index, item ->
+                        val state = selected[index]
+                        Row(
+                            modifier = Modifier
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable {
+                                    selected[index] = when (state) {
+                                        State.UNCHECKED -> State.CHECKED
+                                        State.CHECKED -> State.INVERSED
+                                        State.INVERSED -> State.UNCHECKED
                                     }
-                                    .defaultMinSize(minHeight = 48.dp)
-                                    .fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    modifier = Modifier.padding(end = 20.dp),
-                                    imageVector = when (state) {
-                                        State.UNCHECKED -> Icons.Rounded.CheckBoxOutlineBlank
-                                        State.CHECKED -> Icons.Rounded.CheckBox
-                                        State.INVERSED -> Icons.Rounded.DisabledByDefault
+                                }
+                                .defaultMinSize(minHeight = 48.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                modifier = Modifier.padding(end = 20.dp),
+                                imageVector = when (state) {
+                                    State.UNCHECKED -> Icons.Rounded.CheckBoxOutlineBlank
+                                    State.CHECKED -> Icons.Rounded.CheckBox
+                                    State.INVERSED -> Icons.Rounded.DisabledByDefault
+                                },
+                                tint = if (state == State.UNCHECKED) {
+                                    LocalContentColor.current
+                                } else {
+                                    accentColor
+                                },
+                                contentDescription = stringResource(
+                                    when (state) {
+                                        State.UNCHECKED -> MR.strings.disabled
+                                        State.CHECKED -> MR.strings.disabled
+                                        State.INVERSED -> MR.strings.disabled
                                     },
-                                    tint = if (state == State.UNCHECKED) {
-                                        LocalContentColor.current
-                                    } else {
-                                        accentColor
-                                    },
-                                    contentDescription = stringResource(
-                                        when (state) {
-                                            State.UNCHECKED -> MR.strings.disabled
-                                            State.CHECKED -> MR.strings.disabled
-                                            State.INVERSED -> MR.strings.disabled
-                                        },
-                                    ),
-                                )
-                                Text(text = itemLabel(item))
-                            }
+                                ),
+                            )
+                            Text(text = itemLabel(item))
                         }
                     }
-
-                    if (listState.canScrollBackward) HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
-                    if (listState.canScrollForward) HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter))
                 }
+
+                if (listState.canScrollBackward) HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
+                if (listState.canScrollForward) HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter))
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(text = stringResource(MR.strings.action_cancel))
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val included = items.mapIndexedNotNull { index, category ->
-                        if (selected[index] == State.CHECKED) category else null
-                    }
-                    val excluded = items.mapIndexedNotNull { index, category ->
-                        if (selected[index] == State.INVERSED) category else null
-                    }
-                    onValueChanged(included, excluded)
-                },
-            ) {
-                Text(text = stringResource(MR.strings.action_ok))
-            }
-        },
-        containerColor = settingsDialogContainerColor(),
-        titleContentColor = settingsTitleColor(),
-        textContentColor = settingsSubtitleColor(),
-    )
+        }
+    }
+    if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+        AuroraFrostDialog(
+            onDismiss = onDismissRequest,
+            title = title,
+            innerScroll = false,
+            footer = {
+                AuroraFrostCancel(
+                    label = stringResource(MR.strings.action_cancel),
+                    onClick = onDismissRequest,
+                )
+                AuroraFrostConfirm(
+                    label = stringResource(MR.strings.action_ok),
+                    onClick = applySelection,
+                )
+            },
+        ) {
+            dialogContent()
+        }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            title = { Text(text = title, color = settingsTitleColor()) },
+            text = { dialogContent() },
+            dismissButton = {
+                TextButton(onClick = onDismissRequest) {
+                    Text(text = stringResource(MR.strings.action_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = applySelection) {
+                    Text(text = stringResource(MR.strings.action_ok))
+                }
+            },
+            containerColor = settingsDialogContainerColor(),
+            titleContentColor = settingsTitleColor(),
+            textContentColor = settingsSubtitleColor(),
+        )
+    }
 }

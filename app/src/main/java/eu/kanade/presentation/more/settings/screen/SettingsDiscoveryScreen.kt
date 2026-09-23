@@ -23,20 +23,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -54,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +65,9 @@ import androidx.compose.ui.window.DialogWindowProvider
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.discovery.service.DiscoveryPreferences
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.components.auroraMenuRimLightBrush
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.screen.discovery.DiscoverySourcesScreen
@@ -106,6 +108,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
         val context = LocalContext.current
         val navigator = LocalNavigator.currentOrThrow
         val scope = rememberCoroutineScope()
+        val colors = eu.kanade.presentation.theme.AuroraTheme.colors
         val repository = remember { Injekt.get<DiscoveryRepository>() }
         var showResetHiddenDialog by remember { mutableStateOf(false) }
         var showBlacklistDialog by remember { mutableStateOf(false) }
@@ -134,12 +137,16 @@ object SettingsDiscoveryScreen : SearchableSettings {
         val isStageMode = homeHeroMode == "stage" || (homeHeroMode == "auto" && enabled)
 
         if (showResetHiddenDialog) {
-            AlertDialog(
-                onDismissRequest = { showResetHiddenDialog = false },
-                title = { Text(stringResource(AYMR.strings.pref_discovery_clear_hidden_dialog_title)) },
-                text = { Text(stringResource(AYMR.strings.pref_discovery_clear_hidden_dialog_message)) },
-                confirmButton = {
-                    TextButton(
+            AuroraFrostDialog(
+                onDismiss = { showResetHiddenDialog = false },
+                title = stringResource(AYMR.strings.pref_discovery_clear_hidden_dialog_title),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { showResetHiddenDialog = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
                         onClick = {
                             showResetHiddenDialog = false
                             scope.launchIO {
@@ -151,72 +158,77 @@ object SettingsDiscoveryScreen : SearchableSettings {
                                 }
                             }
                         },
-                    ) {
-                        Text(stringResource(MR.strings.action_ok))
-                    }
+                    )
                 },
-                dismissButton = {
-                    TextButton(onClick = { showResetHiddenDialog = false }) {
-                        Text(stringResource(MR.strings.action_cancel))
-                    }
-                },
-            )
+            ) {
+                Text(
+                    stringResource(AYMR.strings.pref_discovery_clear_hidden_dialog_message),
+                    color = colors.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
         }
 
         if (showBlacklistDialog) {
-            AlertDialog(
-                onDismissRequest = { showBlacklistDialog = false },
-                title = { Text(stringResource(AYMR.strings.pref_discovery_blacklist_tags)) },
-                text = {
-                    if (blacklistTags.isEmpty()) {
-                        Text(stringResource(AYMR.strings.pref_discovery_blacklist_empty))
-                    } else {
-                        Column(Modifier.verticalScroll(rememberScrollState())) {
-                            blacklistTags.forEach { (media, tag) ->
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            scope.launchIO {
-                                                repository.unblacklistTag(media, tag)
-                                                reloadBlacklist()
-                                            }
-                                        }
-                                        .padding(vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        "$tag · ${media.key}",
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Icon(
-                                        Icons.Outlined.Close,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
+            AuroraFrostDialog(
+                onDismiss = { showBlacklistDialog = false },
+                title = stringResource(AYMR.strings.pref_discovery_blacklist_tags),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { showBlacklistDialog = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(AYMR.strings.pref_discovery_blacklist_reset),
                         onClick = {
                             scope.launchIO {
                                 DiscoveryMediaType.entries.forEach { repository.clearBlacklist(it) }
                                 showBlacklistDialog = false
                             }
                         },
-                    ) {
-                        Text(stringResource(AYMR.strings.pref_discovery_blacklist_reset))
-                    }
+                    )
                 },
-                dismissButton = {
-                    TextButton(onClick = { showBlacklistDialog = false }) {
-                        Text(stringResource(MR.strings.action_cancel))
+            ) {
+                if (blacklistTags.isEmpty()) {
+                    Text(
+                        stringResource(AYMR.strings.pref_discovery_blacklist_empty),
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    Column {
+                        blacklistTags.forEach { (media, tag) ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clickable {
+                                        scope.launchIO {
+                                            repository.unblacklistTag(media, tag)
+                                            reloadBlacklist()
+                                        }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "$tag · ${media.key}",
+                                    color = colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
                     }
-                },
-            )
+                }
+            }
         }
 
         // V1: диалог мультивыбора статусов выпуска (4 свитча, дефолт — все включены).
@@ -626,68 +638,22 @@ private fun ReleaseStatusFilterDialog(
     onApply: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val colors = eu.kanade.presentation.theme.AuroraTheme.colors
     val initial = DiscoveryReleaseStatus.parseCsv(currentCsv)
     var selected by remember {
         mutableStateOf(if (initial.isEmpty()) DiscoveryReleaseStatus.entries.toSet() else initial)
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(AYMR.strings.pref_discovery_release_status)) },
-        text = {
-            Column {
-                DiscoveryReleaseStatus.entries.forEach { status ->
-                    val label = when (status) {
-                        DiscoveryReleaseStatus.ONGOING -> stringResource(
-                            AYMR.strings.pref_discovery_release_status_ongoing,
-                        ) to
-                            stringResource(AYMR.strings.pref_discovery_release_status_ongoing_desc)
-                        DiscoveryReleaseStatus.FINISHED -> stringResource(
-                            AYMR.strings.pref_discovery_release_status_finished,
-                        ) to
-                            stringResource(AYMR.strings.pref_discovery_release_status_finished_desc)
-                        DiscoveryReleaseStatus.ANONS -> stringResource(
-                            AYMR.strings.pref_discovery_release_status_anons,
-                        ) to
-                            stringResource(AYMR.strings.pref_discovery_release_status_anons_desc)
-                        DiscoveryReleaseStatus.PAUSED -> stringResource(
-                            AYMR.strings.pref_discovery_release_status_paused,
-                        ) to
-                            stringResource(AYMR.strings.pref_discovery_release_status_paused_desc)
-                    }
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { selected = if (status in selected) selected - status else selected + status }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(label.first, style = androidx.compose.material3.MaterialTheme.typography.bodyLarge)
-                            Text(
-                                label.second,
-                                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        androidx.compose.material3.Checkbox(
-                            checked = status in selected,
-                            onCheckedChange = { checked ->
-                                selected = if (checked) selected + status else selected - status
-                            },
-                        )
-                    }
-                }
-                Text(
-                    stringResource(AYMR.strings.pref_discovery_release_status_hint),
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
+    AuroraFrostDialog(
+        onDismiss = onDismiss,
+        title = stringResource(AYMR.strings.pref_discovery_release_status),
+        footer = {
+            AuroraFrostCancel(
+                label = stringResource(MR.strings.action_cancel),
+                onClick = onDismiss,
+            )
+            AuroraFrostConfirm(
+                label = stringResource(MR.strings.action_ok),
                 onClick = {
                     // Пустой выбор = без фильтра (все статусы); но не даём выключить ВСЁ.
                     val csv = if (selected.size == DiscoveryReleaseStatus.entries.size) {
@@ -698,16 +664,71 @@ private fun ReleaseStatusFilterDialog(
                     onApply(csv)
                 },
                 enabled = selected.isNotEmpty(),
+            )
+        },
+    ) {
+        DiscoveryReleaseStatus.entries.forEach { status ->
+            val label = when (status) {
+                DiscoveryReleaseStatus.ONGOING -> stringResource(
+                    AYMR.strings.pref_discovery_release_status_ongoing,
+                ) to
+                    stringResource(AYMR.strings.pref_discovery_release_status_ongoing_desc)
+                DiscoveryReleaseStatus.FINISHED -> stringResource(
+                    AYMR.strings.pref_discovery_release_status_finished,
+                ) to
+                    stringResource(AYMR.strings.pref_discovery_release_status_finished_desc)
+                DiscoveryReleaseStatus.ANONS -> stringResource(
+                    AYMR.strings.pref_discovery_release_status_anons,
+                ) to
+                    stringResource(AYMR.strings.pref_discovery_release_status_anons_desc)
+                DiscoveryReleaseStatus.PAUSED -> stringResource(
+                    AYMR.strings.pref_discovery_release_status_paused,
+                ) to
+                    stringResource(AYMR.strings.pref_discovery_release_status_paused_desc)
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                    .clickable { selected = if (status in selected) selected - status else selected + status }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(stringResource(MR.strings.action_ok))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        label.first,
+                        color = colors.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        label.second,
+                        color = colors.textSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                    )
+                }
+                androidx.compose.material3.Checkbox(
+                    checked = status in selected,
+                    onCheckedChange = { checked ->
+                        selected = if (checked) selected + status else selected - status
+                    },
+                    colors = androidx.compose.material3.CheckboxDefaults.colors(
+                        checkedColor = colors.accent,
+                        checkmarkColor = colors.textOnAccent,
+                        uncheckedColor = colors.textSecondary,
+                    ),
+                )
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(MR.strings.action_cancel))
-            }
-        },
-    )
+        }
+        Text(
+            stringResource(AYMR.strings.pref_discovery_release_status_hint),
+            color = colors.textSecondary,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
 }
 
 /**
@@ -738,7 +759,6 @@ private fun GenreFilterDialog(
 
     var mode by remember { mutableStateOf(1) } // 0=ignored, 1=priority, 2=required
     var search by remember { mutableStateOf("") }
-    var customInput by remember { mutableStateOf("") }
 
     val (priCanonInit, priRawInit) = remember { parseGenreFilterCsv(priorityCsv) }
     val (reqCanonInit, reqRawInit) = remember { parseGenreFilterCsv(requiredCsv) }
@@ -1075,75 +1095,78 @@ private fun GenreFilterDialog(
                         .verticalScroll(rememberScrollState()),
                 ) {
                     Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = search,
-                        onValueChange = { search = it },
-                        placeholder = {
-                            Text(
-                                stringResource(AYMR.strings.pref_discovery_genre_search),
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                    // Единое компактное поле: поиск по онтологии; если совпадений нет —
+                    // под списком появляется аффорданс добавления запроса в активный режим.
+                    // Своя frost-пилла с BasicTextField: M3 OutlinedTextField верстается под
+                    // минимальные 56dp и при жёсткой высоте сдвигает/обрезает строку.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(CircleShape)
+                            .background(
+                                if (colors.isEInk) {
+                                    Brush.verticalGradient(listOf(Color.White, Color.White))
+                                } else if (colors.isDark) {
+                                    Brush.verticalGradient(
+                                        listOf(Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.03f)),
+                                    )
+                                } else {
+                                    Brush.verticalGradient(
+                                        listOf(Color.White.copy(alpha = 0.70f), Color.White.copy(alpha = 0.50f)),
+                                    )
+                                },
+                                CircleShape,
                             )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Outlined.Search,
-                                contentDescription = null,
-                                tint = if (search.isNotBlank()) selectedColor else colors.textSecondary,
-                                modifier = Modifier.size(16.dp),
+                            .border(
+                                1.dp,
+                                when {
+                                    colors.isEInk -> colors.divider
+                                    search.isNotBlank() -> selectedColor.copy(alpha = 0.60f)
+                                    colors.isDark -> Color.White.copy(alpha = 0.10f)
+                                    else -> Color.Black.copy(alpha = 0.08f)
+                                },
+                                CircleShape,
                             )
-                        },
-                        trailingIcon = {
-                            if (search.isNotBlank()) {
-                                Icon(
-                                    Icons.Outlined.Close,
-                                    contentDescription = null,
-                                    tint = colors.textSecondary,
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clickable { search = "" },
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = if (search.isNotBlank()) selectedColor else colors.textSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Box(Modifier.weight(1f)) {
+                            if (search.isEmpty()) {
+                                Text(
+                                    stringResource(AYMR.strings.pref_discovery_genre_search),
+                                    color = colors.textSecondary.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        shape = CircleShape,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = if (colors.isEInk) {
-                                Color.White
-                            } else if (colors.isDark) {
-                                Color.White.copy(alpha = 0.05f)
-                            } else {
-                                Color.White.copy(alpha = 0.70f)
-                            },
-                            unfocusedContainerColor = if (colors.isEInk) {
-                                Color.White
-                            } else if (colors.isDark) {
-                                Color.White.copy(alpha = 0.03f)
-                            } else {
-                                Color.White.copy(alpha = 0.50f)
-                            },
-                            focusedBorderColor = if (colors.isEInk) {
-                                colors.textPrimary
-                            } else {
-                                selectedColor.copy(alpha = 0.60f)
-                            },
-                            unfocusedBorderColor = if (colors.isEInk) {
-                                colors.divider
-                            } else if (colors.isDark) {
-                                Color.White.copy(alpha = 0.10f)
-                            } else {
-                                Color.Black.copy(alpha = 0.08f)
-                            },
-                            cursorColor = selectedColor,
-                            focusedTextColor = colors.textPrimary,
-                            unfocusedTextColor = colors.textPrimary,
-                            focusedPlaceholderColor = colors.textSecondary.copy(alpha = 0.6f),
-                            unfocusedPlaceholderColor = colors.textSecondary.copy(alpha = 0.6f),
-                        ),
-                    )
+                            BasicTextField(
+                                value = search,
+                                onValueChange = { search = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall.copy(color = colors.textPrimary),
+                                cursorBrush = SolidColor(selectedColor),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        if (search.isNotBlank()) {
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = null,
+                                tint = colors.textSecondary,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { search = "" },
+                            )
+                        }
+                    }
 
                     val chipGenres = if (search.isBlank()) {
                         popular
@@ -1171,6 +1194,55 @@ private fun GenreFilterDialog(
                             fontSize = 12.sp,
                             color = colors.textSecondary,
                         )
+                        // Совпадений нет — предлагаем добавить запрос как есть в активный
+                        // режим: каноническим ключом, если матчер резолвит, иначе raw-строкой.
+                        if (search.isNotBlank()) {
+                            Spacer(Modifier.height(10.dp))
+                            Row(
+                                Modifier
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                selectedColor.copy(alpha = if (colors.isDark) 0.16f else 0.10f),
+                                                selectedColor.copy(alpha = if (colors.isDark) 0.06f else 0.04f),
+                                            ),
+                                        ),
+                                        CircleShape,
+                                    )
+                                    .border(1.dp, selectedColor.copy(alpha = 0.40f), CircleShape)
+                                    .clickable {
+                                        appHaptics.tap()
+                                        val (resolved, isCanonical) = resolveUserGenreInput(search)
+                                        if (resolved.isNotBlank()) {
+                                            if (isCanonical) {
+                                                toggleCanon(resolved)
+                                            } else {
+                                                activeRaw.add(resolved)
+                                            }
+                                        }
+                                        search = ""
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Add,
+                                    contentDescription = null,
+                                    tint = selectedColor,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                                Text(
+                                    stringResource(AYMR.strings.pref_discovery_genre_add_custom, search.trim()),
+                                    color = selectedColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     } else {
                         FlowRow(
                             Modifier.fillMaxWidth(),
@@ -1187,114 +1259,6 @@ private fun GenreFilterDialog(
                                     onClick = { toggleCanon(key) },
                                 )
                             }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        stringResource(AYMR.strings.pref_discovery_genre_custom_title),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textSecondary,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        stringResource(AYMR.strings.pref_discovery_genre_custom_hint),
-                        fontSize = 10.sp,
-                        lineHeight = 13.sp,
-                        color = colors.textSecondary,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = customInput,
-                            onValueChange = { customInput = it },
-                            placeholder = {
-                                Text(
-                                    stringResource(AYMR.strings.pref_discovery_genre_custom_placeholder),
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            shape = CircleShape,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = if (colors.isEInk) {
-                                    Color.White
-                                } else if (colors.isDark) {
-                                    Color.White.copy(alpha = 0.05f)
-                                } else {
-                                    Color.White.copy(alpha = 0.70f)
-                                },
-                                unfocusedContainerColor = if (colors.isEInk) {
-                                    Color.White
-                                } else if (colors.isDark) {
-                                    Color.White.copy(alpha = 0.03f)
-                                } else {
-                                    Color.White.copy(alpha = 0.50f)
-                                },
-                                focusedBorderColor = if (colors.isEInk) {
-                                    colors.textPrimary
-                                } else {
-                                    selectedColor.copy(alpha = 0.60f)
-                                },
-                                unfocusedBorderColor = if (colors.isEInk) {
-                                    colors.divider
-                                } else if (colors.isDark) {
-                                    Color.White.copy(alpha = 0.10f)
-                                } else {
-                                    Color.Black.copy(alpha = 0.08f)
-                                },
-                                cursorColor = selectedColor,
-                                focusedTextColor = colors.textPrimary,
-                                unfocusedTextColor = colors.textPrimary,
-                                focusedPlaceholderColor = colors.textSecondary.copy(alpha = 0.6f),
-                                unfocusedPlaceholderColor = colors.textSecondary.copy(alpha = 0.6f),
-                            ),
-                        )
-                        val canAdd = customInput.isNotBlank()
-                        Button(
-                            onClick = {
-                                appHaptics.tap()
-                                val (resolved, isCanonical) = resolveUserGenreInput(customInput)
-                                if (resolved.isNotBlank()) {
-                                    if (isCanonical) {
-                                        toggleCanon(resolved)
-                                    } else {
-                                        activeRaw.add(resolved)
-                                    }
-                                    customInput = ""
-                                }
-                            },
-                            enabled = canAdd,
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (colors.isEInk) colors.textPrimary else selectedColor,
-                                contentColor = colors.textOnAccent,
-                                disabledContainerColor = if (colors.isDark) {
-                                    Color.White.copy(alpha = 0.06f)
-                                } else {
-                                    Color.Black.copy(alpha = 0.04f)
-                                },
-                                disabledContentColor = colors.textSecondary.copy(alpha = 0.4f),
-                            ),
-                            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 0.dp),
-                            modifier = Modifier
-                                .height(52.dp)
-                                .widthIn(min = 118.dp),
-                        ) {
-                            Text(
-                                stringResource(AYMR.strings.pref_discovery_genre_custom_add),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                            )
                         }
                     }
 

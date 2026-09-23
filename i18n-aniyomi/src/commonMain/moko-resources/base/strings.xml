@@ -2294,11 +2294,7 @@
     <string name="pref_discovery_genre_hint_required">Only titles with these genres. Sources without genre filters give their normal feed — picks don\'t starve.</string>
     <string name="pref_discovery_genre_search">Find a genre…</string>
     <string name="pref_discovery_genre_empty">Nothing found</string>
-    <string name="pref_discovery_genre_custom_title">Add manually</string>
-    <string name="pref_discovery_genre_custom_hint">Any genre in any language — e.g. \"Slice of Life\" or \"LitRPG\". Matched genres get a dot; unmatched ones work directly against source checkboxes.</string>
-    <string name="pref_discovery_genre_custom_placeholder">Genre name (any language)…</string>
-    <string name="pref_discovery_genre_custom_add">Add</string>
-    <string name="pref_discovery_genre_custom_empty">Nothing added manually yet</string>
+    <string name="pref_discovery_genre_add_custom">Add \"%1$s\"</string>
     <string name="pref_discovery_genre_popular">Popular</string>
     <string name="pref_discovery_row_taste">“Your taste” row</string>
     <string name="pref_discovery_row_taste_summary">Personalized genre recommendations based on your library</string>

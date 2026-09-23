@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.components.AuroraRadioItem
 import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.SettingsUiStyle
@@ -60,42 +62,59 @@ fun <T> ListPreferenceWidget(
 
     if (isDialogShown && enabled) {
         val accentColor = settingsAccentColor()
-        AlertDialog(
-            onDismissRequest = { isDialogShown = false },
-            title = { Text(text = title, color = settingsTitleColor()) },
-            text = {
-                Box {
-                    val state = rememberLazyListState()
-                    ScrollbarLazyColumn(state = state) {
-                        entries.forEach { current ->
-                            val isSelected = value == current.key
-                            item {
-                                DialogRow(
-                                    label = current.value,
-                                    isSelected = isSelected,
-                                    accentColor = accentColor,
-                                    textStyle = entryTextStyle?.invoke(current.key!!),
-                                    onSelected = {
-                                        onValueChange(current.key!!)
-                                        isDialogShown = false
-                                    },
-                                )
-                            }
+        val listContent: @Composable () -> Unit = {
+            Box {
+                val state = rememberLazyListState()
+                ScrollbarLazyColumn(state = state) {
+                    entries.forEach { current ->
+                        val isSelected = value == current.key
+                        item {
+                            DialogRow(
+                                label = current.value,
+                                isSelected = isSelected,
+                                accentColor = accentColor,
+                                textStyle = entryTextStyle?.invoke(current.key!!),
+                                onSelected = {
+                                    onValueChange(current.key!!)
+                                    isDialogShown = false
+                                },
+                            )
                         }
                     }
-                    if (state.canScrollBackward) HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
-                    if (state.canScrollForward) HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter))
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { isDialogShown = false }) {
-                    Text(text = stringResource(MR.strings.action_cancel))
-                }
-            },
-            containerColor = settingsDialogContainerColor(),
-            titleContentColor = settingsTitleColor(),
-            textContentColor = settingsSubtitleColor(),
-        )
+                if (state.canScrollBackward) HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
+                if (state.canScrollForward) HorizontalDivider(modifier = Modifier.align(Alignment.BottomCenter))
+            }
+        }
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = { isDialogShown = false },
+                title = title,
+                innerScroll = false,
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { isDialogShown = false },
+                    )
+                },
+            ) {
+                listContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = { isDialogShown = false },
+                title = { Text(text = title, color = settingsTitleColor()) },
+                text = { listContent() },
+                confirmButton = {
+                    TextButton(onClick = { isDialogShown = false }) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+                containerColor = settingsDialogContainerColor(),
+                titleContentColor = settingsTitleColor(),
+                textContentColor = settingsSubtitleColor(),
+            )
+        }
     }
 }
 

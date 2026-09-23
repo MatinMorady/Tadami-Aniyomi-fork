@@ -2,6 +2,7 @@ package eu.kanade.presentation.more.settings.widget
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cancel
@@ -24,7 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.settingsAccentColor
 import eu.kanade.presentation.more.settings.settingsDialogContainerColor
 import eu.kanade.presentation.more.settings.settingsSubtitleColor
@@ -74,21 +81,16 @@ fun EditTextPreferenceWidget(
         var textFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
             mutableStateOf(TextFieldValue(value))
         }
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = {
-                Column {
-                    Text(text = title)
-                    if (dialogSubtitle != null) {
-                        Text(
-                            text = dialogSubtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = settingsSubtitleColor(),
-                        )
-                    }
+        val fieldContent: @Composable () -> Unit = {
+            Column {
+                if (dialogSubtitle != null) {
+                    Text(
+                        text = dialogSubtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = settingsSubtitleColor(),
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
                 }
-            },
-            text = {
                 OutlinedTextField(
                     value = textFieldValue,
                     onValueChange = { textFieldValue = it },
@@ -116,35 +118,73 @@ fun EditTextPreferenceWidget(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
-            },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = true,
-            ),
-            confirmButton = {
-                TextButton(
-                    enabled =
-                    textFieldValue.text != value &&
-                        (textFieldValue.text.isNotBlank() || canBeBlank) &&
-                        validate(textFieldValue.text),
-                    onClick = {
-                        scope.launch {
-                            if (onConfirm(textFieldValue.text)) {
-                                onDismissRequest()
-                            }
+            }
+        }
+        val confirmEnabled =
+            textFieldValue.text != value &&
+                (textFieldValue.text.isNotBlank() || canBeBlank) &&
+                validate(textFieldValue.text)
+        val onConfirmClick: () -> Unit = {
+            scope.launch {
+                if (onConfirm(textFieldValue.text)) {
+                    onDismissRequest()
+                }
+            }
+        }
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = title,
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = onDismissRequest,
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
+                        onClick = onConfirmClick,
+                        enabled = confirmEnabled,
+                    )
+                },
+            ) {
+                fieldContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = {
+                    Column {
+                        Text(text = title)
+                        if (dialogSubtitle != null) {
+                            Text(
+                                text = dialogSubtitle,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = settingsSubtitleColor(),
+                            )
                         }
-                    },
-                ) {
-                    Text(text = stringResource(MR.strings.action_ok))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissRequest) {
-                    Text(text = stringResource(MR.strings.action_cancel))
-                }
-            },
-            containerColor = settingsDialogContainerColor(),
-            titleContentColor = settingsTitleColor(),
-            textContentColor = settingsSubtitleColor(),
-        )
+                    }
+                },
+                text = { fieldContent() },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = true,
+                ),
+                confirmButton = {
+                    TextButton(
+                        enabled = confirmEnabled,
+                        onClick = onConfirmClick,
+                    ) {
+                        Text(text = stringResource(MR.strings.action_ok))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = onDismissRequest) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+                containerColor = settingsDialogContainerColor(),
+                titleContentColor = settingsTitleColor(),
+                textContentColor = settingsSubtitleColor(),
+            )
+        }
     }
 }
