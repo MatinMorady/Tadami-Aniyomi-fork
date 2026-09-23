@@ -41,6 +41,37 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
      */
     fun filterNsfw(): Preference<Boolean> = preferenceStore.getBoolean("discovery_filter_nsfw", true)
 
+    /**
+     * V1: CSV ключей статусов выпуска для трендов (DiscoveryReleaseStatus.key),
+     * пусто = все статусы (фильтр выключен). Действует серверно у AniList/Shikimori
+     * при следующем обновлении ленты; ряды «похоже»/источников статусов не знают.
+     */
+    fun releaseStatusFilter(): Preference<String> =
+        preferenceStore.getString("discovery_release_status_filter", "")
+
+    /**
+     * V3: CSV канонических ключей жанров из [GenreOntology] — «приоритетные»:
+     * тайтлы с этими жанрами поднимаются выше в миксе. Не отсекают остальное.
+     * Формат: canonical|canonical|raw:«строка» — raw-жанры с префиксом.
+     */
+    fun priorityGenres(): Preference<String> =
+        preferenceStore.getString("discovery_priority_genres", "")
+
+    /**
+     * V3: CSV канонических ключей жанров из [GenreOntology] — «обязательные»:
+     * только тайтлы с этими жанрами (best-effort: провайдер без жанров → обычная выдача).
+     * Формат: canonical|canonical|raw:«строка» — raw-жанры с префиксом.
+     */
+    fun requiredGenres(): Preference<String> =
+        preferenceStore.getString("discovery_required_genres", "")
+
+    /**
+     * V3: CSV игнорируемых жанров подборки (глобально, поверх per-media блэклиста тегов):
+     * тайтлы с этими жанрами не проходят в ряды. Формат как у priority/required.
+     */
+    fun ignoredGenres(): Preference<String> =
+        preferenceStore.getString("discovery_ignored_genres", "")
+
     /** CSV ключей рядов, упавших при последней генерации (для баннера «показан кэш»). */
     fun lastFailedRows(mediaType: DiscoveryMediaType): Preference<String> =
         preferenceStore.getString("discovery_failed_rows_" + mediaType.key, "")

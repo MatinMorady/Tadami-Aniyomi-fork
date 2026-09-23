@@ -12,6 +12,7 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -52,22 +53,22 @@ internal data class ShikimoriGenreDto(
     val kind: String? = null,
 )
 
-/** Жанры профиля → id жанров Shikimori (матч по name/russian с учётом RU↔EN переводов). */
+/** Жанры профиля → id жанров Shikimori: матчинг эвристикой GenreMatcher (name/russian, любые формы). */
 internal fun mapGenresToIds(
     profileGenres: List<String>,
     catalog: List<ShikimoriGenreDto>,
     mediaKind: String,
-): List<Long> {
-    val wanted = expandGenreSet(profileGenres)
-    return catalog.asSequence()
-        .filter { it.kind == null || it.kind == mediaKind }
-        .filter { g ->
-            g.name.trim().lowercase() in wanted ||
-                g.russian?.trim()?.lowercase()?.let { it.isNotEmpty() && it in wanted } == true
-        }
-        .map { it.id }
-        .distinct()
-        .toList()
+): List<Long> = catalog.asSequence()
+    .filter { it.kind == null || it.kind == mediaKind }
+    .filter { g -> profileGenres.any { genre -> matchesCatalogGenre(genre, g) } }
+    .map { it.id }
+    .distinct()
+    .toList()
+
+private fun matchesCatalogGenre(profileGenre: String, entry: ShikimoriGenreDto): Boolean {
+    if (entry.name.isNotBlank() && GenreMatcher.matches(profileGenre, entry.name)) return true
+    val russian = entry.russian ?: return false
+    return russian.isNotBlank() && GenreMatcher.matches(profileGenre, russian)
 }
 
 internal fun parseShikimoriItems(
@@ -93,7 +94,41 @@ internal fun parseShikimoriItems(
         seasonLabel = seasonLabel,
         genres = genreList,
         provider = "shikimori_trend",
+        // V1: сырой статус Shikimori — для пост-фильтра при множественном выборе.
+        releaseStatus = item.status,
     )
+}
+
+/**
+ * V1: стратегия статус-фильтра для Shikimori.
+ * Возвращает (статус для сервера, множество статусов для пост-фильтра):
+ * - фильтр пуст → серверный статус не меняется (сезонный/отсутствующий), пост-фильтра нет;
+ * - выбран РОВНО ОДИН статус → он уходит на сервер (&status=), пост-фильтра нет;
+ * - выбрано несколько → сервер не трогаем, режем выдачу по полю status.
+ * [seasonStatus] — сезонный статус anime-витрины (ongoing/anons); при пустом
+ * фильтре он и остаётся на сервере.
+ */
+internal fun resolveShikimoriStatusFilter(
+    seasonStatus: String?,
+    releaseStatuses: Set<DiscoveryReleaseStatus>,
+): Pair<String?, Set<String>> {
+    if (releaseStatuses.isEmpty()) return seasonStatus to emptySet()
+    if (releaseStatuses.size == 1) {
+        return releaseStatuses.first().shikimoriValue to emptySet()
+    }
+    return seasonStatus to releaseStatuses.map { it.shikimoriValue }.toSet()
+}
+
+/** V1: пост-фильтр выдачи по сырому статусу Shikimori (пустой статус не режем — best-effort). */
+internal fun filterByShikimoriStatus(
+    items: List<DiscoveryTrendingItem>,
+    shikimoriStatuses: Set<String>,
+): List<DiscoveryTrendingItem> {
+    if (shikimoriStatuses.isEmpty()) return items
+    return items.filter { item ->
+        val raw = item.releaseStatus ?: return@filter true // без статуса — не режем
+        raw in shikimoriStatuses
+    }
 }
 
 /**
@@ -135,13 +170,14 @@ open class ShikimoriTrendingSource(
         season: TrendSeason,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (mediaType == DiscoveryMediaType.NOVEL) return emptyList()
 
         return try {
             when (mediaType) {
-                DiscoveryMediaType.ANIME -> fetchAnime(season, sort, page)
-                DiscoveryMediaType.MANGA -> fetchManga(sort, page)
+                DiscoveryMediaType.ANIME -> fetchAnime(season, sort, page, releaseStatuses)
+                DiscoveryMediaType.MANGA -> fetchManga(sort, page, releaseStatuses)
                 DiscoveryMediaType.NOVEL -> emptyList()
             }
         } catch (e: CancellationException) {
@@ -156,9 +192,13 @@ open class ShikimoriTrendingSource(
         season: TrendSeason,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem> {
         val order = if (sort == TrendSort.SCORE) "ranked" else "popularity"
-        val status = when (season) {
+        // Статус сезона (current=ongoing, next=anons) — позиция сезона по определению.
+        // V1: пользовательский статус-фильтр сужает/заменяет сезонный статус: одиночный
+        // уходит на сервер (&status=), множественный — пост-фильтр по выдаче (status поля).
+        val seasonStatus = when (season) {
             TrendSeason.CURRENT -> "ongoing"
             TrendSeason.NEXT -> "anons"
             TrendSeason.BOTH -> "ongoing"
@@ -168,11 +208,12 @@ open class ShikimoriTrendingSource(
             TrendSeason.NEXT -> "next"
             TrendSeason.BOTH -> "current"
         }
+        val (serverStatus, clientFilter) = resolveShikimoriStatusFilter(seasonStatus, releaseStatuses)
         val url = shikimoriListUrl(
             endpoint = "animes",
             page = page,
             order = order,
-            status = status,
+            status = serverStatus,
             censored = nsfwFilterProvider(),
         )
         ExternalApiThrottle.acquire(ExternalApiThrottle.Api.SHIKIMORI)
@@ -180,17 +221,21 @@ open class ShikimoriTrendingSource(
             .awaitSuccess()
             .parseAs<List<ShikimoriMediaItem>>(jsonProvider())
         return parseShikimoriItems(response, seasonLabel, isRussianLocaleProvider())
+            .let { filterByShikimoriStatus(it, clientFilter) }
     }
 
     private suspend fun fetchManga(
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem> {
         val order = if (sort == TrendSort.SCORE) "ranked" else "popularity"
+        val (serverStatus, clientFilter) = resolveShikimoriStatusFilter(null, releaseStatuses)
         val url = shikimoriListUrl(
             endpoint = "mangas",
             page = page,
             order = order,
+            status = serverStatus,
             censored = nsfwFilterProvider(),
         )
         ExternalApiThrottle.acquire(ExternalApiThrottle.Api.SHIKIMORI)
@@ -198,6 +243,7 @@ open class ShikimoriTrendingSource(
             .awaitSuccess()
             .parseAs<List<ShikimoriMediaItem>>(jsonProvider())
         return parseShikimoriItems(response, null, isRussianLocaleProvider())
+            .let { filterByShikimoriStatus(it, clientFilter) }
     }
 
     override suspend fun fetchByGenres(
@@ -205,6 +251,7 @@ open class ShikimoriTrendingSource(
         genres: List<String>,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (mediaType == DiscoveryMediaType.NOVEL || genres.isEmpty()) return emptyList()
         return try {
@@ -215,11 +262,13 @@ open class ShikimoriTrendingSource(
             // а не popularity-выдача без фильтра под видом «твоего вкуса».
             if (genreIds.isEmpty()) return emptyList()
             val order = if (sort == TrendSort.SCORE) "ranked" else "popularity"
+            val (serverStatus, clientFilter) = resolveShikimoriStatusFilter(null, releaseStatuses)
             val url = shikimoriListUrl(
                 endpoint = endpoint,
                 page = page,
                 order = order,
                 genreIds = genreIds,
+                status = serverStatus,
                 censored = nsfwFilterProvider(),
             )
             ExternalApiThrottle.acquire(ExternalApiThrottle.Api.SHIKIMORI)
@@ -227,6 +276,7 @@ open class ShikimoriTrendingSource(
                 .awaitSuccess()
                 .parseAs<List<ShikimoriMediaItem>>(jsonProvider())
             parseShikimoriItems(response, null, isRussianLocaleProvider())
+                .let { filterByShikimoriStatus(it, clientFilter) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

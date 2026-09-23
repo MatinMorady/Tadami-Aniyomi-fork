@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.discovery
+﻿package eu.kanade.tachiyomi.data.discovery
 
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -36,6 +36,7 @@ class DiscoveryCoverRecoveryTest {
             season: TrendSeason,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> = emptyList()
 
         override suspend fun fetchByGenres(
@@ -43,6 +44,7 @@ class DiscoveryCoverRecoveryTest {
             genres: List<String>,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> = emptyList()
 
         override suspend fun fetchMeta(title: String, mediaType: DiscoveryMediaType): DiscoveryMeta? {

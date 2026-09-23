@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.data.discovery
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.data.suggestions.MultilingualQueryHelper
 import eu.kanade.tachiyomi.novelsource.NovelCatalogueSource
 import eu.kanade.tachiyomi.novelsource.model.NovelFilter
 import eu.kanade.tachiyomi.novelsource.model.NovelFilterList
@@ -24,6 +25,10 @@ import java.io.IOException
  * Ряд «Источник»: popular-витрина выбранного источника расширения
  * (catalogue API источника), опционально с жанровым фильтром (best-effort:
  * только если источник exposes группу жанровых чекбоксов).
+ *
+ * Жанровый фильтр считается эвристикой [GenreMatcher]: названия чекбоксов
+ * источника любого языка/формы сопоставляются с запрошенными жанрами;
+ * непонятые названия один раз переводятся через [GenreTranslationFallback].
  */
 interface DiscoverySourceCatalog {
     suspend fun popular(mediaType: DiscoveryMediaType, sourceId: Long): List<DiscoveryRowItem>
@@ -40,6 +45,11 @@ interface DiscoverySourceCatalog {
 }
 
 class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
+
+    /** M2: перевод непонятых чекбоксов жанров — ленивый, кэш внутри фолбэка. */
+    private val genreFallback by lazy {
+        GenreTranslationFallback(translate = { name -> MultilingualQueryHelper.translate(name) })
+    }
 
     override suspend fun popular(mediaType: DiscoveryMediaType, sourceId: Long): List<DiscoveryRowItem> =
         fetch(mediaType, sourceId, genres = null)
@@ -176,39 +186,35 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         sourceUrl = sourceUrl,
     )
 
-    private fun withMangaGenreFilters(filters: FilterList, genres: List<String>): FilterList? {
-        val wanted = expandGenreSet(genres)
+    private suspend fun withMangaGenreFilters(filters: FilterList, genres: List<String>): FilterList? {
         val group = filters.filterIsInstance<Filter.Group<*>>()
             .firstOrNull { it.name.contains("genre", true) || it.name.contains("жанр", true) }
             ?: return null
         val boxes = group.state.filterIsInstance<Filter.CheckBox>()
-        val applied = boxes.count { box ->
-            (box.name.trim().lowercase() in wanted).also { if (it) box.state = true }
-        }
-        return if (applied > 0) filters else null
+        // Эвристика жанров: чекбоксы любого языка матчатся с запросом; непонятые
+        // названия источник-специфичной экзотики переводятся один раз (M2).
+        val matched = genreFallback.selectSourceGenres(genres, boxes.map { it.name })
+        boxes.filter { it.name in matched }.forEach { it.state = true }
+        return if (matched.isNotEmpty()) filters else null
     }
 
-    private fun withAnimeGenreFilters(filters: AnimeFilterList, genres: List<String>): AnimeFilterList? {
-        val wanted = expandGenreSet(genres)
+    private suspend fun withAnimeGenreFilters(filters: AnimeFilterList, genres: List<String>): AnimeFilterList? {
         val group = filters.filterIsInstance<AnimeFilter.Group<*>>()
             .firstOrNull { it.name.contains("genre", true) || it.name.contains("жанр", true) }
             ?: return null
         val boxes = group.state.filterIsInstance<AnimeFilter.CheckBox>()
-        val applied = boxes.count { box ->
-            (box.name.trim().lowercase() in wanted).also { if (it) box.state = true }
-        }
-        return if (applied > 0) filters else null
+        val matched = genreFallback.selectSourceGenres(genres, boxes.map { it.name })
+        boxes.filter { it.name in matched }.forEach { it.state = true }
+        return if (matched.isNotEmpty()) filters else null
     }
 
-    private fun withNovelGenreFilters(filters: NovelFilterList, genres: List<String>): NovelFilterList? {
-        val wanted = expandGenreSet(genres)
+    private suspend fun withNovelGenreFilters(filters: NovelFilterList, genres: List<String>): NovelFilterList? {
         val group = filters.filterIsInstance<NovelFilter.Group<*>>()
             .firstOrNull { it.name.contains("genre", true) || it.name.contains("жанр", true) }
             ?: return null
         val boxes = group.state.filterIsInstance<NovelFilter.CheckBox>()
-        val applied = boxes.count { box ->
-            (box.name.trim().lowercase() in wanted).also { if (it) box.state = true }
-        }
-        return if (applied > 0) filters else null
+        val matched = genreFallback.selectSourceGenres(genres, boxes.map { it.name })
+        boxes.filter { it.name in matched }.forEach { it.state = true }
+        return if (matched.isNotEmpty()) filters else null
     }
 }

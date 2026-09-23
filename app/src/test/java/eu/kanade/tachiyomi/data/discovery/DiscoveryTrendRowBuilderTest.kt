@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.discovery
+﻿package eu.kanade.tachiyomi.data.discovery
 
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -18,6 +18,7 @@ class DiscoveryTrendRowBuilderTest {
             season: TrendSeason,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> {
             if (shouldFail) throw IOException("AniList circuit breaker open (403 backoff)")
             return items

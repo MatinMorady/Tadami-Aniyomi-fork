@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.ui.reader.novel.translation.GoogleTranslationService
 import kotlinx.coroutines.CancellationException
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -30,20 +31,21 @@ class CompositeTrendingSource(
         season: TrendSeason,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         val providers: List<Pair<String, suspend () -> List<DiscoveryTrendingItem>>> = when (mediaType) {
             DiscoveryMediaType.ANIME -> listOf(
-                "shikimori" to suspend { shikimori.fetch(mediaType, season, sort, page) },
-                "jikan" to suspend { jikan.fetch(mediaType, season, sort, page) },
-                "anilist" to suspend { anilist.fetch(mediaType, season, sort, page) },
+                "shikimori" to suspend { shikimori.fetch(mediaType, season, sort, page, releaseStatuses) },
+                "jikan" to suspend { jikan.fetch(mediaType, season, sort, page, releaseStatuses) },
+                "anilist" to suspend { anilist.fetch(mediaType, season, sort, page, releaseStatuses) },
             )
             DiscoveryMediaType.MANGA -> listOf(
-                "mangadex" to suspend { mangadex.fetch(mediaType, season, sort, page) },
-                "shikimori" to suspend { shikimori.fetch(mediaType, season, sort, page) },
-                "anilist" to suspend { anilist.fetch(mediaType, season, sort, page) },
+                "mangadex" to suspend { mangadex.fetch(mediaType, season, sort, page, releaseStatuses) },
+                "shikimori" to suspend { shikimori.fetch(mediaType, season, sort, page, releaseStatuses) },
+                "anilist" to suspend { anilist.fetch(mediaType, season, sort, page, releaseStatuses) },
             )
             DiscoveryMediaType.NOVEL -> listOf(
-                "anilist" to suspend { anilist.fetch(mediaType, season, sort, page) },
+                "anilist" to suspend { anilist.fetch(mediaType, season, sort, page, releaseStatuses) },
             )
         }
         return fetchWithFallback(providers, mediaType)
@@ -74,20 +76,21 @@ class CompositeTrendingSource(
         genres: List<String>,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         val providers: List<Pair<String, suspend () -> List<DiscoveryTrendingItem>>> = when (mediaType) {
             DiscoveryMediaType.ANIME -> listOf(
-                "shikimori" to suspend { shikimori.fetchByGenres(mediaType, genres, sort, page) },
-                "anilist" to suspend { anilist.fetchByGenres(mediaType, genres, sort, page) },
+                "shikimori" to suspend { shikimori.fetchByGenres(mediaType, genres, sort, page, releaseStatuses) },
+                "anilist" to suspend { anilist.fetchByGenres(mediaType, genres, sort, page, releaseStatuses) },
             )
             // Жанровой цепочкой MangaDex не владеет (fetchByGenres игнорировал жанры и
             // возвращал популярность) — только реально фильтрующие провайдеры.
             DiscoveryMediaType.MANGA -> listOf(
-                "shikimori" to suspend { shikimori.fetchByGenres(mediaType, genres, sort, page) },
-                "anilist" to suspend { anilist.fetchByGenres(mediaType, genres, sort, page) },
+                "shikimori" to suspend { shikimori.fetchByGenres(mediaType, genres, sort, page, releaseStatuses) },
+                "anilist" to suspend { anilist.fetchByGenres(mediaType, genres, sort, page, releaseStatuses) },
             )
             DiscoveryMediaType.NOVEL -> listOf(
-                "anilist" to suspend { anilist.fetchByGenres(mediaType, genres, sort, page) },
+                "anilist" to suspend { anilist.fetchByGenres(mediaType, genres, sort, page, releaseStatuses) },
             )
         }
         return fetchWithFallback(providers, mediaType)

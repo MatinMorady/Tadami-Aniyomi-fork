@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.discovery
+﻿package eu.kanade.tachiyomi.data.discovery
 
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -18,6 +18,7 @@ class DiscoveryTasteRowBuilderTest {
             season: TrendSeason,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> = emptyList()
 
         override suspend fun fetchByGenres(
@@ -25,6 +26,7 @@ class DiscoveryTasteRowBuilderTest {
             genres: List<String>,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> {
             if (shouldFail) throw IOException("trending boom")
             return genreItems

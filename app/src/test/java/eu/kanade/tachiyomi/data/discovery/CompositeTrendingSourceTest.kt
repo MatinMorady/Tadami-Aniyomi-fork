@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.discovery
+﻿package eu.kanade.tachiyomi.data.discovery
 
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -22,6 +22,7 @@ class CompositeTrendingSourceTest {
             season: TrendSeason,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> {
             fetchCalled = true
             if (shouldFail) throw IOException("$name simulated error")
@@ -33,6 +34,7 @@ class CompositeTrendingSourceTest {
             genres: List<String>,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> {
             fetchCalled = true
             if (shouldFail) throw IOException("$name simulated error")

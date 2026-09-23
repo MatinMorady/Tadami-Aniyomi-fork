@@ -15,6 +15,7 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -102,6 +103,17 @@ internal fun mangadexListUrl(orderParam: String, offset: Int, nsfwAllowed: Boole
     return "https://api.mangadex.org/manga?limit=30&offset=$offset&$orderParam&includes[]=cover_art&$ratings"
 }
 
+/** V1: серверный статус-фильтр MangaDex — status[]=ongoing&status[]=completed&… (пустой фильтр — без параметров). */
+internal fun mangadexStatusParam(releaseStatuses: Set<DiscoveryReleaseStatus>): String =
+    releaseStatuses.joinToString("") { status ->
+        when (status) {
+            DiscoveryReleaseStatus.ONGOING -> "&status[]=ongoing"
+            DiscoveryReleaseStatus.FINISHED -> "&status[]=completed"
+            DiscoveryReleaseStatus.ANONS -> "" // у MangaDex нет статуса «анонс» в списочном фильтре
+            DiscoveryReleaseStatus.PAUSED -> "&status[]=hiatus"
+        }
+    }
+
 open class MangaDexTrendingSource(
     private val clientProvider: () -> OkHttpClient = { Injekt.get<NetworkHelper>().client },
     private val jsonProvider: () -> Json = { Injekt.get() },
@@ -122,6 +134,7 @@ open class MangaDexTrendingSource(
         season: TrendSeason,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (mediaType != DiscoveryMediaType.MANGA) return emptyList()
 
@@ -132,7 +145,8 @@ open class MangaDexTrendingSource(
                 TrendSort.SCORE -> "order[rating]=desc"
                 TrendSort.POPULARITY -> "order[followedCount]=desc"
             }
-            val url = mangadexListUrl(orderParam, offset, nsfwAllowedProvider())
+            // V1: MangaDex поддерживает серверный статус-фильтр status[]=…
+            val url = mangadexListUrl(orderParam, offset, nsfwAllowedProvider()) + mangadexStatusParam(releaseStatuses)
 
             val response = clientProvider().newCall(GET(url, headers = headers))
                 .awaitSuccess()
@@ -152,6 +166,7 @@ open class MangaDexTrendingSource(
         genres: List<String>,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (mediaType != DiscoveryMediaType.MANGA || genres.isEmpty()) return emptyList()
         return try {
@@ -160,7 +175,7 @@ open class MangaDexTrendingSource(
                 TrendSort.SCORE -> "order[rating]=desc"
                 else -> "order[followedCount]=desc"
             }
-            val url = mangadexListUrl(orderParam, offset, nsfwAllowedProvider())
+            val url = mangadexListUrl(orderParam, offset, nsfwAllowedProvider()) + mangadexStatusParam(releaseStatuses)
 
             val response = clientProvider().newCall(GET(url, headers = headers))
                 .awaitSuccess()

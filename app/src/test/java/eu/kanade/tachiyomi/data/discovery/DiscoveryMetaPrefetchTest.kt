@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.data.discovery
+﻿package eu.kanade.tachiyomi.data.discovery
 
 import eu.kanade.tachiyomi.ui.discovery.prefetchDiscoveryMeta
 import io.kotest.matchers.shouldBe
@@ -20,6 +20,7 @@ class DiscoveryMetaPrefetchTest {
             season: TrendSeason,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> = emptyList()
 
         override suspend fun fetchByGenres(
@@ -27,6 +28,7 @@ class DiscoveryMetaPrefetchTest {
             genres: List<String>,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> = emptyList()
 
         override suspend fun fetchMeta(title: String, mediaType: DiscoveryMediaType): DiscoveryMeta? {

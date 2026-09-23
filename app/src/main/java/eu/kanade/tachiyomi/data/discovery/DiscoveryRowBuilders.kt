@@ -113,9 +113,15 @@ class DiscoveryTrendRowBuilder(
                 season = seasonProvider(),
                 sort = effectiveSort,
                 page = context.pageOffset,
+                releaseStatuses = context.releaseStatuses,
             )
         }.getOrNull().orEmpty()
-            .filterNot { item -> item.genres.any { it.trim().lowercase() in expandedBlacklist } }
+            // B2: жанры из tag-blacklist не проходят в ряд — эвристика GenreMatcher
+            // режет любые языки/формы (экшен вырежет и «Action», и «aksiyon»).
+            .filterNot { item -> matchesAnyGenre(item.genres, expandedBlacklist) }
+            // V3: обязательные жанры — только тайтлы с ними (best-effort:
+            // пустой результат → без фильтра, лента не голодает).
+            .let { items -> applyRequiredGenres(items, context.requiredGenres) }
             .map { item ->
                 DiscoveryRowItem(
                     title = item.title,
@@ -128,6 +134,10 @@ class DiscoveryTrendRowBuilder(
                     score = 0.0,
                 )
             }
+
+        // V3: приоритетные жанры — буст не применим к TREND-ряду: скор = 0.0
+        // (тренды не ранжируются по жанрам), а reason хранит seasonLabel, не жанры.
+        // Приоритет работает только в TASTE-ряду через boostedTasteScore.
 
         if (context.mediaType == DiscoveryMediaType.NOVEL) {
             val combinedNovels = (fromSource + fromTrending).distinctBy { it.cleanTitle }
@@ -178,20 +188,35 @@ class DiscoveryTasteRowBuilder(
         // B2: заблэклиженные жанры выключаются из профиля ДО запросов — они не
         // должны попадать ни в genre-запросы, ни в скор/обоснования.
         val expandedBlacklist = expandGenreSet(context.blacklistedTags.toList())
-        val activeProfile = profile.filterNot { (genre, _) -> genre.trim().lowercase() in expandedBlacklist }
+        val activeProfile = profile.filterNot { (genre, _) -> matchesAnyGenre(listOf(genre), expandedBlacklist) }
         if (activeProfile.isEmpty()) return emptyList()
         val genreNames = activeProfile.take(6).map { it.first }
+        // V3: у source-выдачи нет жанров на айтеме (клиентский фильтр невозможен),
+        // поэтому обязательные жанры прокидываем в запрос серверно.
+        val sourceGenreNames = if (context.requiredGenres.isNotEmpty()) {
+            context.requiredGenres.toList()
+        } else {
+            genreNames
+        }
         val trendingResult = runCatching {
-            trending.fetchByGenres(context.mediaType, genreNames, sortProvider(), page = context.pageOffset)
+            trending.fetchByGenres(
+                context.mediaType,
+                genreNames,
+                sortProvider(),
+                page = context.pageOffset,
+                releaseStatuses = context.releaseStatuses,
+            )
         }
         val sourceResult = if (context.sourceId > 0) {
-            runCatching { catalog.popularWithGenres(context.mediaType, context.sourceId, genreNames) }
+            runCatching { catalog.popularWithGenres(context.mediaType, context.sourceId, sourceGenreNames) }
         } else {
             null
         }
         val fromTrending = trendingResult.getOrNull().orEmpty()
             // best-effort: провайдеры без жанров в выдаче (source-latest) не фильтруются
-            .filterNot { item -> item.genres.any { it.trim().lowercase() in expandedBlacklist } }
+            .filterNot { item -> matchesAnyGenre(item.genres, expandedBlacklist) }
+            // V3: обязательные жанры — best-effort (пустой результат → без фильтра).
+            .let { items -> applyRequiredGenres(items, context.requiredGenres) }
             .map { item ->
                 DiscoveryRowItem(
                     title = item.title,
@@ -200,7 +225,8 @@ class DiscoveryTasteRowBuilder(
                     reason = matchedGenres(item.genres, activeProfile).joinToString(", "),
                     seedTitle = null,
                     provider = item.provider,
-                    score = tasteScore(item.genres, activeProfile),
+                    // V3: приоритетные жанры — буст скора (×1.5), не отсекают.
+                    score = boostedTasteScore(item.genres, activeProfile, context.priorityGenres),
                 )
             }
         val fromSource = sourceResult?.getOrNull().orEmpty().map { item ->

@@ -21,6 +21,7 @@ import kotlinx.serialization.json.put
 import okhttp3.RequestBody.Companion.toRequestBody
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -34,6 +35,8 @@ data class DiscoveryTrendingItem(
     val seasonLabel: String?,
     val genres: List<String> = emptyList(),
     val provider: String = "anilist_trend",
+    /** V1: сырой статус провайдера (Shikimori «ongoing/released/…»), для пост-фильтра. */
+    val releaseStatus: String? = null,
 )
 
 data class DiscoveryMeta(
@@ -99,6 +102,7 @@ open class AniListTrendingSource(
         season: TrendSeason,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         return try {
             when (mediaType) {
@@ -111,11 +115,30 @@ open class AniListTrendingSource(
                     }
                     windows.flatMap { next ->
                         val (s, year) = resolveSeasonWindow(now.monthValue, now.year, next)
-                        querySeason(s, year, sort, if (next) "next" else "current", page = page)
+                        querySeason(
+                            s,
+                            year,
+                            sort,
+                            if (next) "next" else "current",
+                            page = page,
+                            releaseStatuses = releaseStatuses,
+                        )
                     }
                 }
-                DiscoveryMediaType.MANGA -> queryPopular(type = "MANGA", format = null, sort = sort, page = page)
-                DiscoveryMediaType.NOVEL -> queryPopular(type = "MANGA", format = "NOVEL", sort = sort, page = page)
+                DiscoveryMediaType.MANGA -> queryPopular(
+                    type = "MANGA",
+                    format = null,
+                    sort = sort,
+                    page = page,
+                    releaseStatuses = releaseStatuses,
+                )
+                DiscoveryMediaType.NOVEL -> queryPopular(
+                    type = "MANGA",
+                    format = "NOVEL",
+                    sort = sort,
+                    page = page,
+                    releaseStatuses = releaseStatuses,
+                )
             }
         } catch (e: CancellationException) {
             throw e
@@ -132,11 +155,14 @@ open class AniListTrendingSource(
         sort: TrendSort,
         label: String,
         page: Int = 1,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem> {
+        // V1: статус фильтруется серверно через status_in (AniList поддерживает список).
+        val statusArg = if (releaseStatuses.isNotEmpty()) ", status_in: ${'$'}statuses" else ""
         val query = """
-            query (${'$'}season: MediaSeason, ${'$'}year: Int, ${'$'}sort: [MediaSort], ${'$'}page: Int, ${'$'}isAdult: Boolean) {
+            query (${'$'}season: MediaSeason, ${'$'}year: Int, ${'$'}sort: [MediaSort], ${'$'}page: Int, ${'$'}isAdult: Boolean${if (releaseStatuses.isNotEmpty()) ", ${'$'}statuses: [MediaStatus]" else ""}) {
               Page(page: ${'$'}page, perPage: 50) {
-                media(type: ANIME, season: ${'$'}season, seasonYear: ${'$'}year, sort: ${'$'}sort, isAdult: ${'$'}isAdult) {
+                media(type: ANIME, season: ${'$'}season, seasonYear: ${'$'}year, sort: ${'$'}sort, isAdult: ${'$'}isAdult$statusArg) {
                   id title { romaji english native } coverImage { large }
                 }
               }
@@ -157,6 +183,14 @@ open class AniListTrendingSource(
                             add(JsonPrimitive(sort.anilist))
                         },
                     )
+                    if (releaseStatuses.isNotEmpty()) {
+                        put(
+                            "statuses",
+                            buildJsonArray {
+                                releaseStatuses.forEach { add(JsonPrimitive(it.anilistValue)) }
+                            },
+                        )
+                    }
                 },
             )
         }
@@ -168,12 +202,14 @@ open class AniListTrendingSource(
         format: String?,
         sort: TrendSort,
         page: Int = 1,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem> {
         val formatArg = if (format != null) ", format: ${'$'}format" else ""
+        val statusArg = if (releaseStatuses.isNotEmpty()) ", status_in: ${'$'}statuses" else ""
         val query = """
-            query (${'$'}type: MediaType, ${'$'}sort: [MediaSort], ${'$'}page: Int, ${'$'}isAdult: Boolean${if (format != null) ", ${'$'}format: MediaFormat" else ""}) {
+            query (${'$'}type: MediaType, ${'$'}sort: [MediaSort], ${'$'}page: Int, ${'$'}isAdult: Boolean${if (format != null) ", ${'$'}format: MediaFormat" else ""}${if (releaseStatuses.isNotEmpty()) ", ${'$'}statuses: [MediaStatus]" else ""}) {
               Page(page: ${'$'}page, perPage: 50) {
-                media(type: ${'$'}type, sort: ${'$'}sort, isAdult: ${'$'}isAdult$formatArg) {
+                media(type: ${'$'}type, sort: ${'$'}sort, isAdult: ${'$'}isAdult$formatArg$statusArg) {
                   id title { romaji english native } coverImage { large }
                 }
               }
@@ -194,6 +230,14 @@ open class AniListTrendingSource(
                         },
                     )
                     if (format != null) put("format", format)
+                    if (releaseStatuses.isNotEmpty()) {
+                        put(
+                            "statuses",
+                            buildJsonArray {
+                                releaseStatuses.forEach { add(JsonPrimitive(it.anilistValue)) }
+                            },
+                        )
+                    }
                 },
             )
         }
@@ -206,6 +250,7 @@ open class AniListTrendingSource(
         genres: List<String>,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (genres.isEmpty()) return emptyList()
         return try {
@@ -214,7 +259,7 @@ open class AniListTrendingSource(
                 DiscoveryMediaType.MANGA -> "MANGA" to null
                 DiscoveryMediaType.NOVEL -> "MANGA" to "NOVEL"
             }
-            queryByGenres(type, format, genres, sort, page = page)
+            queryByGenres(type, format, genres, sort, page = page, releaseStatuses = releaseStatuses)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -229,12 +274,14 @@ open class AniListTrendingSource(
         genres: List<String>,
         sort: TrendSort,
         page: Int = 1,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem> {
         val formatArg = if (format != null) ", format: ${'$'}format" else ""
+        val statusArg = if (releaseStatuses.isNotEmpty()) ", status_in: ${'$'}statuses" else ""
         val query = """
-            query (${'$'}type: MediaType, ${'$'}genres: [String], ${'$'}sort: [MediaSort], ${'$'}page: Int, ${'$'}isAdult: Boolean${if (format != null) ", ${'$'}format: MediaFormat" else ""}) {
+            query (${'$'}type: MediaType, ${'$'}genres: [String], ${'$'}sort: [MediaSort], ${'$'}page: Int, ${'$'}isAdult: Boolean${if (format != null) ", ${'$'}format: MediaFormat" else ""}${if (releaseStatuses.isNotEmpty()) ", ${'$'}statuses: [MediaStatus]" else ""}) {
               Page(page: ${'$'}page, perPage: 50) {
-                media(type: ${'$'}type, genre_in: ${'$'}genres, sort: ${'$'}sort, isAdult: ${'$'}isAdult$formatArg) {
+                media(type: ${'$'}type, genre_in: ${'$'}genres, sort: ${'$'}sort, isAdult: ${'$'}isAdult$formatArg$statusArg) {
                   id title { romaji english native } coverImage { large } genres
                 }
               }
@@ -256,6 +303,14 @@ open class AniListTrendingSource(
                         },
                     )
                     if (format != null) put("format", format)
+                    if (releaseStatuses.isNotEmpty()) {
+                        put(
+                            "statuses",
+                            buildJsonArray {
+                                releaseStatuses.forEach { add(JsonPrimitive(it.anilistValue)) }
+                            },
+                        )
+                    }
                 },
             )
         }

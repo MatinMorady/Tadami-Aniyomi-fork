@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
@@ -229,7 +230,16 @@ class DiscoveryRunner(
             historyCleanTitles = seedSources.historyCleanTitles(mediaType),
             hiddenCleanTitles = repository.getHiddenTitles(mediaType),
             tasteProfile = buildTasteProfile(candidates),
-            blacklistedTags = repository.getBlacklistedTags(mediaType),
+            // V3: глобальный игнор-список жанров (преф) поверх per-media блэклиста тегов.
+            blacklistedTags = repository.getBlacklistedTags(mediaType) +
+                parseGenreFilterCsv(preferences.ignoredGenres().get()).let { (canon, raw) -> canon + raw },
+            // V1: статус-фильтр трендов — CSV из настроек, пусто = без фильтра.
+            releaseStatuses = DiscoveryReleaseStatus.parseCsv(preferences.releaseStatusFilter().get()),
+            // V3: жанровые фильтры — CSV с raw-префиксом; canonical + raw матчатся одинаково.
+            priorityGenres = parseGenreFilterCsv(preferences.priorityGenres().get())
+                .let { (canon, raw) -> canon + raw.toSet() },
+            requiredGenres = parseGenreFilterCsv(preferences.requiredGenres().get())
+                .let { (canon, raw) -> canon + raw.toSet() },
             sourceId = participation.primarySourceId,
             // C1 + участие плагинов: состав определяет resolveSourceParticipation
             // (auto — топ-3 по весу библиотеки, manual — все выбранные, cap 8).
