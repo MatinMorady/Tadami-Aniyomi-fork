@@ -1,4 +1,4 @@
-package eu.kanade.presentation.browse.components
+﻿package eu.kanade.presentation.browse.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +29,34 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.theme.auroraHeaderIconSurface
+import eu.kanade.tachiyomi.ui.home.LocalHomeHazeState
+
+/** Линза «назад» в общем стиле верхнего бара приложения. */
+@Composable
+fun AuroraBackLens(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .padding(start = 12.dp)
+            .size(40.dp)
+            .auroraHeaderIconSurface(
+                colors = AuroraTheme.colors,
+                hazeState = LocalHomeHazeState.current,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            contentDescription = null,
+            tint = AuroraTheme.colors.textPrimary,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
 
 /** Tone of an extension status banner. */
 enum class ExtensionBannerTone { Info, Warning, Error }

@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import com.tadami.aurora.R
 import eu.kanade.domain.extension.anime.interactor.AnimeExtensionSourceItem
 import eu.kanade.presentation.browse.anime.components.AnimeExtensionIcon
+import eu.kanade.presentation.browse.components.AuroraBackLens
 import eu.kanade.presentation.browse.components.ExtensionAuroraButton
 import eu.kanade.presentation.browse.components.ExtensionBannerTone
 import eu.kanade.presentation.browse.components.ExtensionDetailsChip
@@ -104,7 +105,7 @@ fun AnimeExtensionDetailsScreen(
         topBar = { scrollBehavior ->
             AppBar(
                 title = stringResource(MR.strings.label_extension_info),
-                navigateUp = navigateUp,
+                customNavigationIcon = { AuroraBackLens(onClick = navigateUp) },
                 actions = {
                     // Верхние кнопки в общем стиле приложения: круглые стеклянные линзы.
                     Row(

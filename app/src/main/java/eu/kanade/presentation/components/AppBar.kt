@@ -76,6 +76,8 @@ fun AppBar(
     // Up button
     navigateUp: (() -> Unit)? = null,
     navigationIcon: ImageVector? = null,
+    // Aurora: кастомная кнопка «назад» (линза) вместо стандартной IconButton+UpIcon.
+    customNavigationIcon: @Composable (() -> Unit)? = null,
     // Menu
     actions: @Composable RowScope.() -> Unit = {},
     // Action mode
@@ -101,6 +103,7 @@ fun AppBar(
         },
         navigateUp = navigateUp,
         navigationIcon = navigationIcon,
+        customNavigationIcon = customNavigationIcon,
         actions = {
             if (isActionMode) {
                 actionModeActions()
@@ -124,6 +127,8 @@ fun AppBar(
     // Up button
     navigateUp: (() -> Unit)? = null,
     navigationIcon: ImageVector? = null,
+    // Aurora: кастомная кнопка «назад» (линза) вместо стандартной IconButton+UpIcon.
+    customNavigationIcon: @Composable (() -> Unit)? = null,
     // Menu
     actions: @Composable RowScope.() -> Unit = {},
     // Action mode
@@ -149,6 +154,8 @@ fun AppBar(
                             contentDescription = stringResource(MR.strings.action_cancel),
                         )
                     }
+                } else if (customNavigationIcon != null) {
+                    customNavigationIcon()
                 } else {
                     navigateUp?.let {
                         IconButton(onClick = {
@@ -316,12 +323,15 @@ fun SearchToolbar(
     scrollBehavior: TopAppBarScrollBehavior? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
+    // Aurora: кастомная кнопка «назад» (линза) вместо стандартной IconButton+UpIcon.
+    customNavigationIcon: @Composable (() -> Unit)? = null,
 ) {
     val appHaptics = LocalAppHaptics.current
     val focusRequester = remember { FocusRequester() }
 
     AppBar(
         modifier = modifier,
+        customNavigationIcon = customNavigationIcon,
         titleContent = {
             if (searchQuery == null) return@AppBar titleContent()
 

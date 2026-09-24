@@ -1,21 +1,24 @@
 package eu.kanade.tachiyomi.ui.browse.novel.source.browse
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
@@ -30,9 +33,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -40,11 +51,13 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.core.util.ifNovelSourcesLoaded
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.presentation.browse.RemoveEntryDialog
+import eu.kanade.presentation.browse.components.chromeAccentDetails
 import eu.kanade.presentation.browse.novel.BrowseNovelSourceContent
 import eu.kanade.presentation.browse.novel.MissingNovelSourceScreen
 import eu.kanade.presentation.browse.novel.components.BrowseNovelSourceToolbar
 import eu.kanade.presentation.category.components.ChangeCategoryDialog
 import eu.kanade.presentation.entries.novel.DuplicateNovelDialog
+import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.novelsource.NovelCatalogueSource
 import eu.kanade.tachiyomi.novelsource.NovelSource
@@ -68,9 +81,9 @@ import tachiyomi.domain.source.novel.model.StubNovelSource
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.components.material.Scaffold
-import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.LoadingScreen
+import tachiyomi.presentation.core.util.LocalAppHaptics
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 data class BrowseNovelSourceScreen(
@@ -165,77 +178,56 @@ data class BrowseNovelSourceScreen(
                             { navigator.push(screen) }
                         },
                         onSearch = screenModel::search,
-                        useAuroraAppBarActions = false,
                     )
 
+                    // Sticky чип-бар листинга (прототип каталога): стеклянные плашки-пилюли
+                    // с верхним димом; бар закреплён над списком как часть topBar.
                     Row(
                         modifier = Modifier
                             .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = MaterialTheme.padding.small),
-                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        FilterChip(
+                        NovelListingChip(
+                            text = stringResource(MR.strings.popular),
+                            icon = Icons.Outlined.Favorite,
                             selected = state.listing == BrowseNovelSourceScreenModel.Listing.Popular,
                             onClick = {
                                 screenModel.resetFilters()
                                 screenModel.setListing(BrowseNovelSourceScreenModel.Listing.Popular)
                             },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Outlined.Favorite,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
-                                )
-                            },
-                            label = {
-                                Text(text = stringResource(MR.strings.popular))
-                            },
                         )
                         if ((screenModel.source as NovelCatalogueSource).supportsLatest) {
-                            FilterChip(
+                            NovelListingChip(
+                                text = stringResource(MR.strings.latest),
+                                icon = Icons.Outlined.NewReleases,
                                 selected = state.listing == BrowseNovelSourceScreenModel.Listing.Latest,
                                 onClick = {
                                     screenModel.resetFilters()
                                     screenModel.setListing(BrowseNovelSourceScreenModel.Listing.Latest)
                                 },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.NewReleases,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(FilterChipDefaults.IconSize),
-                                    )
-                                },
-                                label = {
-                                    Text(text = stringResource(MR.strings.latest))
-                                },
                             )
                         }
                         if (state.filters.isNotEmpty()) {
-                            FilterChip(
+                            // Бейдж числа активных фильтров: стейт не отдаёт счётчик —
+                            // по требованию прототипа бейдж скрыт, пока count недоступен.
+                            NovelListingChip(
+                                text = stringResource(MR.strings.action_filter),
+                                icon = Icons.Outlined.FilterList,
                                 selected = state.listing is BrowseNovelSourceScreenModel.Listing.Search,
                                 onClick = screenModel::openFilterSheet,
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Outlined.FilterList,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(FilterChipDefaults.IconSize),
-                                    )
-                                },
-                                label = {
-                                    Text(text = stringResource(MR.strings.action_filter))
-                                },
                             )
                         }
                         state.savedSearches.forEach { (search, isActive) ->
-                            FilterChip(
+                            NovelListingChip(
+                                text = search.name,
                                 selected = isActive,
                                 onClick = { screenModel.openSavedSearch(search) },
-                                label = { Text(text = search.name) },
                             )
                         }
                     }
 
-                    HorizontalDivider()
+                    NovelTopBarGlowDivider()
                 }
             },
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -481,4 +473,126 @@ internal fun novelSourcePreferencesScreenOrNull(
 ): NovelSourcePreferencesScreen? {
     if (!isSourceConfigurable) return null
     return NovelSourcePreferencesScreen(sourceId)
+}
+
+/**
+ * Плашка-пилюля чип-бара каталога (prototype_source_catalog.html): стеклянная
+ * пилюля (verticalGradient white .07→.03 dark / .60→.42 light), rim 1dp и
+ * верхний дим 2dp; активная — accent-градиент + кромка accent .65 + белый текст.
+ */
+@Composable
+private fun NovelListingChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+) {
+    val colors = AuroraTheme.colors
+    val chrome = chromeAccentDetails()
+    val shape = RoundedCornerShape(999.dp)
+    val contentColor = if (selected) Color.White else colors.textSecondary
+    val appHaptics = LocalAppHaptics.current
+    Box(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .background(
+                    brush = if (selected) {
+                        Brush.linearGradient(
+                            listOf(
+                                colors.accent.copy(alpha = 0.45f),
+                                lerp(colors.accent, Color.Black, 0.45f).copy(alpha = 0.50f),
+                            ),
+                        )
+                    } else {
+                        Brush.verticalGradient(
+                            if (colors.isDark) {
+                                listOf(Color.White.copy(alpha = 0.07f), Color.White.copy(alpha = 0.03f))
+                            } else {
+                                listOf(Color.White.copy(alpha = 0.60f), Color.White.copy(alpha = 0.42f))
+                            },
+                        )
+                    },
+                    shape = shape,
+                )
+                .border(
+                    width = 1.dp,
+                    color = when {
+                        selected -> colors.accent.copy(alpha = 0.65f)
+                        colors.isDark -> Color.White.copy(alpha = 0.10f)
+                        else -> Color.Black.copy(alpha = 0.08f)
+                    },
+                    shape = shape,
+                )
+                .clickable {
+                    appHaptics.tap()
+                    onClick()
+                }
+                .padding(horizontal = 13.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = contentColor,
+            )
+        }
+        // Верхний дим плашки (цитатный язык): 2dp, гаснущий к краям.
+        Box(modifier = Modifier.matchParentSize().clip(shape)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                if (selected) chrome.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.35f),
+                                Color.Transparent,
+                            ),
+                        ),
+                    ),
+            )
+        }
+    }
+}
+
+/** Светящийся двухслойный разделитель под чип-баром (язык Browse-хаба). */
+@Composable
+private fun NovelTopBarGlowDivider() {
+    val chrome = chromeAccentDetails()
+    Column {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color.Transparent, chrome.copy(alpha = 0.12f), Color.Transparent),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color.Transparent, chrome.copy(alpha = 0.45f), Color.Transparent),
+                    ),
+                ),
+        )
+    }
 }

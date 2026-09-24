@@ -6,19 +6,13 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import eu.kanade.presentation.browse.BrowseSourceLoadingItem
-import eu.kanade.presentation.browse.InLibraryBadge
-import eu.kanade.presentation.components.rememberAuroraCoverPlaceholderPainter
-import eu.kanade.presentation.library.components.CommonEntryItemDefaults
-import eu.kanade.presentation.library.components.EntryComfortableGridItem
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import tachiyomi.domain.entries.anime.model.Anime
-import tachiyomi.domain.entries.anime.model.AnimeCover
 import tachiyomi.presentation.core.util.plus
 
 @Composable
@@ -36,9 +30,10 @@ fun BrowseAnimeSourceComfortableGrid(
         modifier = androidx.compose.ui.Modifier.auroraCenteredMaxWidth(
             auroraAdaptiveSpecSpec.updatesMaxWidthDp ?: auroraAdaptiveSpecSpec.entryMaxWidthDp,
         ),
-        contentPadding = contentPadding + PaddingValues(8.dp),
-        verticalArrangement = Arrangement.spacedBy(CommonEntryItemDefaults.GridVerticalSpacer),
-        horizontalArrangement = Arrangement.spacedBy(CommonEntryItemDefaults.GridHorizontalSpacer),
+        // Отступы/шаг прототипа каталога: постеры без внутренней рамки, зазор 10dp.
+        contentPadding = contentPadding + PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (animeList.loadState.prepend is LoadState.Loading) {
             item(span = { GridItemSpan(maxLineSpan) }) {
@@ -55,7 +50,9 @@ fun BrowseAnimeSourceComfortableGrid(
                 anime.url in
                     favoriteAnimeUrls
             }
-            BrowseAnimeSourceComfortableGridItem(
+            // Постер прототипа каталога: тот же стеклянный постер, что в компактной
+            // сетке (комфортный режим отличается шириной колонок — 2 по прототипу).
+            AnimeSourcePosterItem(
                 anime = anime,
                 isFavorite = isFavorite,
                 onClick = { onAnimeClick(anime) },
@@ -69,31 +66,4 @@ fun BrowseAnimeSourceComfortableGrid(
             }
         }
     }
-}
-
-@Composable
-private fun BrowseAnimeSourceComfortableGridItem(
-    anime: Anime,
-    isFavorite: Boolean,
-    onClick: () -> Unit = {},
-    onLongClick: () -> Unit = onClick,
-) {
-    val placeholderPainter = rememberAuroraCoverPlaceholderPainter()
-    EntryComfortableGridItem(
-        title = anime.title,
-        coverData = AnimeCover(
-            animeId = anime.id,
-            sourceId = anime.source,
-            isAnimeFavorite = isFavorite,
-            url = anime.thumbnailUrl,
-            lastModified = anime.coverLastModified,
-        ),
-        coverAlpha = if (isFavorite) CommonEntryItemDefaults.BrowseFavoriteCoverAlpha else 1f,
-        coverBadgeStart = {
-            InLibraryBadge(enabled = isFavorite)
-        },
-        errorPainter = placeholderPainter,
-        onLongClick = onLongClick,
-        onClick = onClick,
-    )
 }
