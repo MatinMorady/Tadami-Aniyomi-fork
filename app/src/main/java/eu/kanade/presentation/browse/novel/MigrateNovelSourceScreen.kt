@@ -1,12 +1,17 @@
-package eu.kanade.presentation.browse.novel
+﻿package eu.kanade.presentation.browse.novel
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -19,11 +24,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import eu.kanade.domain.source.interactor.SetMigrateSorting
 import eu.kanade.presentation.browse.novel.components.BaseNovelSourceItem
 import eu.kanade.presentation.browse.novel.components.NovelSourceIcon
+import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.tachiyomi.ui.browse.novel.migration.sources.MigrateNovelSourceScreenModel
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import kotlinx.collections.immutable.ImmutableList
@@ -91,7 +101,6 @@ private fun MigrateSourceList(
         stickyHeader(key = STICKY_HEADER_KEY_PREFIX) {
             Row(
                 modifier = Modifier
-                    .background(MaterialTheme.colorScheme.background)
                     .padding(start = MaterialTheme.padding.medium),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -128,17 +137,23 @@ private fun MigrateSourceList(
             }
         }
 
-        items(
+        itemsIndexed(
             items = list,
-            key = { (source, _) -> "migrate-${source.id}" },
-        ) { (source, count) ->
-            MigrateSourceItem(
-                modifier = Modifier.animateItem(),
-                source = source,
-                count = count,
-                onClickItem = { onClickItem(source) },
-                onLongClickItem = { onLongClickItem(source) },
-            )
+            key = { _, (source, _) -> "migrate-${source.id}" },
+        ) { index, (source, count) ->
+            val rowModifier = Modifier.animateItem()
+            Column {
+                if (index > 0) {
+                    ElegantMigrateDivider()
+                }
+                MigrateSourceItem(
+                    modifier = rowModifier,
+                    source = source,
+                    count = count,
+                    onClickItem = { onClickItem(source) },
+                    onLongClickItem = { onLongClickItem(source) },
+                )
+            }
         }
     }
 }
@@ -159,9 +174,14 @@ private fun MigrateSourceItem(
         onLongClickItem = onLongClickItem,
         icon = { NovelSourceIcon(source = source) },
         action = {
-            BadgeGroup {
-                Badge(text = "$count")
-            }
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelSmall,
+                color = chromeAccent(),
+                modifier = Modifier
+                    .background(chromeAccent().copy(alpha = 0.16f), CircleShape)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
         },
         content = { _, sourceLangString ->
             Column(
@@ -202,4 +222,47 @@ private fun MigrateSourceItem(
             }
         },
     )
+}
+
+/** Контрастный «хром»-акцент (эталон манги-источников). */
+@Composable
+private fun chromeAccent(): Color {
+    val colors = AuroraTheme.colors
+    return lerp(colors.accent, colors.textPrimary, 0.30f)
+}
+
+/** Светящаяся градиентная линия между источниками переноса. */
+@Composable
+private fun ElegantMigrateDivider() {
+    val chrome = chromeAccent()
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.12f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.45f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+    }
 }
