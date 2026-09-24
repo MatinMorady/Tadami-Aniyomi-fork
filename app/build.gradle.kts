@@ -1,4 +1,4 @@
-import mihon.buildlogic.Config
+﻿import mihon.buildlogic.Config
 import mihon.buildlogic.generatedBuildDir
 import mihon.buildlogic.getBuildTime
 import mihon.buildlogic.getCommitCount
@@ -18,9 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 213
+        versionCode = 214
 
-        versionName = "0.62.6"
+        versionName = "0.62.7"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
