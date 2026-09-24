@@ -1,8 +1,9 @@
-package eu.kanade.presentation.browse.novel
+﻿package eu.kanade.presentation.browse.novel
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,48 +17,43 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import eu.kanade.presentation.browse.novel.components.BaseNovelSourceItem
+import eu.kanade.presentation.browse.novel.components.NovelSourceIcon
 import eu.kanade.presentation.theme.AuroraTheme
-import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.tachiyomi.ui.browse.novel.source.NovelSourcesScreenModel
 import eu.kanade.tachiyomi.ui.browse.novel.source.browse.BrowseNovelSourceScreenModel.Listing
-import eu.kanade.tachiyomi.ui.home.LocalHomeHazeState
 import eu.kanade.tachiyomi.util.system.LocaleHelper
 import eu.kanade.tachiyomi.util.system.PINNED_KEY
 import tachiyomi.domain.source.novel.model.Pin
@@ -86,11 +82,6 @@ fun NovelSourcesScreen(
     onToggleLanguage: ((String) -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
-    val searchBackground = if (colors.isDark) {
-        Color.White.copy(alpha = 0.05f)
-    } else {
-        Color.Transparent
-    }
     val hasSearchQuery = !searchQuery.isNullOrBlank()
     when {
         state.isLoading -> LoadingScreen(Modifier.padding(contentPadding))
@@ -104,95 +95,82 @@ fun NovelSourcesScreen(
             ) {
                 if (searchQuery != null && onChangeSearchQuery != null) {
                     item(key = "search") {
-                        var isSearchActive by rememberSaveable { mutableStateOf(false) }
-                        val searchFocusRequester = remember { FocusRequester() }
-                        val active = isSearchActive || searchQuery.isNotEmpty()
-
-                        LaunchedEffect(active) {
-                            if (active) {
-                                searchFocusRequester.requestFocus()
-                            }
-                        }
-
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
-                            if (!active) {
-                                // Collapsed - Icon Button (shared Aurora header lens)
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .auroraHeaderIconSurface(
-                                            colors = colors,
-                                            hazeState = LocalHomeHazeState.current,
-                                        )
-                                        .clickable { isSearchActive = true },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Search,
-                                        contentDescription = null,
-                                        tint = colors.textPrimary,
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (colors.isDark) {
+                                            Color.White.copy(alpha = 0.05f)
+                                        } else {
+                                            Color.Transparent
+                                        },
                                     )
-                                }
-                            } else {
-                                TextField(
+                                    .border(
+                                        width = 1.dp,
+                                        brush = Brush.verticalGradient(
+                                            if (colors.isDark) {
+                                                listOf(
+                                                    Color.White.copy(alpha = 0.20f),
+                                                    Color.White.copy(alpha = 0.05f),
+                                                )
+                                            } else {
+                                                listOf(
+                                                    Color.Black.copy(alpha = 0.12f),
+                                                    Color.Black.copy(alpha = 0.04f),
+                                                )
+                                            },
+                                        ),
+                                        shape = CircleShape,
+                                    )
+                                    .padding(horizontal = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                BasicTextField(
                                     value = searchQuery,
                                     onValueChange = onChangeSearchQuery,
-                                    placeholder = {
-                                        Text(stringResource(MR.strings.action_search), color = colors.textSecondary)
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Filled.Search,
-                                            null,
-                                            tint = colors.textSecondary,
-                                        )
-                                    },
-                                    trailingIcon = {
-                                        IconButton(onClick = {
-                                            onChangeSearchQuery("")
-                                            isSearchActive = false
-                                        }) {
-                                            Icon(Icons.Filled.Close, null, tint = colors.textSecondary)
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = colors.textPrimary,
+                                    ),
+                                    cursorBrush = SolidColor(colors.accent),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    decorationBox = { inner ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    stringResource(MR.strings.action_search),
+                                                    color = colors.textSecondary,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                )
+                                            }
+                                            inner()
                                         }
                                     },
-                                    modifier = Modifier
-                                        .focusRequester(searchFocusRequester)
-                                        .fillMaxWidth()
-                                        .height(56.dp)
-                                        .border(
-                                            width = 1.dp,
-                                            brush = Brush.verticalGradient(
-                                                if (colors.isDark) {
-                                                    listOf(
-                                                        Color.White.copy(alpha = 0.20f),
-                                                        Color.White.copy(alpha = 0.05f),
-                                                    )
-                                                } else {
-                                                    listOf(
-                                                        Color.Black.copy(alpha = 0.12f),
-                                                        Color.Black.copy(alpha = 0.04f),
-                                                    )
-                                                },
-                                            ),
-                                            shape = CircleShape,
-                                        ),
-                                    shape = CircleShape,
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = searchBackground,
-                                        unfocusedContainerColor = searchBackground,
-                                        focusedTextColor = colors.textPrimary,
-                                        unfocusedTextColor = colors.textPrimary,
-                                        cursorColor = colors.accent,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent,
-                                        disabledIndicatorColor = Color.Transparent,
-                                    ),
-                                    singleLine = true,
                                 )
+                                if (searchQuery.isNotEmpty()) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        null,
+                                        tint = colors.textSecondary,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clickable { onChangeSearchQuery("") },
+                                    )
+                                }
                             }
                         }
                     }
@@ -222,13 +200,12 @@ fun NovelSourcesScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 items(state.pinnedItems, key = { "pinned-${it.key()}" }) { source ->
-                                    SourceItem(
-                                        modifier = Modifier.width(200.dp).animateItem(),
+                                    PinnedNovelSourceCard(
+                                        modifier = Modifier.animateItem(),
                                         source = source,
                                         onClickItem = onClickItem,
                                         onLongClickItem = onLongClickItem,
                                         onClickPin = onClickPin,
-                                        showLatest = false,
                                     )
                                 }
                             }
@@ -237,22 +214,22 @@ fun NovelSourcesScreen(
                     }
                 }
 
-                items(
+                itemsIndexed(
                     items = state.items,
-                    contentType = {
+                    contentType = { _, it ->
                         when (it) {
                             is NovelSourceUiModel.Header -> "header"
                             is NovelSourceUiModel.Item -> "item"
                         }
                     },
-                    key = {
+                    key = { _, it ->
                         when (it) {
                             // BRN5-control/BRM-13: stable per language (manga etalon).
                             is NovelSourceUiModel.Header -> "header-${it.language}"
                             is NovelSourceUiModel.Item -> "source-${it.source.key()}"
                         }
                     },
-                ) { model ->
+                ) { index, model ->
                     when (model) {
                         is NovelSourceUiModel.Header -> {
                             SourceHeader(
@@ -264,13 +241,20 @@ fun NovelSourcesScreen(
                                 onToggle = { onToggleLanguage?.invoke(model.language) },
                             )
                         }
-                        is NovelSourceUiModel.Item -> SourceItem(
-                            modifier = Modifier.animateItem(),
-                            source = model.source,
-                            onClickItem = onClickItem,
-                            onLongClickItem = onLongClickItem,
-                            onClickPin = onClickPin,
-                        )
+                        is NovelSourceUiModel.Item -> {
+                            Column {
+                                if (state.items.getOrNull(index - 1) is NovelSourceUiModel.Item) {
+                                    ElegantNovelSourceDivider()
+                                }
+                                SourceItem(
+                                    modifier = Modifier.animateItem(),
+                                    source = model.source,
+                                    onClickItem = onClickItem,
+                                    onLongClickItem = onLongClickItem,
+                                    onClickPin = onClickPin,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -375,13 +359,26 @@ private fun SourceItem(
         },
         action = {
             if (source.supportsLatest && showLatest) {
+                // Как в манга-эталоне: без обводки — только иконка + текст.
                 TextButton(onClick = { onClickItem(source, Listing.Latest) }) {
-                    Text(
-                        text = stringResource(MR.strings.latest),
-                        style = LocalTextStyle.current.copy(
-                            color = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Schedule,
+                            contentDescription = null,
+                            tint = chromeAccent(),
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            text = stringResource(MR.strings.latest),
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = chromeAccent(),
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                        )
+                    }
                 }
             }
             SourcePinButton(
@@ -397,20 +394,156 @@ private fun SourcePinButton(
     isPinned: Boolean,
     onClick: () -> Unit,
 ) {
-    val icon = if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin
-    val tint = if (isPinned) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onBackground.copy(
-            alpha = SECONDARY_ALPHA,
-        )
-    }
+    val chrome = chromeAccent()
     val description = if (isPinned) MR.strings.action_unpin else MR.strings.action_pin
     IconButton(onClick = onClick) {
+        if (isPinned) {
+            // Как в манга-эталоне: просто крашеная иконка без круглого фона.
+            Icon(
+                imageVector = Icons.Filled.PushPin,
+                tint = chrome,
+                contentDescription = stringResource(description),
+                modifier = Modifier.size(20.dp),
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.PushPin,
+                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = SECONDARY_ALPHA),
+                contentDescription = stringResource(description),
+            )
+        }
+    }
+}
+
+/**
+ * Контрастный «хром»-акцент (эталон манги): смесь accent с textPrimary (30%),
+ * чтобы аффордансы оставались читаемыми при любом акценте темы.
+ */
+@Composable
+private fun chromeAccent(): Color {
+    val colors = AuroraTheme.colors
+    return lerp(colors.accent, colors.textPrimary, 0.30f)
+}
+
+/** Светящаяся градиентная линия между источниками (эталон манги). */
+@Composable
+private fun ElegantNovelSourceDivider() {
+    val chrome = chromeAccent()
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.12f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.45f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+    }
+}
+
+/** Закреплённый источник — стеклянная карточка с димом по верхней грани (эталон манги). */
+@Composable
+private fun PinnedNovelSourceCard(
+    source: Source,
+    onClickItem: (Source, Listing) -> Unit,
+    onLongClickItem: (Source) -> Unit,
+    onClickPin: (Source) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = AuroraTheme.colors
+    val shape = RoundedCornerShape(18.dp)
+    Box(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .width(172.dp)
+                .combinedClickable(
+                    onClick = {
+                        onClickItem(
+                            source,
+                            if (source.supportsLatest) Listing.Latest else Listing.Popular,
+                        )
+                    },
+                    onLongClick = { onLongClickItem(source) },
+                )
+                .clip(shape)
+                .background(
+                    brush = Brush.verticalGradient(
+                        if (colors.isDark) {
+                            listOf(Color.White.copy(alpha = 0.07f), Color.White.copy(alpha = 0.03f))
+                        } else {
+                            listOf(Color.White.copy(alpha = 0.62f), Color.White.copy(alpha = 0.45f))
+                        },
+                    ),
+                    shape = shape,
+                )
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp)),
+            ) {
+                NovelSourceIcon(source = source)
+            }
+            Text(
+                text = source.visualName,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textPrimary,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // Дим именно по верхней грани: светящаяся кромка 2dp, гаснущая к краям.
+        Box(modifier = Modifier.matchParentSize().clip(shape)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                Color.Transparent,
+                                chromeAccent().copy(alpha = 0.55f),
+                                Color.Transparent,
+                            ),
+                        ),
+                    ),
+            )
+        }
+        // Пин кликабелен: открепить прямо с карточки; фон убран — только крашеная иконка.
         Icon(
-            imageVector = icon,
-            tint = tint,
-            contentDescription = stringResource(description),
+            imageVector = Icons.Filled.PushPin,
+            contentDescription = stringResource(MR.strings.action_unpin),
+            tint = chromeAccent(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(6.dp)
+                .size(16.dp)
+                .clickable { onClickPin(source) },
         )
     }
 }
