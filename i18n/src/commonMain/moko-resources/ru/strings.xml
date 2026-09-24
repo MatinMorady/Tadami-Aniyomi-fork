@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Tadami</string>
     <string name="action_add">Добавить</string>
@@ -288,6 +288,8 @@
     <string name="ext_available">Доступно</string>
     <string name="ext_untrusted">Ненадёжное</string>
     <string name="ext_uninstall">Удалить</string>
+    <string name="ext_update_to">Обновить до %1$s</string>
+    <string name="ext_uninstall_confirm">Удалить %1$s? Его источники исчезнут из списков. Тайтлы, уже добавленные в библиотеку, останутся.</string>
     <string name="untrusted_extension">Ненадёжное расширение</string>
     <string name="untrusted_extension_message">Вредоносные расширения могут считывать любые хранящиеся учётные данные для входа или выполнять произвольный код.
 \n

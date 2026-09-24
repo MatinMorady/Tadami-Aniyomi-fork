@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.manga
+﻿package eu.kanade.tachiyomi.extension.manga
 
 import android.content.Context
 import android.graphics.drawable.Drawable
@@ -345,6 +345,7 @@ class MangaExtensionManager(
 
                     val updatedExtension = extensionWithRepo.copy(
                         hasUpdate = regularUpdate != null || reinstallCandidates.isNotEmpty(),
+                        updateVersion = regularUpdate?.versionName,
                         needsReinstall = regularUpdate == null && reinstallCandidates.isNotEmpty(),
                         // The extension is available again, so it is no longer obsolete.
                         isObsolete = false,

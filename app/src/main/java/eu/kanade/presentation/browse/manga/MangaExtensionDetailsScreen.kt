@@ -1,34 +1,34 @@
-package eu.kanade.presentation.browse.manga
+﻿package eu.kanade.presentation.browse.manga
 
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.util.DisplayMetrics
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Launch
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.GetApp
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,11 +36,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -48,18 +49,24 @@ import com.tadami.aurora.R
 import eu.kanade.domain.extension.manga.interactor.MangaExtensionSourceItem
 import eu.kanade.presentation.browse.components.ExtensionAuroraButton
 import eu.kanade.presentation.browse.components.ExtensionBannerTone
+import eu.kanade.presentation.browse.components.ExtensionDetailsChip
+import eu.kanade.presentation.browse.components.ExtensionDetailsDivider
 import eu.kanade.presentation.browse.components.ExtensionDetailsGlassCard
 import eu.kanade.presentation.browse.components.ExtensionStatusBanner
 import eu.kanade.presentation.browse.manga.components.MangaExtensionIcon
 import eu.kanade.presentation.components.AppBar
-import eu.kanade.presentation.components.AppBarActions
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.more.settings.widget.TextPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.TrailingWidgetBuffer
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.tachiyomi.extension.InstallStep
 import eu.kanade.tachiyomi.extension.manga.model.MangaExtension
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.ui.browse.manga.extension.details.MangaExtensionDetailsScreenModel
+import eu.kanade.tachiyomi.ui.home.LocalHomeHazeState
 import eu.kanade.tachiyomi.util.system.LocaleHelper
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import kotlinx.collections.immutable.ImmutableList
@@ -102,39 +109,76 @@ fun MangaExtensionDetailsScreen(
                 title = stringResource(MR.strings.label_extension_info),
                 navigateUp = navigateUp,
                 actions = {
-                    AppBarActions(
-                        actions = persistentListOf<AppBar.AppBarAction>().builder()
-                            .apply {
-                                if (url != null) {
-                                    add(
-                                        AppBar.Action(
-                                            title = stringResource(MR.strings.action_open_repo),
-                                            icon = Icons.AutoMirrored.Outlined.Launch,
-                                            onClick = {
-                                                uriHandler.openUri(url)
-                                            },
-                                        ),
+                    // Верхние кнопки в общем стиле приложения: круглые стеклянные линзы.
+                    Row(
+                        modifier = Modifier.padding(end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (url != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .auroraHeaderIconSurface(
+                                        colors = AuroraTheme.colors,
+                                        hazeState = LocalHomeHazeState.current,
                                     )
-                                }
-                                addAll(
-                                    listOf(
-                                        AppBar.OverflowAction(
-                                            title = stringResource(MR.strings.action_enable_all),
-                                            onClick = onClickEnableAll,
-                                        ),
-                                        AppBar.OverflowAction(
-                                            title = stringResource(MR.strings.action_disable_all),
-                                            onClick = onClickDisableAll,
-                                        ),
-                                        AppBar.OverflowAction(
-                                            title = stringResource(MR.strings.pref_clear_cookies),
-                                            onClick = onClickClearCookies,
-                                        ),
-                                    ),
+                                    .clickable { uriHandler.openUri(url) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Outlined.Launch,
+                                    contentDescription = stringResource(MR.strings.action_open_repo),
+                                    tint = AuroraTheme.colors.textPrimary,
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
-                            .build(),
-                    )
+                        }
+                        var overflowOpen by remember { mutableStateOf(false) }
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .auroraHeaderIconSurface(
+                                    colors = AuroraTheme.colors,
+                                    hazeState = LocalHomeHazeState.current,
+                                )
+                                .clickable { overflowOpen = true },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = stringResource(MR.strings.action_menu),
+                                tint = AuroraTheme.colors.textPrimary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            DropdownMenu(
+                                expanded = overflowOpen,
+                                onDismissRequest = { overflowOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(MR.strings.action_enable_all)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        onClickEnableAll()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(MR.strings.action_disable_all)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        onClickDisableAll()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(MR.strings.pref_clear_cookies)) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        onClickClearCookies()
+                                    },
+                                )
+                            }
+                        }
+                    }
                 },
                 scrollBehavior = scrollBehavior,
             )
@@ -180,6 +224,7 @@ private fun ExtensionDetails(
 ) {
     val context = LocalContext.current
     var showNsfwWarning by remember { mutableStateOf(false) }
+    var showUninstallConfirm by remember { mutableStateOf(false) }
 
     ScrollbarLazyColumn(
         contentPadding = contentPadding,
@@ -197,7 +242,7 @@ private fun ExtensionDetails(
             DetailsHeader(
                 extension = extension,
                 extIncognitoMode = incognitoMode,
-                onClickUninstall = onClickUninstall,
+                onClickUninstall = { showUninstallConfirm = true },
                 onClickAppInfo = {
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", extension.pkgName, null)
@@ -209,18 +254,36 @@ private fun ExtensionDetails(
                     showNsfwWarning = true
                 },
                 onExtIncognitoChange = onClickIncognito,
-            )
-        }
-
-        items(
-            items = sources,
-            key = { it.source.id },
-        ) { source ->
-            SourceSwitchPreference(
-                modifier = Modifier.animateItem(),
-                source = source,
-                onClickSourcePreferences = onClickSourcePreferences,
-                onClickSource = onClickSource,
+                hasUpdate = extension.hasUpdate,
+                busy = !installStep.isCompleted(),
+                updateVersion = extension.updateVersion,
+                onClickUpdate = onClickUpdate,
+                settingsContent = {
+                    TextPreferenceWidget(
+                        title = stringResource(MR.strings.pref_incognito_mode),
+                        subtitle = stringResource(MR.strings.pref_incognito_mode_extension_summary),
+                        icon = ImageVector.vectorResource(R.drawable.ic_glasses_24dp),
+                        widget = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Switch(
+                                    checked = incognitoMode,
+                                    onCheckedChange = onClickIncognito,
+                                    modifier = Modifier.padding(start = TrailingWidgetBuffer),
+                                )
+                            }
+                        },
+                    )
+                    sources.forEach { source ->
+                        ExtensionDetailsDivider()
+                        SourceSwitchPreference(
+                            source = source,
+                            onClickSourcePreferences = onClickSourcePreferences,
+                            onClickSource = onClickSource,
+                        )
+                    }
+                },
             )
         }
     }
@@ -230,6 +293,30 @@ private fun ExtensionDetails(
                 showNsfwWarning = false
             },
         )
+    }
+    if (showUninstallConfirm) {
+        AuroraFrostDialog(
+            onDismiss = { showUninstallConfirm = false },
+            title = stringResource(MR.strings.ext_uninstall),
+            footer = {
+                AuroraFrostCancel(
+                    label = stringResource(MR.strings.action_cancel),
+                    onClick = { showUninstallConfirm = false },
+                )
+                AuroraFrostConfirm(
+                    label = stringResource(MR.strings.ext_uninstall),
+                    onClick = {
+                        showUninstallConfirm = false
+                        onClickUninstall()
+                    },
+                )
+            },
+        ) {
+            Text(
+                text = stringResource(MR.strings.ext_uninstall_confirm, extension.name),
+                color = AuroraTheme.colors.textSecondary,
+            )
+        }
     }
 }
 
@@ -267,17 +354,7 @@ private fun ExtensionProblemBanners(
                 actionEnabled = !busy,
                 onAction = onClickReinstall,
             )
-            extension.hasUpdate -> ExtensionStatusBanner(
-                icon = Icons.Outlined.GetApp,
-                title = stringResource(MR.strings.ext_update),
-                message = stringResource(MR.strings.ext_update_available_banner),
-                tone = ExtensionBannerTone.Info,
-                actionLabel = stringResource(
-                    if (busy) MR.strings.ext_installing else MR.strings.ext_update,
-                ),
-                actionEnabled = !busy,
-                onAction = onClickUpdate,
-            )
+            // B+: «Обновить» живёт первичной кнопкой внутри hero, баннер только для warning/error.
         }
     }
 }
@@ -290,6 +367,11 @@ private fun DetailsHeader(
     onClickUninstall: () -> Unit,
     onClickAppInfo: (() -> Unit)?,
     onExtIncognitoChange: (Boolean) -> Unit,
+    hasUpdate: Boolean = false,
+    busy: Boolean = false,
+    updateVersion: String? = null,
+    onClickUpdate: () -> Unit = {},
+    settingsContent: @Composable () -> Unit = {},
 ) {
     val context = LocalContext.current
 
@@ -334,12 +416,27 @@ private fun DetailsHeader(
                     .padding(MaterialTheme.padding.medium),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                MangaExtensionIcon(
-                    modifier = Modifier
-                        .size(96.dp),
-                    extension = extension,
-                    density = DisplayMetrics.DENSITY_XXXHIGH,
-                )
+                // B+: иконка 72dp с радиальным accent-свечением под ней.
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        AuroraTheme.colors.accent.copy(alpha = 0.28f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                            ),
+                    )
+                    MangaExtensionIcon(
+                        modifier = Modifier
+                            .size(72.dp),
+                        extension = extension,
+                        density = DisplayMetrics.DENSITY_XXXHIGH,
+                    )
+                }
 
                 Text(
                     text = extension.name,
@@ -354,46 +451,39 @@ private fun DetailsHeader(
                     style = MaterialTheme.typography.bodySmall,
                     color = AuroraTheme.colors.textSecondary,
                 )
-            }
 
-            HorizontalDivider(color = AuroraTheme.colors.textPrimary.copy(alpha = 0.08f))
+                // B+: статы компактными чипами вместо колонок.
+                Row(
+                    modifier = Modifier.padding(top = MaterialTheme.padding.small),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ExtensionDetailsChip(text = extension.versionName)
+                    ExtensionDetailsChip(
+                        text = LocaleHelper.getSourceDisplayName(extension.lang, context),
+                    )
+                    if (extension.isNsfw) {
+                        ExtensionDetailsChip(
+                            text = stringResource(MR.strings.ext_nsfw_short),
+                            warn = true,
+                            onClick = onClickAgeRating,
+                        )
+                    }
+                }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = MaterialTheme.padding.extraLarge,
-                        vertical = MaterialTheme.padding.small,
-                    ),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                InfoText(
-                    modifier = Modifier.weight(1f),
-                    primaryText = extension.versionName,
-                    secondaryText = stringResource(MR.strings.ext_info_version),
-                )
-
-                InfoDivider()
-
-                InfoText(
-                    modifier = Modifier.weight(if (extension.isNsfw) 1.5f else 1f),
-                    primaryText = LocaleHelper.getSourceDisplayName(extension.lang, context),
-                    secondaryText = stringResource(MR.strings.ext_info_language),
-                )
-
-                if (extension.isNsfw) {
-                    InfoDivider()
-
-                    InfoText(
-                        modifier = Modifier.weight(1f),
-                        primaryText = stringResource(MR.strings.ext_nsfw_short),
-                        primaryTextStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.error,
-                            fontWeight = FontWeight.Medium,
-                        ),
-                        secondaryText = stringResource(MR.strings.ext_info_age_rating),
-                        onClick = onClickAgeRating,
+                // B+: первичное действие внутри hero.
+                if (hasUpdate) {
+                    ExtensionAuroraButton(
+                        text = when {
+                            busy -> stringResource(MR.strings.ext_installing)
+                            updateVersion != null -> stringResource(MR.strings.ext_update_to, updateVersion)
+                            else -> stringResource(MR.strings.ext_update)
+                        },
+                        onClick = onClickUpdate,
+                        enabled = !busy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = MaterialTheme.padding.medium),
                     )
                 }
             }
@@ -414,76 +504,17 @@ private fun DetailsHeader(
                 ExtensionAuroraButton(
                     text = stringResource(MR.strings.ext_app_info),
                     onClick = onClickAppInfo,
+                    accent = AuroraTheme.colors.textSecondary,
                     modifier = Modifier.weight(1f),
                 )
             }
         }
 
+        // B+: настройки и источники — единый стеклянный блок со светящимися разделителями.
         ExtensionDetailsGlassCard(modifier = Modifier.fillMaxWidth()) {
-            TextPreferenceWidget(
-                title = stringResource(MR.strings.pref_incognito_mode),
-                subtitle = stringResource(MR.strings.pref_incognito_mode_extension_summary),
-                icon = ImageVector.vectorResource(R.drawable.ic_glasses_24dp),
-                widget = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Switch(
-                            checked = extIncognitoMode,
-                            onCheckedChange = onExtIncognitoChange,
-                            modifier = Modifier.padding(start = TrailingWidgetBuffer),
-                        )
-                    }
-                },
-            )
+            settingsContent()
         }
     }
-}
-
-@Composable
-private fun InfoText(
-    primaryText: String,
-    secondaryText: String,
-    modifier: Modifier = Modifier,
-    primaryTextStyle: TextStyle = MaterialTheme.typography.bodyLarge,
-    onClick: (() -> Unit)? = null,
-) {
-    val clickableModifier = if (onClick != null) {
-        Modifier.clickable(interactionSource = null, indication = null, onClick = onClick)
-    } else {
-        Modifier
-    }
-
-    Column(
-        modifier = modifier.then(clickableModifier),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = primaryText,
-            textAlign = TextAlign.Center,
-            style = primaryTextStyle,
-        )
-
-        Text(
-            text = secondaryText,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (onClick != null) {
-                AuroraTheme.colors.accent
-            } else {
-                AuroraTheme.colors.textSecondary
-            },
-        )
-    }
-}
-
-@Composable
-private fun InfoDivider() {
-    VerticalDivider(
-        modifier = Modifier.height(20.dp),
-        color = AuroraTheme.colors.textPrimary.copy(alpha = 0.12f),
-    )
 }
 
 @Composable
@@ -491,45 +522,38 @@ private fun SourceSwitchPreference(
     source: MangaExtensionSourceItem,
     onClickSourcePreferences: (sourceId: Long) -> Unit,
     onClickSource: (sourceId: Long) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
 
-    ExtensionDetailsGlassCard(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = MaterialTheme.padding.medium, vertical = 4.dp),
-    ) {
-        TextPreferenceWidget(
-            title = if (source.labelAsName) {
-                source.source.toString()
-            } else {
-                LocaleHelper.getSourceDisplayName(source.source.lang, context)
-            },
-            widget = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (source.source is ConfigurableSource) {
-                        IconButton(onClick = { onClickSourcePreferences(source.source.id) }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Settings,
-                                contentDescription = stringResource(MR.strings.label_settings),
-                                tint = AuroraTheme.colors.textSecondary,
-                            )
-                        }
+    TextPreferenceWidget(
+        title = if (source.labelAsName) {
+            source.source.toString()
+        } else {
+            LocaleHelper.getSourceDisplayName(source.source.lang, context)
+        },
+        widget = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (source.source is ConfigurableSource) {
+                    IconButton(onClick = { onClickSourcePreferences(source.source.id) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = stringResource(MR.strings.label_settings),
+                            tint = AuroraTheme.colors.textSecondary,
+                        )
                     }
-
-                    Switch(
-                        checked = source.enabled,
-                        onCheckedChange = null,
-                        modifier = Modifier.padding(start = TrailingWidgetBuffer),
-                    )
                 }
-            },
-            onPreferenceClick = { onClickSource(source.source.id) },
-        )
-    }
+
+                Switch(
+                    checked = source.enabled,
+                    onCheckedChange = null,
+                    modifier = Modifier.padding(start = TrailingWidgetBuffer),
+                )
+            }
+        },
+        onPreferenceClick = { onClickSource(source.source.id) },
+    )
 }
 
 @Composable

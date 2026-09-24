@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Tadami</string>
 
@@ -469,6 +469,8 @@
     <string name="ext_trust">Trust</string>
     <string name="ext_untrusted">Untrusted</string>
     <string name="ext_uninstall">Uninstall</string>
+    <string name="ext_update_to">Update to %1$s</string>
+    <string name="ext_uninstall_confirm">Uninstall %1$s? Its sources will disappear from the lists. Entries already in your library will remain.</string>
     <string name="ext_remove">Remove</string>
     <string name="ext_confirm_remove">Remove Extension?</string>
     <string name="ext_app_info">App info</string>

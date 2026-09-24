@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.anime
+﻿package eu.kanade.tachiyomi.extension.anime
 
 import android.content.Context
 import android.graphics.drawable.Drawable
@@ -328,6 +328,7 @@ class AnimeExtensionManager(
 
                 val updatedExtension = extensionWithRepo.copy(
                     hasUpdate = regularUpdate != null || reinstallCandidates.isNotEmpty(),
+                    updateVersion = regularUpdate?.versionName,
                     needsReinstall = regularUpdate == null && reinstallCandidates.isNotEmpty(),
                     // The extension is available again, so it is no longer obsolete.
                     isObsolete = false,
@@ -634,6 +635,7 @@ class AnimeExtensionManager(
         val reinstallCandidates = selectAnimeReinstallCandidates(extensionWithRepo, variants)
         return extensionWithRepo.copy(
             hasUpdate = regularUpdate != null || reinstallCandidates.isNotEmpty(),
+            updateVersion = regularUpdate?.versionName,
             needsReinstall = regularUpdate == null && reinstallCandidates.isNotEmpty(),
         )
     }
