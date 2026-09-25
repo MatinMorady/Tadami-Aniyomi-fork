@@ -332,13 +332,13 @@ private fun SourceItem(
                             imageVector = Icons.Filled.Schedule,
                             contentDescription = null,
                             tint = chromeAccent(),
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                         Text(
                             text = stringResource(MR.strings.latest),
-                            style = MaterialTheme.typography.labelSmall.copy(
+                            style = MaterialTheme.typography.labelMedium.copy(
                                 color = chromeAccent(),
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                             ),
                         )
                     }
@@ -497,12 +497,12 @@ private fun SourcePinButton(
     val description = if (isPinned) MR.strings.action_unpin else MR.strings.action_pin
     IconButton(onClick = onClick) {
         if (isPinned) {
-            // Закреплённые: просто крашеная иконка без круглого фона.
+            // Закреплённые: просто крашеная иконка без круглого фона;
+            // размер совпадает с неактивной (дефолт IconButton 24dp).
             Icon(
                 imageVector = Icons.Filled.PushPin,
                 tint = chrome,
                 contentDescription = stringResource(description),
-                modifier = Modifier.size(20.dp),
             )
         } else {
             Icon(

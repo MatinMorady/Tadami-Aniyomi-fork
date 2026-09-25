@@ -1,10 +1,6 @@
-package eu.kanade.presentation.browse.novel
+﻿package eu.kanade.presentation.browse.novel
 
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,10 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -155,20 +149,9 @@ fun BrowseNovelSourceContent(
         return
     }
 
+    // Промежуточное skeleton-состояние убрано по решению пользователя:
+    // при загрузке источник сразу переходит к контенту без пустых плиток.
     if (novels.itemCount == 0 && novels.loadState.refresh is LoadState.Loading) {
-        // Skeleton вместо спиннера: shimmer-боксы аспекта 2/3 (список — строки-заготовки).
-        val comfortable = displayMode == LibraryDisplayMode.ComfortableGrid
-        if (displayMode == LibraryDisplayMode.List) {
-            NovelSourceCatalogListSkeleton(
-                modifier = Modifier.padding(effectiveContentPadding),
-            )
-        } else {
-            NovelSourceCatalogGridSkeleton(
-                columns = if (comfortable) GridCells.Fixed(2) else GridCells.Adaptive(96.dp),
-                itemCount = if (comfortable) 6 else 9,
-                modifier = Modifier.padding(effectiveContentPadding),
-            )
-        }
         return
     }
 
@@ -721,6 +704,7 @@ private fun NovelSourceCatalogErrorCard(
                 FlowRow(
                     modifier = Modifier.padding(top = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
                 ) {
                     NovelSourceCatalogActionPill(
                         text = stringResource(MR.strings.action_retry),
@@ -822,121 +806,6 @@ private fun NovelSourceCatalogActionPill(
             )
         }
     }
-}
-
-/** Skeleton-сетка постеров аспекта 2/3 (prototype_source_catalog.html). */
-@Composable
-private fun NovelSourceCatalogGridSkeleton(
-    columns: GridCells,
-    itemCount: Int,
-    modifier: Modifier = Modifier,
-) {
-    val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
-    LazyVerticalGrid(
-        columns = columns,
-        modifier = modifier.auroraCenteredMaxWidth(
-            auroraAdaptiveSpec.updatesMaxWidthDp ?: auroraAdaptiveSpec.entryMaxWidthDp,
-        ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        items(count = itemCount) {
-            NovelSourceSkeletonBox(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f),
-                shape = RoundedCornerShape(14.dp),
-            )
-        }
-    }
-}
-
-/** Skeleton-строки списка (заготовка 5-6 строк из прототипа). */
-@Composable
-private fun NovelSourceCatalogListSkeleton(
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) {
-        repeat(6) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(11.dp),
-            ) {
-                NovelSourceSkeletonBox(
-                    modifier = Modifier.size(width = 44.dp, height = 62.dp),
-                    shape = RoundedCornerShape(9.dp),
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    NovelSourceSkeletonBox(
-                        modifier = Modifier
-                            .fillMaxWidth(0.72f)
-                            .height(12.dp),
-                        shape = RoundedCornerShape(6.dp),
-                    )
-                    NovelSourceSkeletonBox(
-                        modifier = Modifier
-                            .fillMaxWidth(0.44f)
-                            .height(9.dp),
-                        shape = RoundedCornerShape(5.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Skeleton-бокс с shimmer-пробежкой: Brush(.04 → .10 → .04), offset окна
- * анимируется через animateFloat (аналог background-position прототипа).
- * E-ink: статичная подложка без анимации (деградация по профилю).
- */
-@Composable
-private fun NovelSourceSkeletonBox(
-    shape: Shape,
-    modifier: Modifier = Modifier,
-) {
-    val colors = AuroraTheme.colors
-    val base = if (colors.isDark) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.04f)
-    val peak = if (colors.isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.09f)
-
-    if (colors.isEInk) {
-        Box(modifier = modifier.clip(shape).background(base, shape))
-        return
-    }
-
-    val transition = rememberInfiniteTransition(label = "novel_source_skeleton")
-    val shift by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(durationMillis = 1400, easing = LinearEasing)),
-        label = "novel_source_skeleton_shift",
-    )
-    Box(
-        modifier = modifier
-            .clip(shape)
-            .background(base, shape)
-            .drawBehind {
-                val span = size.width * 1.5f
-                val startX = -span + shift * (size.width + span)
-                drawRect(
-                    brush = Brush.linearGradient(
-                        colors = listOf(base, peak, base),
-                        start = Offset(startX, 0f),
-                        end = Offset(startX + span, 0f),
-                    ),
-                )
-            },
-    )
 }
 
 private const val BROWSE_NOVEL_WARMUP_WINDOW = 12

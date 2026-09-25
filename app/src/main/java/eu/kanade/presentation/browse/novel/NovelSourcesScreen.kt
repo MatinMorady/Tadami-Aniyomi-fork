@@ -369,13 +369,13 @@ private fun SourceItem(
                             imageVector = Icons.Filled.Schedule,
                             contentDescription = null,
                             tint = chromeAccent(),
-                            modifier = Modifier.size(13.dp),
+                            modifier = Modifier.size(14.dp),
                         )
                         Text(
                             text = stringResource(MR.strings.latest),
-                            style = MaterialTheme.typography.labelSmall.copy(
+                            style = MaterialTheme.typography.labelMedium.copy(
                                 color = chromeAccent(),
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                             ),
                         )
                     }
@@ -403,7 +403,6 @@ private fun SourcePinButton(
                 imageVector = Icons.Filled.PushPin,
                 tint = chrome,
                 contentDescription = stringResource(description),
-                modifier = Modifier.size(20.dp),
             )
         } else {
             Icon(
