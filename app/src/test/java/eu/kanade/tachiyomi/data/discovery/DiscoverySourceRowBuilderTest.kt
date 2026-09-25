@@ -4,6 +4,7 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import java.io.IOException
 
@@ -21,6 +22,7 @@ class DiscoverySourceRowBuilderTest {
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> {
             requested += sourceId
             if (sourceId in failing) throw IOException("boom $sourceId")
@@ -31,12 +33,14 @@ class DiscoverySourceRowBuilderTest {
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 
         override suspend fun latest(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             page: Int,
+            releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> {
             requestedLatest += sourceId to page
             if (sourceId in failingLatest) throw IOException("latest boom $sourceId")

@@ -2274,7 +2274,7 @@
     <string name="pref_discovery_group_filters">Content filters</string>
     <string name="pref_discovery_release_status">Release status</string>
     <string name="pref_discovery_release_status_summary_all">All statuses (no filter)</string>
-    <string name="pref_discovery_release_status_hint">Applies to trend rows (AniList/Shikimori) at the next feed refresh. \"Similar to…\" and source rows have no status data.</string>
+    <string name="pref_discovery_release_status_hint">Applies to trend rows (AniList/Shikimori) and to source rows when the extension exposes a status filter or item statuses; takes effect at the next feed refresh. The \"Similar to…\" row ignores status.</string>
     <string name="pref_discovery_release_status_ongoing">Releasing</string>
     <string name="pref_discovery_release_status_ongoing_desc">New episodes or chapters are coming out</string>
     <string name="pref_discovery_release_status_finished">Finished</string>

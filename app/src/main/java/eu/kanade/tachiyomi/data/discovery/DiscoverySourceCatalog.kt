@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.source.model.FilterList
 import kotlinx.coroutines.CancellationException
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.source.manga.service.MangaSourceManager
@@ -29,18 +30,32 @@ import java.io.IOException
  * Жанровый фильтр считается эвристикой [GenreMatcher]: названия чекбоксов
  * источника любого языка/формы сопоставляются с запрошенными жанрами;
  * непонятые названия один раз переводятся через [GenreTranslationFallback].
+ *
+ * V4: статус выпуска ([DiscoveryReleaseStatus]) прокидывается тем же трактом —
+ * эвристика [SourceStatusFilterMatcher] находит статус-фильтр источника (Select/
+ * Group/TriState любого языка) и выставляет его в FilterList search-запроса.
+ * Одиночный Select при 2+ выбранных статусах не выразим — инжект пропускается.
+ * В [latest] фильтров у API нет: там пост-фильтр по status айтема (UNKNOWN не режем).
  */
 interface DiscoverySourceCatalog {
-    suspend fun popular(mediaType: DiscoveryMediaType, sourceId: Long): List<DiscoveryRowItem>
+    suspend fun popular(
+        mediaType: DiscoveryMediaType,
+        sourceId: Long,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
+    ): List<DiscoveryRowItem>
+
     suspend fun popularWithGenres(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         genres: List<String>,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryRowItem>
+
     suspend fun latest(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         page: Int = 1,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryRowItem>
 }
 
@@ -51,19 +66,25 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         GenreTranslationFallback(translate = { name -> MultilingualQueryHelper.translate(name) })
     }
 
-    override suspend fun popular(mediaType: DiscoveryMediaType, sourceId: Long): List<DiscoveryRowItem> =
-        fetch(mediaType, sourceId, genres = null)
+    override suspend fun popular(
+        mediaType: DiscoveryMediaType,
+        sourceId: Long,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<DiscoveryRowItem> =
+        fetch(mediaType, sourceId, genres = null, releaseStatuses = releaseStatuses)
 
     override suspend fun popularWithGenres(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         genres: List<String>,
-    ): List<DiscoveryRowItem> = fetch(mediaType, sourceId, genres = genres)
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<DiscoveryRowItem> = fetch(mediaType, sourceId, genres = genres, releaseStatuses = releaseStatuses)
 
     override suspend fun latest(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryRowItem> = try {
         when (mediaType) {
             DiscoveryMediaType.MANGA -> {
@@ -74,9 +95,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularManga(page)
                 }
-                pageData.mangas.mapIndexed { idx, m ->
-                    rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
-                }
+                pageData.mangas
+                    .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                    .mapIndexed { idx, m ->
+                        rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
+                    }
             }
             DiscoveryMediaType.ANIME -> {
                 val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
@@ -86,9 +109,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularAnime(page)
                 }
-                pageData.animes.mapIndexed { idx, a ->
-                    rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
-                }
+                pageData.animes
+                    .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                    .mapIndexed { idx, a ->
+                        rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
+                    }
             }
             DiscoveryMediaType.NOVEL -> {
                 val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
@@ -98,9 +123,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularNovels(page)
                 }
-                pageData.novels.mapIndexed { idx, n ->
-                    rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
-                }
+                pageData.novels
+                    .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                    .mapIndexed { idx, n ->
+                        rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
+                    }
             }
         }
     } catch (e: CancellationException) {
@@ -120,15 +147,22 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         genres: List<String>?,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryRowItem> = try {
         when (mediaType) {
             DiscoveryMediaType.MANGA -> {
                 val source = Injekt.get<MangaSourceManager>().getOrStub(sourceId) as? CatalogueSource
                     ?: return emptyList()
-                val filters = if (genres != null) withMangaGenreFilters(source.getFilterList(), genres) else null
+                var filters = if (genres != null) withMangaGenreFilters(source.getFilterList(), genres) else null
                 // Жанровый запрос без применимого фильтра — честный пустой результат,
                 // а не popular-выдача под видом «твоего вкуса».
                 if (genres != null && filters == null) return emptyList()
+                // V4: статус выпуска — в тот же FilterList поверх жанров; не применим
+                // (нет фильтра / одиночный Select при 2+ статусах) — best-effort без него.
+                if (releaseStatuses.isNotEmpty()) {
+                    val candidate = filters ?: source.getFilterList()
+                    if (applyMangaStatusFilter(candidate, releaseStatuses)) filters = candidate
+                }
                 val page = if (filters == null) source.getPopularManga(1) else source.getSearchManga(1, "", filters)
                 page.mangas.mapIndexed { idx, m ->
                     rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
@@ -137,8 +171,12 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
             DiscoveryMediaType.ANIME -> {
                 val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
                     ?: return emptyList()
-                val filters = if (genres != null) withAnimeGenreFilters(source.getFilterList(), genres) else null
+                var filters = if (genres != null) withAnimeGenreFilters(source.getFilterList(), genres) else null
                 if (genres != null && filters == null) return emptyList()
+                if (releaseStatuses.isNotEmpty()) {
+                    val candidate = filters ?: source.getFilterList()
+                    if (applyAnimeStatusFilter(candidate, releaseStatuses)) filters = candidate
+                }
                 val page = if (filters == null) source.getPopularAnime(1) else source.getSearchAnime(1, "", filters)
                 page.animes.mapIndexed { idx, a ->
                     rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
@@ -147,8 +185,12 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
             DiscoveryMediaType.NOVEL -> {
                 val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
                     ?: return emptyList()
-                val filters = if (genres != null) withNovelGenreFilters(source.getFilterList(), genres) else null
+                var filters = if (genres != null) withNovelGenreFilters(source.getFilterList(), genres) else null
                 if (genres != null && filters == null) return emptyList()
+                if (releaseStatuses.isNotEmpty()) {
+                    val candidate = filters ?: source.getFilterList()
+                    if (applyNovelStatusFilter(candidate, releaseStatuses)) filters = candidate
+                }
                 val page = if (filters == null) source.getPopularNovels(1) else source.getSearchNovels(1, "", filters)
                 page.novels.mapIndexed { idx, n ->
                     rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
@@ -216,5 +258,147 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         val matched = genreFallback.selectSourceGenres(genres, boxes.map { it.name })
         boxes.filter { it.name in matched }.forEach { it.state = true }
         return if (matched.isNotEmpty()) filters else null
+    }
+
+    /**
+     * V4: выставить статус-фильтр источника под выбранные статусы выпуска.
+     * Select — одиночный (применим только при одном статусе), Group — чекбоксы/
+     * tri-state (любое число), топ-левел TriState/CheckBox — по имени опции.
+     * true = фильтр выставлен, запрос пойдёт через search с этим FilterList.
+     */
+    private fun applyMangaStatusFilter(filters: FilterList, selected: Set<DiscoveryReleaseStatus>): Boolean {
+        val select = filters.filterIsInstance<Filter.Select<*>>()
+            .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
+        if (select != null) {
+            val idx = SourceStatusFilterMatcher.matchSelectIndex(select.values.map(::optionName), selected)
+                ?: return false
+            select.state = idx
+            return true
+        }
+        val group = filters.filterIsInstance<Filter.Group<*>>()
+            .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
+        if (group != null) {
+            val boxes = group.state.filterIsInstance<Filter.CheckBox>()
+            val matchedBoxes = SourceStatusFilterMatcher.matchOptionNames(boxes.map { it.name }, selected)
+            if (boxes.isNotEmpty() && matchedBoxes.isNotEmpty()) {
+                boxes.filter { it.name in matchedBoxes }.forEach { it.state = true }
+                return true
+            }
+            val tris = group.state.filterIsInstance<Filter.TriState>()
+            val matchedTris = SourceStatusFilterMatcher.matchOptionNames(tris.map { it.name }, selected)
+            if (tris.isNotEmpty() && matchedTris.isNotEmpty()) {
+                tris.filter { it.name in matchedTris }.forEach { it.state = Filter.TriState.STATE_INCLUDE }
+                return true
+            }
+            return false
+        }
+        val loneTri = filters.filterIsInstance<Filter.TriState>()
+            .firstOrNull { SourceStatusFilterMatcher.statusOfOption(it.name) in selected }
+        if (loneTri != null) {
+            loneTri.state = Filter.TriState.STATE_INCLUDE
+            return true
+        }
+        val loneBox = filters.filterIsInstance<Filter.CheckBox>()
+            .firstOrNull { SourceStatusFilterMatcher.statusOfOption(it.name) in selected }
+        if (loneBox != null) {
+            loneBox.state = true
+            return true
+        }
+        return false
+    }
+
+    private fun applyAnimeStatusFilter(
+        filters: AnimeFilterList,
+        selected: Set<DiscoveryReleaseStatus>,
+    ): Boolean {
+        val select = filters.filterIsInstance<AnimeFilter.Select<*>>()
+            .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
+        if (select != null) {
+            val idx = SourceStatusFilterMatcher.matchSelectIndex(select.values.map(::optionName), selected)
+                ?: return false
+            select.state = idx
+            return true
+        }
+        val group = filters.filterIsInstance<AnimeFilter.Group<*>>()
+            .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
+        if (group != null) {
+            val boxes = group.state.filterIsInstance<AnimeFilter.CheckBox>()
+            val matchedBoxes = SourceStatusFilterMatcher.matchOptionNames(boxes.map { it.name }, selected)
+            if (boxes.isNotEmpty() && matchedBoxes.isNotEmpty()) {
+                boxes.filter { it.name in matchedBoxes }.forEach { it.state = true }
+                return true
+            }
+            val tris = group.state.filterIsInstance<AnimeFilter.TriState>()
+            val matchedTris = SourceStatusFilterMatcher.matchOptionNames(tris.map { it.name }, selected)
+            if (tris.isNotEmpty() && matchedTris.isNotEmpty()) {
+                tris.filter { it.name in matchedTris }.forEach { it.state = AnimeFilter.TriState.STATE_INCLUDE }
+                return true
+            }
+            return false
+        }
+        val loneTri = filters.filterIsInstance<AnimeFilter.TriState>()
+            .firstOrNull { SourceStatusFilterMatcher.statusOfOption(it.name) in selected }
+        if (loneTri != null) {
+            loneTri.state = AnimeFilter.TriState.STATE_INCLUDE
+            return true
+        }
+        val loneBox = filters.filterIsInstance<AnimeFilter.CheckBox>()
+            .firstOrNull { SourceStatusFilterMatcher.statusOfOption(it.name) in selected }
+        if (loneBox != null) {
+            loneBox.state = true
+            return true
+        }
+        return false
+    }
+
+    private fun applyNovelStatusFilter(
+        filters: NovelFilterList,
+        selected: Set<DiscoveryReleaseStatus>,
+    ): Boolean {
+        val select = filters.filterIsInstance<NovelFilter.Select<*>>()
+            .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
+        if (select != null) {
+            val idx = SourceStatusFilterMatcher.matchSelectIndex(select.values.map(::optionName), selected)
+                ?: return false
+            select.state = idx
+            return true
+        }
+        val group = filters.filterIsInstance<NovelFilter.Group<*>>()
+            .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
+        if (group != null) {
+            val boxes = group.state.filterIsInstance<NovelFilter.CheckBox>()
+            val matchedBoxes = SourceStatusFilterMatcher.matchOptionNames(boxes.map { it.name }, selected)
+            if (boxes.isNotEmpty() && matchedBoxes.isNotEmpty()) {
+                boxes.filter { it.name in matchedBoxes }.forEach { it.state = true }
+                return true
+            }
+            val tris = group.state.filterIsInstance<NovelFilter.TriState>()
+            val matchedTris = SourceStatusFilterMatcher.matchOptionNames(tris.map { it.name }, selected)
+            if (tris.isNotEmpty() && matchedTris.isNotEmpty()) {
+                tris.filter { it.name in matchedTris }.forEach { it.state = NovelFilter.TriState.STATE_INCLUDE }
+                return true
+            }
+            return false
+        }
+        val loneTri = filters.filterIsInstance<NovelFilter.TriState>()
+            .firstOrNull { SourceStatusFilterMatcher.statusOfOption(it.name) in selected }
+        if (loneTri != null) {
+            loneTri.state = NovelFilter.TriState.STATE_INCLUDE
+            return true
+        }
+        val loneBox = filters.filterIsInstance<NovelFilter.CheckBox>()
+            .firstOrNull { SourceStatusFilterMatcher.statusOfOption(it.name) in selected }
+        if (loneBox != null) {
+            loneBox.state = true
+            return true
+        }
+        return false
+    }
+
+    /** Имя опции Select: строка, пара «имя→query» или toString произвольного значения. */
+    private fun optionName(value: Any?): String = when (value) {
+        is String -> value
+        is Pair<*, *> -> value.first?.toString().orEmpty()
+        else -> value?.toString().orEmpty()
     }
 }

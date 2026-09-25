@@ -96,7 +96,12 @@ class DiscoveryTrendRowBuilder(
 
         val fromSource = if (context.mediaType == DiscoveryMediaType.NOVEL && preferredSourceId > 0) {
             runCatching {
-                catalog.latest(context.mediaType, preferredSourceId, page = context.pageOffset)
+                catalog.latest(
+                    context.mediaType,
+                    preferredSourceId,
+                    page = context.pageOffset,
+                    releaseStatuses = context.releaseStatuses,
+                )
             }.getOrNull().orEmpty().map { item ->
                 item.copy(
                     reason = "source",
@@ -153,7 +158,12 @@ class DiscoveryTrendRowBuilder(
             // Запрашиваем «Свежее» (latest updates) из активного/установленного источника пользователя!
             if (preferredSourceId > 0) {
                 val fallbackSource = runCatching {
-                    catalog.latest(context.mediaType, preferredSourceId, page = context.pageOffset)
+                    catalog.latest(
+                        context.mediaType,
+                        preferredSourceId,
+                        page = context.pageOffset,
+                        releaseStatuses = context.releaseStatuses,
+                    )
                 }.getOrNull().orEmpty().map { item ->
                     item.copy(
                         reason = "source",
@@ -208,7 +218,14 @@ class DiscoveryTasteRowBuilder(
             )
         }
         val sourceResult = if (context.sourceId > 0) {
-            runCatching { catalog.popularWithGenres(context.mediaType, context.sourceId, sourceGenreNames) }
+            runCatching {
+                catalog.popularWithGenres(
+                    context.mediaType,
+                    context.sourceId,
+                    sourceGenreNames,
+                    releaseStatuses = context.releaseStatuses,
+                )
+            }
         } else {
             null
         }
@@ -271,10 +288,19 @@ class DiscoverySourceRowBuilder(
         val latestQuota = perSource - perSource / 5
         var failures = 0
         val parts = ordered.map { id ->
-            val latestResult = runCatching { catalog.latest(context.mediaType, id, page = context.pageOffset) }
+            val latestResult = runCatching {
+                catalog.latest(
+                    context.mediaType,
+                    id,
+                    page = context.pageOffset,
+                    releaseStatuses = context.releaseStatuses,
+                )
+            }
             val latestItems = latestResult.getOrDefault(emptyList()).take(latestQuota)
             val latestTitles = latestItems.mapTo(HashSet()) { it.cleanTitle }
-            val popularResult = runCatching { catalog.popular(context.mediaType, id) }
+            val popularResult = runCatching {
+                catalog.popular(context.mediaType, id, releaseStatuses = context.releaseStatuses)
+            }
             // Источник считается провалившимся, только если popular упал И latest ничего
             // не дал — иначе ряд честно строится из реального контента.
             if (popularResult.isFailure && latestItems.isEmpty()) failures++

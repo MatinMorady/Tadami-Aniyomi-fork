@@ -1,9 +1,10 @@
-﻿package eu.kanade.tachiyomi.data.discovery
+package eu.kanade.tachiyomi.data.discovery
 
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import java.io.IOException
 
@@ -42,12 +43,14 @@ class DiscoveryTasteRowBuilderTest {
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 
         override suspend fun popularWithGenres(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> {
             if (shouldFail) throw IOException("catalog boom")
             return genreItems
@@ -57,6 +60,7 @@ class DiscoveryTasteRowBuilderTest {
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             page: Int,
+            releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
     }
 
