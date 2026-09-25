@@ -2288,6 +2288,7 @@
     <string name="pref_discovery_genre_mode_ignored">Ignored</string>
     <string name="pref_discovery_genre_mode_priority">Priority</string>
     <string name="pref_discovery_genre_mode_required">Required</string>
+    <string name="pref_discovery_genre_tab_priority">Priority</string>
     <string name="pref_discovery_genre_tab_required">Required</string>
     <string name="pref_discovery_genre_hint_ignored">Genres excluded from picks. Instant for \"your taste\" row; applies to trends at the next refresh.</string>
     <string name="pref_discovery_genre_hint_priority">Titles with these genres rank higher and appear more often. Does not exclude anything.</string>

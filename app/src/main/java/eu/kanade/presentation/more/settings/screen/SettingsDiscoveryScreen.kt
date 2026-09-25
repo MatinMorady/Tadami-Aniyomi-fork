@@ -799,10 +799,13 @@ private fun GenreFilterDialog(
         if (activeCanon.contains(key)) {
             activeCanon.remove(key)
         } else {
-            activeCanon.add(key)
+            // Сначала взаимоисключение: жанр вычищается из всех наборов (включая активный),
+            // и только затем добавляется в активный. Иначе remove из активного набора
+            // гасил только что сделанный add — чипы не подсвечивались.
             priorityCan.remove(key)
             requiredCan.remove(key)
             ignoredCan.remove(key)
+            activeCanon.add(key)
         }
     }
 
@@ -949,7 +952,7 @@ private fun GenreFilterDialog(
                         ),
                         Triple(
                             1,
-                            stringResource(AYMR.strings.pref_discovery_genre_mode_priority),
+                            stringResource(AYMR.strings.pref_discovery_genre_tab_priority),
                             priorityCan.size + priorityRaw.size,
                         ),
                         Triple(
@@ -995,9 +998,11 @@ private fun GenreFilterDialog(
                                     appHaptics.tap()
                                     mode = m
                                 }
-                                .padding(horizontal = 8.dp, vertical = 9.dp),
+                                // Горизонталь чуть плотнее: иначе лейбл+точка+бейдж
+                                // счётчика не влезают в треть ширины диалога.
+                                .padding(horizontal = 6.dp, vertical = 9.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                         ) {
                             if (selected && !colors.isEInk) {
                                 Box(
@@ -1009,6 +1014,10 @@ private fun GenreFilterDialog(
                             }
                             Text(
                                 label,
+                                // weight(1f, fill=false): Row сначала меряет не-взвешенных
+                                // (точку и бейдж счётчика), лейбл берёт остаток — бейдж
+                                // больше не схлопывается в ноль на узких табах.
+                                modifier = Modifier.weight(1f, fill = false),
                                 color = if (selected) {
                                     if (colors.isEInk) {
                                         colors.background
@@ -1023,6 +1032,7 @@ private fun GenreFilterDialog(
                                 fontSize = 12.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             if (count > 0) {
                                 Box(

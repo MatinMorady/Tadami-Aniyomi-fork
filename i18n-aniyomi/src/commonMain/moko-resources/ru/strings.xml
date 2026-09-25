@@ -1917,11 +1917,12 @@
     <string name="pref_discovery_release_status_anons_desc">Ещё не начался</string>
     <string name="pref_discovery_release_status_paused">Приостановлен</string>
     <string name="pref_discovery_release_status_paused_desc">Пауза или неизвестно</string>
-    <string name="pref_discovery_genre_filters">Жанры подборки</string>
+    <string name="pref_discovery_genre_filters">Жанровые подборки</string>
     <string name="pref_discovery_genre_filters_summary">Игнор · приоритет · обязательные</string>
     <string name="pref_discovery_genre_mode_ignored">Игнор</string>
     <string name="pref_discovery_genre_mode_priority">Приоритет</string>
     <string name="pref_discovery_genre_mode_required">Обязательные</string>
+    <string name="pref_discovery_genre_tab_priority">Приор.</string>
     <string name="pref_discovery_genre_tab_required">Обязат.</string>
     <string name="pref_discovery_genre_hint_ignored">Жанры не попадают в подборку. Мгновенно для «по вкусу», с обновлением — для трендов.</string>
     <string name="pref_discovery_genre_hint_priority">Тайтлы с этими жанрами поднимаются выше и чаще попадают в «по вкусу». Ничего не отсекает.</string>
