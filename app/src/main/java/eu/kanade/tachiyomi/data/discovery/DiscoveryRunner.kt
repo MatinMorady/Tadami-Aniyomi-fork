@@ -248,6 +248,10 @@ class DiscoveryRunner(
             shownCutoffMap = shownCutoffMap,
             pageOffset = pageOffset,
         )
+        logcat {
+            "[Discovery] refresh media=$mediaType manual=$isManualRefresh " +
+                "statuses=${context.releaseStatuses} sources=${context.sourceIds} primary=${context.sourceId}"
+        }
         // Выключенные в настройках ряды: чистим их записи в БД, чтобы UI не показывал «зомби».
         if (!preferences.rowLikeEnabled().get()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.LIKE, emptyList())

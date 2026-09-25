@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.data.suggestions.SuggestionSeed
 import eu.kanade.tachiyomi.data.suggestions.SuggestionTitleResolver
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.data.suggestions.util.bestMatchScoreFor
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
@@ -139,6 +140,13 @@ class DiscoveryTrendRowBuilder(
                     score = 0.0,
                 )
             }
+
+        if (context.releaseStatuses.isNotEmpty()) {
+            logcat {
+                "[Discovery] trend row media=${context.mediaType} trending=${fromTrending.size} " +
+                    "sourceLatest=${fromSource.size} statuses=${context.releaseStatuses}"
+            }
+        }
 
         // V3: приоритетные жанры — буст не применим к TREND-ряду: скор = 0.0
         // (тренды не ранжируются по жанрам), а reason хранит seasonLabel, не жанры.

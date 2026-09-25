@@ -35,7 +35,9 @@ import java.io.IOException
  * эвристика [SourceStatusFilterMatcher] находит статус-фильтр источника (Select/
  * Group/TriState любого языка) и выставляет его в FilterList search-запроса.
  * Одиночный Select при 2+ выбранных статусах не выразим — инжект пропускается.
- * В [latest] фильтров у API нет: там пост-фильтр по status айтема (UNKNOWN не режем).
+ * V4.1: в [latest] при выбранном статусе приоритет у search-выдачи со статус-фильтром
+ * (getLatestUpdates фильтры не принимает, статус в списках обычно UNKNOWN); источник
+ * не выражает статус — прежний пост-фильтр по status айтема (UNKNOWN не режем).
  */
 interface DiscoverySourceCatalog {
     suspend fun popular(
@@ -86,6 +88,13 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         page: Int,
         releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryRowItem> = try {
+        // V4.1: при выбранном статусе latest-лента источника не выражает фильтр
+        // (getLatestUpdates не принимает FilterList, а статус в списках обычно UNKNOWN).
+        // Если источник умеет статус своим фильтром — ряд строится из search-выдачи
+        // с этим фильтром; иначе — прежний best-effort пост-фильтр по status айтема.
+        if (releaseStatuses.isNotEmpty()) {
+            statusSearch(mediaType, sourceId, page, releaseStatuses)?.let { return it }
+        }
         when (mediaType) {
             DiscoveryMediaType.MANGA -> {
                 val source = Injekt.get<MangaSourceManager>().getOrStub(sourceId) as? CatalogueSource
@@ -95,11 +104,17 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularManga(page)
                 }
-                pageData.mangas
+                val keptMangas = pageData.mangas
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
-                    .mapIndexed { idx, m ->
-                        rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
+                if (releaseStatuses.isNotEmpty()) {
+                    logcat {
+                        "[DiscoverySourceCatalog] latest postfilter source=$sourceId " +
+                            "kept=${keptMangas.size}/${pageData.mangas.size} statuses=$releaseStatuses"
                     }
+                }
+                keptMangas.mapIndexed { idx, m ->
+                    rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
+                }
             }
             DiscoveryMediaType.ANIME -> {
                 val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
@@ -109,11 +124,17 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularAnime(page)
                 }
-                pageData.animes
+                val keptAnimes = pageData.animes
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
-                    .mapIndexed { idx, a ->
-                        rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
+                if (releaseStatuses.isNotEmpty()) {
+                    logcat {
+                        "[DiscoverySourceCatalog] latest postfilter source=$sourceId " +
+                            "kept=${keptAnimes.size}/${pageData.animes.size} statuses=$releaseStatuses"
                     }
+                }
+                keptAnimes.mapIndexed { idx, a ->
+                    rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
+                }
             }
             DiscoveryMediaType.NOVEL -> {
                 val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
@@ -123,11 +144,17 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 } else {
                     source.getPopularNovels(page)
                 }
-                pageData.novels
+                val keptNovels = pageData.novels
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
-                    .mapIndexed { idx, n ->
-                        rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
+                if (releaseStatuses.isNotEmpty()) {
+                    logcat {
+                        "[DiscoverySourceCatalog] latest postfilter source=$sourceId " +
+                            "kept=${keptNovels.size}/${pageData.novels.size} statuses=$releaseStatuses"
                     }
+                }
+                keptNovels.mapIndexed { idx, n ->
+                    rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
+                }
             }
         }
     } catch (e: CancellationException) {
@@ -141,6 +168,56 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
     } catch (e: Exception) {
         logcat { "[DiscoverySourceCatalog] latest FAILED source=$sourceId: ${e.message}" }
         emptyList()
+    }
+
+    /**
+     * V4.1: search-выдача источника с выставленным статус-фильтром; null — источник
+     * не выражает выбранные статусы своим фильтром (одиночный Select при 2+ статусах,
+     * отсутствие фильтра) — вызывающий возвращается к пост-фильтру latest.
+     */
+    private suspend fun statusSearch(
+        mediaType: DiscoveryMediaType,
+        sourceId: Long,
+        page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<DiscoveryRowItem>? = try {
+        when (mediaType) {
+            DiscoveryMediaType.MANGA -> {
+                val source = Injekt.get<MangaSourceManager>().getOrStub(sourceId) as? CatalogueSource
+                    ?: return null
+                val filters = source.getFilterList()
+                if (!applyMangaStatusFilter(filters, releaseStatuses)) return null
+                logcat { "[DiscoverySourceCatalog] statusSearch hit source=$sourceId statuses=$releaseStatuses" }
+                source.getSearchManga(page, "", filters).mangas.mapIndexed { idx, m ->
+                    rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
+                }
+            }
+            DiscoveryMediaType.ANIME -> {
+                val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
+                    ?: return null
+                val filters = source.getFilterList()
+                if (!applyAnimeStatusFilter(filters, releaseStatuses)) return null
+                logcat { "[DiscoverySourceCatalog] statusSearch hit source=$sourceId statuses=$releaseStatuses" }
+                source.getSearchAnime(page, "", filters).animes.mapIndexed { idx, a ->
+                    rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
+                }
+            }
+            DiscoveryMediaType.NOVEL -> {
+                val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
+                    ?: return null
+                val filters = source.getFilterList()
+                if (!applyNovelStatusFilter(filters, releaseStatuses)) return null
+                logcat { "[DiscoverySourceCatalog] statusSearch hit source=$sourceId statuses=$releaseStatuses" }
+                source.getSearchNovels(page, "", filters).novels.mapIndexed { idx, n ->
+                    rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
+                }
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logcat { "[DiscoverySourceCatalog] statusSearch FAILED source=$sourceId: ${e.message}" }
+        null
     }
 
     private suspend fun fetch(
@@ -161,7 +238,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 // (нет фильтра / одиночный Select при 2+ статусах) — best-effort без него.
                 if (releaseStatuses.isNotEmpty()) {
                     val candidate = filters ?: source.getFilterList()
-                    if (applyMangaStatusFilter(candidate, releaseStatuses)) filters = candidate
+                    val applied = applyMangaStatusFilter(candidate, releaseStatuses)
+                    if (applied) filters = candidate
+                    logcat {
+                        "[DiscoverySourceCatalog] search statusApplied=$applied source=$sourceId statuses=$releaseStatuses"
+                    }
                 }
                 val page = if (filters == null) source.getPopularManga(1) else source.getSearchManga(1, "", filters)
                 page.mangas.mapIndexed { idx, m ->
@@ -175,7 +256,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 if (genres != null && filters == null) return emptyList()
                 if (releaseStatuses.isNotEmpty()) {
                     val candidate = filters ?: source.getFilterList()
-                    if (applyAnimeStatusFilter(candidate, releaseStatuses)) filters = candidate
+                    val applied = applyAnimeStatusFilter(candidate, releaseStatuses)
+                    if (applied) filters = candidate
+                    logcat {
+                        "[DiscoverySourceCatalog] search statusApplied=$applied source=$sourceId statuses=$releaseStatuses"
+                    }
                 }
                 val page = if (filters == null) source.getPopularAnime(1) else source.getSearchAnime(1, "", filters)
                 page.animes.mapIndexed { idx, a ->
@@ -189,7 +274,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 if (genres != null && filters == null) return emptyList()
                 if (releaseStatuses.isNotEmpty()) {
                     val candidate = filters ?: source.getFilterList()
-                    if (applyNovelStatusFilter(candidate, releaseStatuses)) filters = candidate
+                    val applied = applyNovelStatusFilter(candidate, releaseStatuses)
+                    if (applied) filters = candidate
+                    logcat {
+                        "[DiscoverySourceCatalog] search statusApplied=$applied source=$sourceId statuses=$releaseStatuses"
+                    }
                 }
                 val page = if (filters == null) source.getPopularNovels(1) else source.getSearchNovels(1, "", filters)
                 page.novels.mapIndexed { idx, n ->
