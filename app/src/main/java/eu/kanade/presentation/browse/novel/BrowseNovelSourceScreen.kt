@@ -1,4 +1,4 @@
-﻿package eu.kanade.presentation.browse.novel
+package eu.kanade.presentation.browse.novel
 
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
@@ -72,8 +73,12 @@ import eu.kanade.presentation.theme.LocalCoverTitleFontFamily
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.util.formattedMessage
+import eu.kanade.tachiyomi.network.interceptor.CloudflareManualSolveRegistry
 import eu.kanade.tachiyomi.novelsource.NovelSource
 import eu.kanade.tachiyomi.source.novel.NovelPluginImageWarmupEffect
+import eu.kanade.tachiyomi.source.novel.NovelSiteSource
+import eu.kanade.tachiyomi.ui.webview.WebViewActivity
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.domain.entries.novel.model.Novel
 import tachiyomi.domain.entries.novel.model.NovelCover
@@ -141,10 +146,36 @@ fun BrowseNovelSourceContent(
     }
 
     if (novels.itemCount <= 0 && errorState != null && errorState is LoadState.Error) {
+        // A Cloudflare challenge the hidden solve could not finish leaves a clearance request in
+        // the registry; passing it once in a visible WebView unblocks the following fetches.
+        val manualSolveHost = remember(source) {
+            (source as? NovelSiteSource)?.siteUrl?.toHttpUrlOrNull()?.host
+        }
+        val manualSolvePending = manualSolveHost?.let { CloudflareManualSolveRegistry.isPending(it) } == true
         NovelSourceCatalogErrorCard(
             modifier = Modifier.padding(effectiveContentPadding),
             message = getErrorMessage(errorState),
             onRetry = novels::refresh,
+            manualSolveLabel = if (manualSolvePending) {
+                stringResource(MR.strings.action_cloudflare_check)
+            } else {
+                null
+            },
+            onManualSolve = manualSolveHost?.let { host ->
+                {
+                    // The pending mark is intentionally kept: it is also the gate that routes the
+                    // plugin fetches through the WebView bridge, so consuming it here would push
+                    // the next retry back into the doomed OkHttp + solve cycle.
+                    context.startActivity(
+                        WebViewActivity.newIntent(
+                            context = context,
+                            url = "https://$host/",
+                            sourceId = source?.id,
+                            title = source?.name,
+                        ),
+                    )
+                }
+            },
         )
         return
     }
@@ -669,6 +700,8 @@ private fun NovelSourceCatalogErrorCard(
     message: String,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    manualSolveLabel: String? = null,
+    onManualSolve: (() -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     Column(
@@ -712,6 +745,14 @@ private fun NovelSourceCatalogErrorCard(
                         accent = true,
                         onClick = onRetry,
                     )
+                    if (manualSolveLabel != null && onManualSolve != null) {
+                        NovelSourceCatalogActionPill(
+                            text = manualSolveLabel,
+                            icon = Icons.Outlined.VerifiedUser,
+                            accent = false,
+                            onClick = onManualSolve,
+                        )
+                    }
                 }
             }
         }

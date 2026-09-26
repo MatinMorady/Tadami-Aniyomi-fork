@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Tadami</string>
     <string name="action_add">Добавить</string>
@@ -37,6 +37,7 @@
     <string name="action_resume">Продолжить</string>
     <string name="aurora_hero_cta_chapter">%d гл.</string>
     <string name="action_retry">Повторить</string>
+    <string name="action_cloudflare_check">Проверка Cloudflare в WebView</string>
     <string name="action_save">Сохранить</string>
     <string name="action_search">Искать</string>
     <string name="action_clear">Очистить</string>

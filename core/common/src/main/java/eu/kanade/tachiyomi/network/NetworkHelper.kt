@@ -104,4 +104,26 @@ class NetworkHelper(
     val cloudflareClient: OkHttpClient = client
 
     fun defaultUserAgentProvider() = preferences.defaultUserAgent().get().trim()
+
+    /**
+     * User agent for the JS plugin runtime fetches.
+     *
+     * Cloudflare-protected plugin hosts (novelupdates) challenge the generic built-in default
+     * agent while letting the device's real WebView agent pass - Lnreader, which fetches with
+     * exactly that agent, gets through with no challenge handling at all. Until the reader
+     * customizes the default agent the plugin fetches therefore mirror the WebView fingerprint,
+     * which also keeps cf_clearance cookies (bound to the agent that earned them) valid across
+     * WebViews and OkHttp.
+     */
+    fun pluginUserAgentProvider(): String {
+        val configured = defaultUserAgentProvider()
+        if (preferences.defaultUserAgent().isSet() && configured.isNotBlank()) {
+            return configured
+        }
+        return deviceWebViewUserAgent.ifBlank { configured }
+    }
+
+    private val deviceWebViewUserAgent: String by lazy {
+        runCatching { android.webkit.WebSettings.getDefaultUserAgent(context) }.getOrDefault("")
+    }
 }

@@ -46,11 +46,18 @@
     },
     {
       "pluginId": "novelupdates",
-      "version": 1,
+      "version": 3,
+      "disableScriptPatches": false,
       "scriptPatches": [
         {
-          "pattern": "n=\"https:\"+v(t).find(\"a\").first().next().attr(\"href\")",
-          "replacement": "n=(function(e){if(!e)return null;var t=String(e).trim();if(!t)return null;if(t.indexOf(\"http://\")===0||t.indexOf(\"https://\")===0)return t;if(t.indexOf(\"//\")===0)return \"https:\"+t;return t})(v(t).find(\"a\").eq(1).attr(\"href\")||v(t).find(\"a\").last().attr(\"href\")||v(t).find(\"a\").first().attr(\"href\"))"
+          "pattern": "n=\"https:\"\\+([A-Za-z_$][A-Za-z0-9_$]*)\\(t\\)\\.find\\(\"a\"\\)\\.first\\(\\)\\.next\\(\\)\\.attr\\(\"href\"\\)",
+          "replacement": "n=(function(e){if(!e)return null;var t=String(e).trim();if(!t)return null;if(t.indexOf(\"http://\")===0||t.indexOf(\"https://\")===0)return t;if(t.indexOf(\"//\")===0)return \"https:\"+t;return t})($1(t).find(\"a\").eq(1).attr(\"href\")||$1(t).find(\"a\").last().attr(\"href\")||$1(t).find(\"a\").first().attr(\"href\"))",
+          "regex": true
+        },
+        {
+          "pattern": "([A-Za-z_$][A-Za-z0-9_$]*)\\.append\\(\"mypostid\",([^)]*)\\)",
+          "replacement": "$1.append(\"mypostid\",$2),$1.append(\"mygrpfilter\",\"\")",
+          "regex": true
         }
       ]
     },

@@ -157,9 +157,14 @@ internal fun plainPageReaderCharacterCount(
     textBlocks: List<PlainPageReaderTextBlock>,
 ): Int {
     return page.sumOf { slice ->
-        val text = textBlocks.getOrNull(slice.blockIndex)?.text.orEmpty()
-        (slice.range.endExclusive.coerceAtMost(text.length) - slice.range.start.coerceAtLeast(0))
-            .coerceAtLeast(0)
+        when (slice) {
+            is PlainPageSlice.Text -> {
+                val text = textBlocks.getOrNull(slice.blockIndex)?.text.orEmpty()
+                (slice.range.endExclusive.coerceAtMost(text.length) - slice.range.start.coerceAtLeast(0))
+                    .coerceAtLeast(0)
+            }
+            is PlainPageSlice.Image -> 0
+        }
     }
 }
 
@@ -585,11 +590,30 @@ internal fun toBionicText(text: String): AnnotatedString {
     }
 }
 
-internal data class PlainPageSlice(
-    val blockIndex: Int,
-    val range: TextPageRange,
-    val spacingBeforePx: Int = 0,
-)
+internal sealed interface PlainPageSlice {
+    /** Index of the source block this slice belongs to, in the chapter's block stream. */
+    val blockIndex: Int
+    val spacingBeforePx: Int
+
+    data class Text(
+        override val blockIndex: Int,
+        val range: TextPageRange,
+        override val spacingBeforePx: Int = 0,
+    ) : PlainPageSlice
+
+    /**
+     * An illustration of the chapter. The plain page reader used to be text-only, so books whose
+     * illustrations only exist as image blocks (every .epub) lost them in page mode; an image slice
+     * rides its own page, or joins the previous one when that page ends in a short paragraph,
+     * exactly like the rich page reader does.
+     */
+    data class Image(
+        override val blockIndex: Int,
+        val imageUrl: String,
+        val contentDescription: String?,
+        override val spacingBeforePx: Int = 0,
+    ) : PlainPageSlice
+}
 
 internal data class PlainPageReaderTextBlock(
     val sourceBlockIndex: Int,
@@ -798,7 +822,7 @@ internal fun paginatePlainPageBlocks(
                     text = text.substring(range.start, range.endExclusive),
                     metrics = approximateMetrics,
                 ).coerceAtMost(safeHeight)
-                currentPage += PlainPageSlice(
+                currentPage += PlainPageSlice.Text(
                     blockIndex = blockIndex,
                     range = range,
                     spacingBeforePx = spacingBefore,
@@ -845,7 +869,7 @@ internal fun paginatePlainPageBlocks(
                 continue
             }
 
-            currentPage += PlainPageSlice(
+            currentPage += PlainPageSlice.Text(
                 blockIndex = blockIndex,
                 range = slice.range,
                 spacingBeforePx = spacingBefore,
@@ -862,6 +886,121 @@ internal fun paginatePlainPageBlocks(
 
     flushPage()
     return pages
+}
+
+/** An illustration of the chapter, addressed by the index of its block in the chapter stream. */
+internal data class PlainPageImageBlock(
+    val sourceBlockIndex: Int,
+    val imageUrl: String,
+    val contentDescription: String?,
+)
+
+/**
+ * Paginates the plain page reader including illustrations.
+ *
+ * Text runs between two illustrations are paginated on their own, so an image always starts where
+ * the source placed it instead of vanishing (the plain reader used to consume text blocks only).
+ * An image whose preceding page ends in a short paragraph joins that page, mirroring the rich
+ * page reader, so a lone illustration after a single sentence does not waste a whole page.
+ */
+internal fun paginatePlainPageBlocksWithImages(
+    textBlocks: List<PlainPageReaderTextBlock>,
+    imageBlocks: List<PlainPageImageBlock>,
+    paragraphSpacingPx: Int,
+    widthPx: Int,
+    heightPx: Int,
+    textSizePx: Float,
+    lineHeightMultiplier: Float,
+    typeface: android.graphics.Typeface?,
+    chapterTitleTypeface: android.graphics.Typeface? = null,
+    textAlign: ReaderTextAlign,
+    forceParagraphIndent: Boolean = false,
+    chapterTitle: String? = null,
+): List<List<PlainPageSlice>> {
+    if (imageBlocks.isEmpty()) {
+        return paginatePlainPageBlocks(
+            textBlocks = textBlocks,
+            paragraphSpacingPx = paragraphSpacingPx,
+            widthPx = widthPx,
+            heightPx = heightPx,
+            textSizePx = textSizePx,
+            lineHeightMultiplier = lineHeightMultiplier,
+            typeface = typeface,
+            chapterTitleTypeface = chapterTitleTypeface,
+            textAlign = textAlign,
+            forceParagraphIndent = forceParagraphIndent,
+            chapterTitle = chapterTitle,
+        )
+    }
+
+    val pages = mutableListOf<List<PlainPageSlice>>()
+    val pendingText = mutableListOf<PlainPageReaderTextBlock>()
+    val emittedImages = mutableSetOf<Int>()
+
+    fun flushText() {
+        if (pendingText.isEmpty()) return
+        pages += paginatePlainPageBlocks(
+            textBlocks = pendingText.toList(),
+            paragraphSpacingPx = paragraphSpacingPx,
+            widthPx = widthPx,
+            heightPx = heightPx,
+            textSizePx = textSizePx,
+            lineHeightMultiplier = lineHeightMultiplier,
+            typeface = typeface,
+            chapterTitleTypeface = chapterTitleTypeface,
+            textAlign = textAlign,
+            forceParagraphIndent = forceParagraphIndent,
+            chapterTitle = chapterTitle,
+        )
+        pendingText.clear()
+    }
+
+    fun appendImage(image: PlainPageImageBlock) {
+        val slice = PlainPageSlice.Image(
+            blockIndex = image.sourceBlockIndex,
+            imageUrl = image.imageUrl,
+            contentDescription = image.contentDescription,
+        )
+        val lastPage = pages.lastOrNull()
+        if (lastPage != null && shouldAttachImageToPreviousPlainPage(lastPage)) {
+            pages[pages.lastIndex] = lastPage + slice.copy(
+                spacingBeforePx = resolvePageReaderInterBlockSpacingPx(
+                    paragraphSpacingPx = paragraphSpacingPx,
+                    textSizePx = textSizePx,
+                    lineHeightMultiplier = lineHeightMultiplier,
+                ),
+            )
+        } else {
+            pages += listOf(slice)
+        }
+    }
+
+    textBlocks.forEach { block ->
+        imageBlocks.forEach { image ->
+            if (image.sourceBlockIndex < block.sourceBlockIndex && emittedImages.add(image.sourceBlockIndex)) {
+                flushText()
+                appendImage(image)
+            }
+        }
+        pendingText += block
+    }
+    imageBlocks.forEach { image ->
+        if (emittedImages.add(image.sourceBlockIndex)) {
+            flushText()
+            appendImage(image)
+        }
+    }
+    flushText()
+    return pages
+}
+
+private fun shouldAttachImageToPreviousPlainPage(page: List<PlainPageSlice>): Boolean {
+    if (page.isEmpty()) return false
+    if (page.any { it is PlainPageSlice.Image }) return false
+    val textLength = page
+        .filterIsInstance<PlainPageSlice.Text>()
+        .sumOf { slice -> slice.range.endExclusive - slice.range.start }
+    return textLength in 1..MAX_INLINE_IMAGE_PRECEDING_TEXT_CHARS
 }
 
 internal fun buildRichPageReaderChapterAnnotatedText(
@@ -1226,8 +1365,9 @@ internal fun buildPlainPageRenderBlocks(
 ): List<PlainPageRenderBlock> {
     if (page.isEmpty()) return emptyList()
     val textBySourceBlockIndex = textBlocks.associateBy({ it.sourceBlockIndex }, { it.text })
-    return page.mapIndexed { index, slice ->
-        val previousBlockIndex = page.getOrNull(index - 1)?.blockIndex
+    val textSlices = page.filterIsInstance<PlainPageSlice.Text>()
+    return textSlices.mapIndexed { index, slice ->
+        val previousBlockIndex = textSlices.getOrNull(index - 1)?.blockIndex
         val startsNewBlock = index > 0 && previousBlockIndex != slice.blockIndex
         val fullBlockText = textBySourceBlockIndex[slice.blockIndex].orEmpty()
         PlainPageRenderBlock(
@@ -1365,24 +1505,60 @@ internal fun normalizePageReaderContentPages(
     } else {
         plainPages.mapIndexed { pageIndex, page ->
             NovelPageContentPage(
-                blocks = buildPlainPageRenderBlocks(
+                blocks = buildPlainPageContentBlocks(
                     page = page,
                     textBlocks = plainTextBlocks,
                     paragraphSpacingPx = paragraphSpacingPx,
                     forceParagraphIndent = forceParagraphIndent,
                     chapterTitle = chapterTitle,
-                ).map { block ->
-                    NovelPageContentBlock.Plain(
-                        sourceBlockIndex = block.sourceBlockIndex,
-                        text = block.text,
-                        sourceTextStart = block.sourceTextStart,
-                        sourceTextEndExclusive = block.sourceTextEndExclusive,
-                        spacingBeforePx = block.spacingBeforePx,
-                        firstLineIndentEm = block.firstLineIndentEm,
-                        isChapterTitle = block.isChapterTitle,
-                    )
-                },
+                ),
                 pageIndex = pageIndex,
+            )
+        }
+    }
+}
+
+/**
+ * Turns one plain page into renderable content blocks, keeping illustrations in place.
+ *
+ * Text slices map onto the measured render blocks in order; image slices become image blocks at
+ * the very position the pagination gave them, so a page that ends with an illustration renders it
+ * after the last line of text instead of dropping it.
+ */
+private fun buildPlainPageContentBlocks(
+    page: List<PlainPageSlice>,
+    textBlocks: List<PlainPageReaderTextBlock>,
+    paragraphSpacingPx: Int,
+    forceParagraphIndent: Boolean,
+    chapterTitle: String? = null,
+): List<NovelPageContentBlock> {
+    val renderBlocks = buildPlainPageRenderBlocks(
+        page = page,
+        textBlocks = textBlocks,
+        paragraphSpacingPx = paragraphSpacingPx,
+        forceParagraphIndent = forceParagraphIndent,
+        chapterTitle = chapterTitle,
+    ).iterator()
+    return page.mapNotNull { slice ->
+        when (slice) {
+            is PlainPageSlice.Text -> if (renderBlocks.hasNext()) {
+                val block = renderBlocks.next()
+                NovelPageContentBlock.Plain(
+                    sourceBlockIndex = block.sourceBlockIndex,
+                    text = block.text,
+                    sourceTextStart = block.sourceTextStart,
+                    sourceTextEndExclusive = block.sourceTextEndExclusive,
+                    spacingBeforePx = block.spacingBeforePx,
+                    firstLineIndentEm = block.firstLineIndentEm,
+                    isChapterTitle = block.isChapterTitle,
+                )
+            } else {
+                null
+            }
+            is PlainPageSlice.Image -> NovelPageContentBlock.Image(
+                imageUrl = slice.imageUrl,
+                contentDescription = slice.contentDescription,
+                spacingBeforePx = slice.spacingBeforePx,
             )
         }
     }

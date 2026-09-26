@@ -239,6 +239,16 @@ private fun parseParagraphLikeOrContainerBlocks(
                     blocks += parseBlockElement(node, context)
                     return@forEach
                 }
+
+                // Block-level illustration wrappers (figure, div.wp-block-image, ...) are neither
+                // image tags nor paragraph containers. Flattening them through the inline path
+                // drops their <img> (parseInlineNode skips images), which silently ate every
+                // WordPress/webtoepub illustration, so they keep their block structure instead.
+                if (childTag !in richInlineTextTags && node.selectFirst(RICH_IMAGE_DESCENDANT_SELECTOR) != null) {
+                    flushParagraph()
+                    blocks += parseBlockElement(node, context)
+                    return@forEach
+                }
             }
         }
 
@@ -609,6 +619,46 @@ private val richImageBlockTags = setOf(
     "img",
     "picture",
     "source",
+)
+
+private const val RICH_IMAGE_DESCENDANT_SELECTOR = "img, picture, source"
+
+/**
+ * Inline text tags: a wrapper of these around an image stays in the inline flow, so an img inside
+ * a running sentence is not torn out into its own block. Any other tag holding an image descendant
+ * is an illustration wrapper and keeps its block structure.
+ */
+private val richInlineTextTags = setOf(
+    "a",
+    "abbr",
+    "b",
+    "bdi",
+    "bdo",
+    "cite",
+    "code",
+    "data",
+    "dfn",
+    "em",
+    "font",
+    "i",
+    "kbd",
+    "label",
+    "mark",
+    "q",
+    "rp",
+    "rt",
+    "ruby",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strike",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var",
 )
 
 private val paragraphLikeStyleTags = setOf(

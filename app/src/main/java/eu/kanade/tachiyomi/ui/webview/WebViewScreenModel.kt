@@ -32,7 +32,9 @@ class WebViewScreenModel(
 
     init {
         val sourceHeaders = sourceId?.let { resolveSourceHeaders(it) }.orEmpty()
-        val userAgent = network.defaultUserAgentProvider().takeIf { it.isNotBlank() }
+        // Same agent as the plugin fetches: a clearance earned by manually passing a challenge
+        // here is bound to the agent that earned it, so both sides must share one.
+        val userAgent = network.pluginUserAgentProvider().takeIf { it.isNotBlank() }
         headers = if (userAgent != null && "user-agent" !in sourceHeaders.map { it.key.lowercase() }) {
             sourceHeaders + ("user-agent" to userAgent)
         } else {
