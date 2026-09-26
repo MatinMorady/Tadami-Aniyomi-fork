@@ -706,6 +706,18 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
     }
 
     internal fun getCurrentScrollProgress(): WebtoonScrollProgress? {
+        // WEBTOON-RESTORE-RACE: while a relative offset restore is in flight the reported
+        // position is transitional - the anchor layout places the target page at the TOP
+        // (the px offset depends on the page height, unknown before layout) and the settle
+        // loop walks it in afterwards. A scroll report that fired in between persisted
+        // (page, offset = 0) over the saved progress in both the DB and the long-page
+        // cache, and the correction report was swallowed by the 150 ms throttle (no
+        // further onScrolled arrives once the layout settles) - reopening then landed on
+        // the TOP of the saved page after any viewer recreation (rotation, background
+        // activity destroy, process death). Reports mean nothing until the restore
+        // settles or the user's drag cancels it (the drag's own reports then fire with
+        // the real position); report nothing instead of the transitional anchor.
+        if (pendingRelativeRestore != null) return null
         val firstVisible = layoutManager.findFirstVisibleItemPosition()
         if (firstVisible == RecyclerView.NO_POSITION) return null
 
