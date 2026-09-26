@@ -179,8 +179,8 @@ class SourcePreferences(
         Preference.appStateKey("last_reels_filter_$sourceId"),
         "",
     )
-    fun lastReelsPosition(sourceId: Long) = preferenceStore.getInt(
-        Preference.appStateKey("last_reels_position_$sourceId"),
+    fun lastReelsPosition(sourceId: Long, suffix: String = "") = preferenceStore.getInt(
+        Preference.appStateKey("last_reels_position_$sourceId${if (suffix.isBlank()) "" else "_$suffix"}"),
         0,
     )
     fun autoAdvanceReels() = preferenceStore.getBoolean("pref_reels_auto_advance", true)
@@ -190,6 +190,15 @@ class SourcePreferences(
     fun reelsDataSaverMetered() = preferenceStore.getBoolean("pref_reels_data_saver_metered", true)
     fun reelsPreloadEnabled() = preferenceStore.getBoolean("pref_reels_preload", true)
     fun reelsPreloadWifiOnly() = preferenceStore.getBoolean("pref_reels_preload_wifi_only", false)
+
+    // B3.5: explicit picture-in-picture, off by default (no surprise background rendering).
+    fun reelsPipEnabled() = preferenceStore.getBoolean("pref_reels_pip", false)
+
+    // Reels owns its incognito: the global switch, the NSFW auto policy and the per-extension
+    // incognito set deliberately do NOT apply inside the feed (product decision) — this
+    // reels-only toggle is the single source of truth for history/position/last-source writes
+    // there. Regular (non appState) key: the choice must survive restarts.
+    fun reelsIncognitoMode() = preferenceStore.getBoolean("pref_reels_incognito", false)
 
     fun animeExtensionUpdatesCount() = preferenceStore.getInt("animeext_updates_count", 0)
     fun mangaExtensionUpdatesCount() = preferenceStore.getInt("ext_updates_count", 0)

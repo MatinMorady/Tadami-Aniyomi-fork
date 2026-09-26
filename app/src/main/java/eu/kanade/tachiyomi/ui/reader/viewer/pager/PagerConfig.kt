@@ -97,8 +97,17 @@ class PagerConfig(
             .register(
                 { dualPageSplit = it },
                 {
-                    imagePropertyChangedListener?.invoke()
-                    dualPageSplitChangedListener?.invoke(it)
+                    if (it) {
+                        // Enabling: rebuild holders so wide-page detection can run and insert
+                        // split pages.
+                        imagePropertyChangedListener?.invoke()
+                    } else {
+                        // Disabling: remove inserted pages FIRST, then rebuild once so parent
+                        // pages re-decode unsplit (previously both callbacks fired back to back:
+                        // a full rebuild that still contained the InsertPages, then the cleanup).
+                        dualPageSplitChangedListener?.invoke(it)
+                        imagePropertyChangedListener?.invoke()
+                    }
                 },
             )
 

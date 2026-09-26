@@ -25,7 +25,7 @@ data class DiscoveryFeed(
  */
 class DiscoveryCoordinator(
     private val rowBuilders: List<DiscoveryRowBuilder>,
-    private val rowLimit: Int = 20,
+    private val rowLimit: Int = 50,
 ) {
 
     suspend fun streamFeed(
@@ -65,7 +65,13 @@ class DiscoveryCoordinator(
 
                 for (pType in DiscoveryRowType.entries) {
                     val candidates = rawCandidates[pType] ?: continue
-                    val selected = selectRowItems(candidates, excluded, seenSoFar, context.recentCleanTitles)
+                    val selected = selectRowItems(
+                        candidates,
+                        excluded,
+                        seenSoFar,
+                        context.recentCleanTitles,
+                        context.shownCutoffMap,
+                    )
                     selected.forEach { seenSoFar += it.cleanTitle }
 
                     if (finalRows[pType] != selected) {
@@ -98,6 +104,7 @@ class DiscoveryCoordinator(
         excluded: Set<String>,
         seen: Set<String>,
         recentCleanTitles: Set<String>,
+        shownCutoffMap: Map<String, Long>,
     ): List<DiscoveryRowItem> {
         val valid = items
             .filterNot { it.cleanTitle.isBlank() || it.cleanTitle in excluded || it.cleanTitle in seen }
@@ -108,7 +115,10 @@ class DiscoveryCoordinator(
             if (fresh.size >= rowLimit) {
                 fresh.take(rowLimit)
             } else {
+                // Добираем показанными: дольше всего не показанные первыми;
+                // без таймстампа (напр. текущая лента при ручном рефреше) — в конец.
                 val stale = valid.filter { it.cleanTitle in recentCleanTitles }
+                    .sortedBy { shownCutoffMap[it.cleanTitle] ?: Long.MAX_VALUE }
                 (fresh + stale).take(rowLimit)
             }
         } else {

@@ -84,4 +84,8 @@
         <item quantity="one">%d book</item>
         <item quantity="other">%d books</item>
     </plurals>
+    <plurals name="discovery_sources_weight">
+        <item quantity="one">%d title in library</item>
+        <item quantity="other">%d titles in library</item>
+    </plurals>
 </resources>

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.extension.novel.runtime
 import android.content.Context
 import android.util.Log
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.interceptor.CloudflareManualSolveRegistry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -72,6 +73,19 @@ class NovelJsRuntimeFactory(
         override fun fetch(url: String, optionsJson: String?): String {
             val resolvedUrl = resolveAlias(url)
             val options = decodeFetchRequest(optionsJson)
+            // Hosts whose Cloudflare challenge the hidden solve could not finish are flagged by
+            // the interceptor; their requests go through the WebView network stack, which
+            // Cloudflare trusts, instead of paying for a doomed OkHttp + solve cycle every time.
+            val blockedHost = resolvedUrl.toHttpUrlOrNull()?.host
+                ?.takeIf { CloudflareManualSolveRegistry.isPending(it) }
+            if (blockedHost != null) {
+                logcat(priority = LogPriority.DEBUG, tag = "NovelWebViewBridge") {
+                    "gate: routing via bridge host=$blockedHost url=$resolvedUrl"
+                }
+                NovelWebViewFetchBridge.fetchBlocking(resolvedUrl, options)?.let { bridgeResponse ->
+                    return json.encodeToString(bridgeResponse)
+                }
+            }
             val request = buildRequest(resolvedUrl, options)
             return runCatching {
                 networkHelper.client.newCall(request).execute().use { response ->
@@ -119,6 +133,18 @@ class NovelJsRuntimeFactory(
             }.getOrElse { error ->
                 logcat(LogPriority.WARN, error) {
                     "Novel plugin fetch $pluginId: request failed url=$resolvedUrl"
+                }
+                // The interceptor flags the host right before this IOException reaches us, so the
+                // very first blocked call can still recover through the WebView bridge instead of
+                // handing the plugin a dead status 0 after a 30s solve.
+                val failedHost = resolvedUrl.toHttpUrlOrNull()?.host
+                if (failedHost != null && CloudflareManualSolveRegistry.isPending(failedHost)) {
+                    logcat(priority = LogPriority.DEBUG, tag = "NovelWebViewBridge") {
+                        "post-failure retry via bridge host=$failedHost url=$resolvedUrl"
+                    }
+                    NovelWebViewFetchBridge.fetchBlocking(resolvedUrl, options)?.let { bridgeResponse ->
+                        return json.encodeToString(bridgeResponse)
+                    }
                 }
                 json.encodeToString(
                     JsFetchResponse(
@@ -741,7 +767,7 @@ class NovelJsRuntimeFactory(
             if ("user-agent" !in presentHeaders) {
                 builder.addHeader(
                     "User-Agent",
-                    networkHelper.defaultUserAgentProvider().ifBlank { DEFAULT_USER_AGENT },
+                    networkHelper.pluginUserAgentProvider().ifBlank { DEFAULT_USER_AGENT },
                 )
             }
             if ("accept" !in presentHeaders) {
@@ -788,7 +814,7 @@ class NovelJsRuntimeFactory(
     }
 
     @Serializable
-    private data class JsFetchRequest(
+    internal data class JsFetchRequest(
         val method: String = "GET",
         val headers: Map<String, String> = emptyMap(),
         val bodyType: BodyType = BodyType.None,
@@ -800,13 +826,13 @@ class NovelJsRuntimeFactory(
     )
 
     @Serializable
-    private data class FormEntry(
+    internal data class FormEntry(
         val key: String,
         val value: String,
     )
 
     @Serializable
-    private enum class BodyType {
+    internal enum class BodyType {
         @SerialName("none")
         None,
 
@@ -818,7 +844,7 @@ class NovelJsRuntimeFactory(
     }
 
     @Serializable
-    private data class JsFetchResponse(
+    internal data class JsFetchResponse(
         val status: Int,
         val url: String,
         val headers: Map<String, String>,

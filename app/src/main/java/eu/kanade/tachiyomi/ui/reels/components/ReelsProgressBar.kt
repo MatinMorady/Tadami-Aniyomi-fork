@@ -33,10 +33,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import eu.kanade.presentation.theme.AuroraTheme
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
@@ -68,6 +70,10 @@ fun ReelsProgressBar(
             // TalkBack: expose the scrubber as an adjustable progress control.
             .semantics {
                 progressBarRangeInfo = ProgressBarRangeInfo(currentFraction, 0f..1f)
+                setProgress { target: Float ->
+                    onSeek(target.coerceIn(0f, 1f))
+                    true
+                }
             }
             .onSizeChanged { barWidthPx = it.width.toFloat().coerceAtLeast(1f) }
             .pointerInput(Unit) {
@@ -173,5 +179,5 @@ fun ReelsProgressBar(
 private fun formatSeconds(totalSeconds: Int): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return "%02d:%02d".format(minutes, seconds)
+    return "%02d:%02d".format(Locale.getDefault(), minutes, seconds)
 }

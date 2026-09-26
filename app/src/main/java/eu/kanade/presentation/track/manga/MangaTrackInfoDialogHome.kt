@@ -53,6 +53,8 @@ import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.DropdownMenu
 import eu.kanade.presentation.theme.TachiyomiPreviewTheme
 import eu.kanade.presentation.track.components.TrackLogoIcon
+import eu.kanade.presentation.track.trackProgressText
+import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.track.MangaTracker
 import eu.kanade.tachiyomi.data.track.Tracker
 import eu.kanade.tachiyomi.ui.entries.manga.track.MangaTrackItem
@@ -102,15 +104,12 @@ fun MangaTrackInfoDialogHome(
                     tracker = item.tracker,
                     status = (item.tracker as? MangaTracker)?.getStatusForManga(item.track.status),
                     onStatusClick = { onStatusClick(item) },
-                    chapters = "${item.track.lastChapterRead.toInt()}".let {
-                        val totalChapters = item.track.totalChapters
-                        if (totalChapters > 0) {
-                            // Add known total chapter count
-                            "$it / $totalChapters"
-                        } else {
-                            it
-                        }
-                    },
+                    chapters = trackProgressText(
+                        ordinal = item.lastReadOrdinal,
+                        lastRead = item.track.lastChapterRead,
+                        total = item.track.totalChapters,
+                        format = ::formatChapterNumber,
+                    ),
                     onChaptersClick = { onChapterClick(item) },
                     score = item.tracker.mangaService.displayScore(item.track)
                         .takeIf { supportsScoring && item.track.score != 0.0 },

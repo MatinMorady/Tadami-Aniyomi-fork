@@ -80,6 +80,18 @@ class ReelsFavoriteRepositoryImpl(
         }
     }
 
+    override suspend fun deleteBySource(sourceId: Long) {
+        try {
+            handler.await { db ->
+                db.reels_favoritesQueries.deleteBySource(sourceId)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SQLiteException) {
+            logcat(LogPriority.ERROR, throwable = e) { "Failed to delete reels favorites of source $sourceId" }
+        }
+    }
+
     private fun insert(db: AnimeDb, favorite: ReelsFavorite) {
         db.reels_favoritesQueries.insert(
             video_id = favorite.videoId,

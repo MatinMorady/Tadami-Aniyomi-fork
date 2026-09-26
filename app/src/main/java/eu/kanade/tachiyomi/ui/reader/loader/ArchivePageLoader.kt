@@ -15,11 +15,16 @@ internal class ArchivePageLoader(private val reader: ArchiveReader) : PageLoader
 
     override suspend fun getPages(): List<ReaderPage> = reader.useEntries { entries ->
         entries
+            // isImage() checks the extension first and only calls the stream lambda for unknown
+            // extensions (magic-byte sniffing). The old code opened a stream per entry upfront -
+            // and every getInputStream() rescans the archive from the start - making chapter
+            // open O(N^2). Now the rescan only happens for the rare unknown-extension entry.
             .filter {
                 it.isFile &&
-                    reader.getInputStream(it.name)?.let { stream ->
-                        ImageUtil.isImage(it.name) { stream }.also { stream.close() }
-                    } == true
+                    ImageUtil.isImage(it.name) {
+                        reader.getInputStream(it.name)
+                            ?: throw IOException("Archive reader is no longer available")
+                    }
             }
             .sortedWith { f1, f2 -> f1.name.compareToCaseInsensitiveNaturalOrder(f2.name) }
             .mapIndexed { i, entry ->

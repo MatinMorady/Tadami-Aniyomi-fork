@@ -328,6 +328,36 @@ class NovelScreenModel(
         return resolveNovelResumeChapter(state.processedChapters, null, state.bookState)
     }
 
+    // Declared above `init` on purpose: init assigns restoredDownloadedChapterIds synchronously
+    // and launches IO coroutines (loadSuggestions, refreshChapters -> fetchNovelFromSource /
+    // fetchChaptersFromSource, handleDownloadCacheEvent -> enqueueBatchDownloadEvent) that
+    // read/write these fields. Kotlin runs property initializers in declaration order, so
+    // declaring them after init either races the coroutines (null reads - the crash fixed in
+    // MangaScreenModel) or silently wipes the init assignment with the initializer's null.
+    // Guarded by ScreenModelInitOrderTest.
+
+    private var suggestionSeedUsed: SuggestionSeed? = null
+    private var suggestionsJob: Job? = null
+
+    // Lightweight in-memory cache for recent chapter list responses from source.
+    // Dramatically reduces re-parsing cost on repeated screen opens / process death recovery.
+    // Keyed by novelId + very short TTL. Manual refresh always bypasses.
+    private val recentChapterListCache =
+        mutableMapOf<Long, Pair<Long, List<eu.kanade.tachiyomi.novelsource.model.SNovelChapter>>>()
+
+    // Lightweight in-memory TTL cache for recent novel details responses from source.
+    // Bypasses the network for re-opens within the TTL; manual refresh always bypasses the
+    // read but overwrites the entry with the fresh response. Never persists to disk.
+    private val recentNovelDetailsCache =
+        TtlCache<Long, eu.kanade.tachiyomi.novelsource.model.SNovel>(ttlMs = 90_000L)
+
+    /** Downloaded ids restored from the session state cache; consumed by the first InvalidateAll. */
+    private var restoredDownloadedChapterIds: Set<Long>? = null
+
+    private var downloadBatchCollectionJob: kotlinx.coroutines.Job? = null
+    private val downloadBatchLock = Any()
+    private val pendingDownloadBatchEvents = mutableListOf<NovelDownloadCacheEvent.ChaptersChanged>()
+
     init {
         val restoredState = restoreStateFromCache(novelId)
         restoredState?.let {
@@ -873,8 +903,6 @@ class NovelScreenModel(
     private fun Novel.toCatalogueSource(): NovelCatalogueSource? =
         sourceManager.getOrStub(source) as? NovelCatalogueSource
 
-    private var suggestionSeedUsed: SuggestionSeed? = null
-
     fun getSuggestionSeed(): SuggestionSeed? = suggestionSeedUsed
 
     fun retrySuggestions() {
@@ -906,20 +934,6 @@ class NovelScreenModel(
             updateSuccessState { it.copy(suggestions = SuggestionState.Success(sorted)) }
         }
     }
-
-    private var suggestionsJob: Job? = null
-
-    // Lightweight in-memory cache for recent chapter list responses from source.
-    // Dramatically reduces re-parsing cost on repeated screen opens / process death recovery.
-    // Keyed by novelId + very short TTL. Manual refresh always bypasses.
-    private val recentChapterListCache =
-        mutableMapOf<Long, Pair<Long, List<eu.kanade.tachiyomi.novelsource.model.SNovelChapter>>>()
-
-    // Lightweight in-memory TTL cache for recent novel details responses from source.
-    // Bypasses the network for re-opens within the TTL; manual refresh always bypasses the
-    // read but overwrites the entry with the fresh response. Never persists to disk.
-    private val recentNovelDetailsCache =
-        TtlCache<Long, eu.kanade.tachiyomi.novelsource.model.SNovel>(ttlMs = 90_000L)
 
     private fun loadSuggestions(
         seed: SuggestionSeed,
@@ -1122,9 +1136,6 @@ class NovelScreenModel(
     }
 
     private var bookBuildJob: Job? = null
-
-    /** Downloaded ids restored from the session state cache; consumed by the first InvalidateAll. */
-    private var restoredDownloadedChapterIds: Set<Long>? = null
 
     /**
      * Compiles a local book (.epub / .fb2) into the artifact the moment the title is opened.
@@ -1567,10 +1578,6 @@ class NovelScreenModel(
             }
         }
     }
-
-    private var downloadBatchCollectionJob: kotlinx.coroutines.Job? = null
-    private val downloadBatchLock = Any()
-    private val pendingDownloadBatchEvents = mutableListOf<NovelDownloadCacheEvent.ChaptersChanged>()
 
     private fun enqueueBatchDownloadEvent(event: NovelDownloadCacheEvent.ChaptersChanged) {
         val state = successState ?: return

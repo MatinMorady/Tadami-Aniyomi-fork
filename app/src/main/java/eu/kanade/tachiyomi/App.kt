@@ -80,6 +80,7 @@ import eu.kanade.tachiyomi.extension.novel.runtime.NovelRuntimeCacheTrimCallback
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.network.interceptor.CoverRequestPolicy
+import eu.kanade.tachiyomi.network.interceptor.CurrentActivityTracker
 import eu.kanade.tachiyomi.ui.base.delegate.SecureActivityDelegate
 import eu.kanade.tachiyomi.util.system.DeviceUtil
 import eu.kanade.tachiyomi.util.system.GLUtil
@@ -150,6 +151,10 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         super<Application>.onCreate()
 
         GlobalExceptionHandler.initialize(applicationContext, CrashActivity::class.java)
+
+        // The Cloudflare solve WebView only completes managed challenges while attached to a real
+        // window; track the resumed activity so the interceptor can mount its invisible overlay.
+        CurrentActivityTracker.install(this)
 
         if (BuildConfig.DEBUG) {
             MainThreadWatchdog().start()

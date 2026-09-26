@@ -115,7 +115,7 @@ fun ReelsSourcePickerSheet(
                                         .background(circleBg, CircleShape),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    val initial = source.name.firstOrNull()?.uppercaseChar()?.toString() ?: "S"
+                                    val initial = source.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
                                     Text(
                                         text = initial,
                                         color = if (isSelected) Color.Black else Color.White,

@@ -81,9 +81,9 @@ data class BackupContentSummary(
 /**
  * Proof that a backup was written to its destination intact.
  *
- * Produced by the staged writer after it re-reads the destination URI: the digest and byte length
- * are compared against the staging file, and the summary is re-derived from a full decode of the
- * destination, not from the in-memory model.
+ * Produced by the staged writer: the digest and byte length are compared against the staging file,
+ * and the summary is checked against counts re-read from the wire format of the payload (top level
+ * field scan, no full decode), so what is reported is what actually landed on disk.
  */
 data class BackupWriteReceipt(
     val byteLength: Long,

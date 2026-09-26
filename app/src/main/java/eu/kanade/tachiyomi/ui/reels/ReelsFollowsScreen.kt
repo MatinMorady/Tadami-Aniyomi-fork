@@ -137,6 +137,7 @@ data class ReelsFollowsScreen(val sourceId: Long) : Screen {
                     items(state.follows, key = { it.sourceId.toString() + ":" + it.creator }) { follow ->
                         SwipeToRemoveFollow(
                             follow = follow,
+                            sourceName = state.sourceNames[follow.sourceId],
                             onRemove = {
                                 screenModel.removeFollow(follow)
                                 scope.launch {
@@ -165,6 +166,7 @@ data class ReelsFollowsScreen(val sourceId: Long) : Screen {
 @Composable
 private fun SwipeToRemoveFollow(
     follow: ReelsFollow,
+    sourceName: String?,
     onRemove: () -> Unit,
     onClick: () -> Unit,
 ) {
@@ -198,13 +200,14 @@ private fun SwipeToRemoveFollow(
             }
         },
     ) {
-        FollowCell(follow = follow, onClick = onClick)
+        FollowCell(follow = follow, sourceName = sourceName, onClick = onClick)
     }
 }
 
 @Composable
 private fun FollowCell(
     follow: ReelsFollow,
+    sourceName: String?,
     onClick: () -> Unit,
 ) {
     Column(
@@ -236,10 +239,14 @@ private fun FollowCell(
             modifier = Modifier.padding(top = 4.dp, start = 2.dp, end = 2.dp),
         )
         Text(
-            text = stringResource(MR.strings.reels_following),
+            // Audit H11: the list mixes sources — show WHICH source this creator belongs to
+            // (the names were loaded by the model but never rendered); fall back to the
+            // generic "Following" label for uninstalled sources.
+            text = sourceName ?: stringResource(MR.strings.reels_following),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 2.dp, end = 2.dp),
         )
     }

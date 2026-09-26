@@ -110,11 +110,13 @@ class CloudflareInterceptor(
         // we don't crash the entire app
         catch (e: CloudflareInteractiveChallengeException) {
             CloudflareInteractiveChallengeTracker.record(request.url.toString(), clock())
+            CloudflareManualSolveRegistry.request(host)
             throw IOException(
                 context.stringResource(MR.strings.information_cloudflare_interactive_challenge),
                 e,
             )
         } catch (e: CloudflareBypassException) {
+            CloudflareManualSolveRegistry.request(host)
             throw IOException(context.stringResource(MR.strings.information_cloudflare_bypass_failure), e)
         } catch (e: Exception) {
             throw IOException(e)

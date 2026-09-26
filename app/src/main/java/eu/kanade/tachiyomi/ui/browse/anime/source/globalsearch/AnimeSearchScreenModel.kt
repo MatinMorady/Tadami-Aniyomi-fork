@@ -216,6 +216,13 @@ abstract class AnimeSearchScreenModel(
                         if (isActive) {
                             updateItem(source, AnimeSearchItemResult.Error(e))
                         }
+                    } catch (e: OutOfMemoryError) {
+                        // OOM — это Error, не Exception: без этого catch «тяжёлый» источник
+                        // (напр. Hitomi с in-memory индексом всех галерей) убивает весь процесс.
+                        // Буферы источника становятся мусором здесь, поиск продолжается без него.
+                        if (isActive) {
+                            updateItem(source, AnimeSearchItemResult.Error(e))
+                        }
                     }
                 }
             }

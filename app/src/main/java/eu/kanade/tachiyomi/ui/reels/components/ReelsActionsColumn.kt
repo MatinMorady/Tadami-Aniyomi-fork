@@ -15,9 +15,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.OfflinePin
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import eu.kanade.presentation.theme.AuroraTheme
@@ -47,6 +52,11 @@ fun ReelsActionsColumn(
     showFollow: Boolean = false,
     isFollowing: Boolean = false,
     onToggleFollow: () -> Unit = {},
+    // B3.2 "not interested" slot: the caller supplies the dialog trigger; null hides the slot.
+    onOpenHide: (() -> Unit)? = null,
+    // B3.3 offline-copy slot (offline playlist only): null hides the slot.
+    onToggleOffline: (() -> Unit)? = null,
+    isOfflineStored: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val heartColor = MaterialTheme.colorScheme.error
@@ -100,6 +110,10 @@ fun ReelsActionsColumn(
         ActionIconItem(
             icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
             label = stringResource(MR.strings.reels_feed_action_sound),
+            // TalkBack needs the CURRENT state, not only a static label.
+            stateDescription = stringResource(
+                if (isMuted) MR.strings.reels_sound_off else MR.strings.reels_sound_on,
+            ),
             tint = Color.White,
             onClick = onToggleMute,
         )
@@ -111,6 +125,28 @@ fun ReelsActionsColumn(
             tint = Color.White,
             onClick = onShare,
         )
+
+        // B3.2 "not interested" entry: opens the caller's choice dialog.
+        if (onOpenHide != null) {
+            ActionIconItem(
+                icon = Icons.Filled.VisibilityOff,
+                label = stringResource(MR.strings.reels_hide_menu),
+                tint = Color.White,
+                onClick = onOpenHide,
+            )
+        }
+
+        // B3.3 offline copy: download / remove the real local file.
+        if (onToggleOffline != null) {
+            ActionIconItem(
+                icon = if (isOfflineStored) Icons.Filled.OfflinePin else Icons.Outlined.Download,
+                label = stringResource(
+                    if (isOfflineStored) MR.strings.reels_offline_remove else MR.strings.reels_offline_save,
+                ),
+                tint = if (isOfflineStored) AuroraTheme.colors.accent else Color.White,
+                onClick = onToggleOffline,
+            )
+        }
     }
 }
 
@@ -121,6 +157,7 @@ private fun ActionIconItem(
     tint: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    stateDescription: String? = null,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -132,6 +169,7 @@ private fun ActionIconItem(
         Box(
             modifier = Modifier
                 .size(44.dp)
+                .semantics { if (stateDescription != null) this.stateDescription = stateDescription }
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {

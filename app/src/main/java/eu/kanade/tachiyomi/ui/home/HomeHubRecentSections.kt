@@ -18,11 +18,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import eu.kanade.domain.ui.model.HomeHeroMode
 import eu.kanade.domain.ui.model.HomeHubRecentCardMode
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
+import eu.kanade.presentation.util.formatChapterNumber
+import eu.kanade.presentation.util.formatEpisodeNumber
 import eu.kanade.tachiyomi.ui.home.HomeHubSection
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -111,7 +114,7 @@ internal fun HistoryRow(
                         coverData = item.coverData,
                         subtitle = stringResource(
                             progressLabelRes,
-                            formatProgressNumber(item.progressNumber),
+                            formatProgressNumber(section, item.progressNumber),
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
@@ -138,7 +141,7 @@ internal fun HistoryRow(
                         coverData = item.coverData,
                         subtitle = stringResource(
                             progressLabelRes,
-                            formatProgressNumber(item.progressNumber),
+                            formatProgressNumber(section, item.progressNumber),
                         ),
                         onClick = { onEntryClick(item.entryId) },
                         deviceClass = auroraAdaptiveSpec.deviceClass,
@@ -283,10 +286,33 @@ internal fun RecommendationsGrid(
     }
 }
 
-private fun formatProgressNumber(number: Double): String {
-    return if (number % 1.0 == 0.0) {
-        number.toInt().toString()
-    } else {
-        number.toString()
+internal fun formatProgressNumber(section: HomeHubSection, number: Double): String {
+    return when (section) {
+        HomeHubSection.Anime -> formatEpisodeNumber(number)
+        HomeHubSection.Manga, HomeHubSection.Novel -> formatChapterNumber(number)
     }
+}
+
+/**
+ * В режимах Collage/Stage hero-слот занят лентой «Для тебя», а последний прочитанный
+ * тайтл исключён из истории screen-моделью (чтобы не дублировать hero). Возвращаем
+ * его первым элементом ряда — лимит ряда сохранён, хвост сдвигается.
+ */
+internal fun prependLastReadHero(
+    hero: HomeHubHero?,
+    history: List<HomeHubHistory>,
+    heroPresentation: HomeHeroMode,
+    section: HomeHubSection,
+    limit: Int = 6,
+): List<HomeHubHistory> {
+    if (hero == null) return history
+    if (heroPresentation != HomeHeroMode.Collage && heroPresentation != HomeHeroMode.Stage) return history
+    val item = HomeHubHistory(
+        entryId = hero.entryId,
+        title = hero.title,
+        progressNumber = hero.progressNumber,
+        coverData = hero.coverData,
+        section = section,
+    )
+    return (listOf(item) + history.filterNot { it.entryId == hero.entryId }).take(limit)
 }

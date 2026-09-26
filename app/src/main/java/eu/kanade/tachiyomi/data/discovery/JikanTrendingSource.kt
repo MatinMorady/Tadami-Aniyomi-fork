@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -56,8 +57,37 @@ internal fun parseJikanAnimePage(
                 seasonLabel = seasonLabel,
                 genres = genres,
                 provider = "jikan_trend",
+                // V1: сырой MAL-статус («Currently Airing»/«Finished Airing»/…) — для пост-фильтра.
+                releaseStatus = runCatching { item["status"]?.jsonPrimitive?.contentOrNull }.getOrNull(),
             )
         }.orEmpty()
+
+/**
+ * V1: пост-фильтр выдачи Jikan по статусу (releaseStatus — сырой MAL-статус:
+ * «Currently Airing», «Finished Airing», «Not yet aired»).
+ * Jikan не умеет серверный статус-фильтр в этих эндпоинтах — режем локально.
+ */
+internal fun filterByJikanStatus(
+    items: List<DiscoveryTrendingItem>,
+    releaseStatuses: Set<DiscoveryReleaseStatus>,
+): List<DiscoveryTrendingItem> {
+    if (releaseStatuses.isEmpty()) return items
+    return items.filter { item ->
+        val raw = item.releaseStatus?.lowercase() ?: return@filter true
+        val matches = releaseStatuses.any { status ->
+            when (status) {
+                // MAL-статусы: "Currently Airing", "Finished Airing", "Not yet aired",
+                // "On Hiatus", "Discontinued". contains("airing") ловил бы и Finished —
+                // поэтому префиксы.
+                DiscoveryReleaseStatus.ONGOING -> raw.startsWith("currently") || raw.contains("publishing")
+                DiscoveryReleaseStatus.FINISHED -> raw.startsWith("finished") || raw.contains("complete")
+                DiscoveryReleaseStatus.ANONS -> raw.startsWith("not yet")
+                DiscoveryReleaseStatus.PAUSED -> raw.contains("hiatus") || raw.contains("discontinued")
+            }
+        }
+        matches
+    }
+}
 
 open class JikanTrendingSource(
     private val clientProvider: () -> OkHttpClient = { Injekt.get<NetworkHelper>().client },
@@ -72,6 +102,7 @@ open class JikanTrendingSource(
         season: TrendSeason,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (mediaType != DiscoveryMediaType.ANIME) return emptyList()
 
@@ -94,6 +125,7 @@ open class JikanTrendingSource(
                 .parseAs<JsonObject>(jsonProvider())
 
             parseJikanAnimePage(response, seasonLabel, dropRx = nsfwFilterProvider())
+                .let { filterByJikanStatus(it, releaseStatuses) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -107,6 +139,7 @@ open class JikanTrendingSource(
         genres: List<String>,
         sort: TrendSort,
         page: Int,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryTrendingItem> {
         if (mediaType != DiscoveryMediaType.ANIME || genres.isEmpty()) return emptyList()
         return try {
@@ -116,6 +149,7 @@ open class JikanTrendingSource(
                 .awaitSuccess()
                 .parseAs<JsonObject>(jsonProvider())
             parseJikanAnimePage(response, null)
+                .let { filterByJikanStatus(it, releaseStatuses) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -1,0 +1,3 @@
+-- Audit A3/H7: the hidden-content manager shows a human-readable title for hidden reels;
+-- videoId alone is opaque. Existing rows keep NULL and the UI falls back to the raw value.
+ALTER TABLE reels_hidden ADD COLUMN label TEXT;

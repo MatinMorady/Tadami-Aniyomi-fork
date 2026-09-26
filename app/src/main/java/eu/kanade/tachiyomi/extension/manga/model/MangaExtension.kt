@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.manga.model
+﻿package eu.kanade.tachiyomi.extension.manga.model
 
 import android.graphics.drawable.Drawable
 import eu.kanade.tachiyomi.source.MangaSource
@@ -26,6 +26,7 @@ sealed class MangaExtension {
         val sources: List<MangaSource>,
         val icon: Drawable?,
         val hasUpdate: Boolean = false,
+        val updateVersion: String? = null,
         val needsReinstall: Boolean = false,
         val isObsolete: Boolean = false,
         val isShared: Boolean,

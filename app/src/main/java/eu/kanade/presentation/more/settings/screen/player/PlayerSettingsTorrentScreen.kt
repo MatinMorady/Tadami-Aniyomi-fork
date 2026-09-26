@@ -14,7 +14,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.core.net.toUri
 import aniyomi.core.common.torrent.ProxyMode
 import aniyomi.core.common.torrent.TorrentPreferences
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.screen.SearchableSettings
 import eu.kanade.tachiyomi.data.torrent.service.TorrentServerService
 import kotlinx.collections.immutable.toImmutableMap
@@ -35,33 +40,52 @@ object PlayerSettingsTorrentScreen : SearchableSettings {
         var showNotice by remember { mutableStateOf(false) }
 
         if (showNotice) {
-            AlertDialog(
-                onDismissRequest = { showNotice = false },
-                title = { Text(stringResource(AYMR.strings.pref_player_torrents_notice)) },
-                text = {
-                    Text(
-                        stringResource(AYMR.strings.pref_player_torrents_notice_text) +
-                            "\n\n" +
-                            stringResource(AYMR.strings.pref_player_torrents_notice_footer),
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            torrentPreferences.torrServerShownNotice().set(true)
-                            torrentPreferences.torrServerEnable().set(true)
-                            showNotice = false
-                        },
-                    ) {
-                        Text(stringResource(MR.strings.action_ok))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showNotice = false }) {
-                        Text(stringResource(MR.strings.action_cancel))
-                    }
-                },
-            )
+            val dialogContent: @Composable () -> Unit = {
+                Text(
+                    stringResource(AYMR.strings.pref_player_torrents_notice_text) +
+                        "\n\n" +
+                        stringResource(AYMR.strings.pref_player_torrents_notice_footer),
+                )
+            }
+            val onConfirm = {
+                torrentPreferences.torrServerShownNotice().set(true)
+                torrentPreferences.torrServerEnable().set(true)
+                showNotice = false
+            }
+            if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                AuroraFrostDialog(
+                    onDismiss = { showNotice = false },
+                    title = stringResource(AYMR.strings.pref_player_torrents_notice),
+                    footer = {
+                        AuroraFrostCancel(
+                            label = stringResource(MR.strings.action_cancel),
+                            onClick = { showNotice = false },
+                        )
+                        AuroraFrostConfirm(
+                            label = stringResource(MR.strings.action_ok),
+                            onClick = onConfirm,
+                        )
+                    },
+                ) {
+                    dialogContent()
+                }
+            } else {
+                AlertDialog(
+                    onDismissRequest = { showNotice = false },
+                    title = { Text(stringResource(AYMR.strings.pref_player_torrents_notice)) },
+                    text = { dialogContent() },
+                    confirmButton = {
+                        TextButton(onClick = onConfirm) {
+                            Text(stringResource(MR.strings.action_ok))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showNotice = false }) {
+                            Text(stringResource(MR.strings.action_cancel))
+                        }
+                    },
+                )
+            }
         }
 
         return listOf(

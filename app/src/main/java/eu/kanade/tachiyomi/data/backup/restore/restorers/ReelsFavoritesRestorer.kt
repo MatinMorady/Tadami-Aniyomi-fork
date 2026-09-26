@@ -9,11 +9,19 @@ import uy.kohesive.injekt.api.get
 class ReelsFavoritesRestorer(
     private val repository: ReelsFavoriteRepository = Injekt.get(),
 ) {
-    // INSERT OR REPLACE keeps restore idempotent and never drops existing likes. One batched
-    // write: the repository persists the whole list in a single transaction, so a large
-    // backup does not pay a transaction per row.
+    // Restore policy (favorites): local state is authoritative — rows that already exist are
+    // never overwritten (a like removed locally must not resurrect from the backup). Rows are
+    // inserted UNCONDITIONALLY: extension restore only launches the system installer (manual
+    // confirmation, completes after this job), so the source manager cannot be consulted here —
+    // filtering on it would silently drop every favorite on a fresh install. Dangling rows of
+    // still-missing sources are visible in the Favorites screen and removed by the user-initiated
+    // "clean up missing sources" action, never automatically.
+    // One batched write: the repository persists the whole list in a single transaction.
     suspend fun restoreReelsFavorites(backup: List<BackupReelsFavorite>) {
         if (backup.isEmpty()) return
-        repository.insertAll(backup.map { it.toReelsFavorite() })
+        val existing = repository.getAll().map { it.videoId to it.sourceId }.toSet()
+        val toInsert = backup.filter { it.videoId to it.sourceId !in existing }
+        if (toInsert.isEmpty()) return
+        repository.insertAll(toInsert.map { it.toReelsFavorite() })
     }
 }

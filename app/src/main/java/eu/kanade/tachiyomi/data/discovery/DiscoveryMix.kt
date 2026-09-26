@@ -122,7 +122,7 @@ internal fun mergeNormalized(
  */
 internal fun mergeSeedResults(
     perSeed: List<List<DiscoveryRowItem>>,
-    perSeedCap: Int = 4,
+    perSeedCap: Int = 15,
     overlapMultiplier: Double = 0.5,
 ): List<DiscoveryRowItem> {
     class Acc(val template: DiscoveryRowItem) {
@@ -150,9 +150,42 @@ internal fun mergeSeedResults(
         .sortedByDescending { it.score }
 }
 
+/** Вклад дропнутого тайтла в каждый его жанр вместо положительного freshness. */
+internal const val DROPPED_GENRE_PENALTY = 0.5
+
+/** Категория жанра: фундаментальные вкусы живут годами, трендовые приедаются. */
+internal fun genreDecayDays(genre: String): Double {
+    val g = genre.trim().lowercase()
+    return when (g) {
+        in FUNDAMENTAL_GENRES -> 180.0
+        in TRENDY_GENRES -> 20.0
+        else -> 30.0
+    }
+}
+
+private val FUNDAMENTAL_GENRES = setOf(
+    "science fiction", "sci-fi", "фантастика",
+    "psychological", "психологическое", "психология",
+    "thriller", "триллер",
+    "mystery", "детектив",
+    "drama", "драма",
+)
+
+private val TRENDY_GENRES = setOf(
+    "isekai",
+    "исекай",
+    "harem",
+    "гарем",
+    "slice of life",
+    "повседневность",
+)
+
 /**
  * Жанровый профиль: топ-[topN] жанров библиотеки/истории за [windowDays] дней,
- * вес жанра = сумма freshness по тайтлам (freshness = 1 / (1 + возраст_в_днях / 30)).
+ * вес жанра = сумма freshness по тайтлам (freshness = 1 / (1 + возраст_в_днях /
+ * [genreDecayDays]) — полураспад на каждый жанр свой).
+ * Дропнутые тайтлы вычитают [DROPPED_GENRE_PENALTY] из каждого своего жанра;
+ * жанры с неположительным итогом из профиля исключаются.
  */
 internal fun buildTasteProfile(
     candidates: List<DiscoverySeedInput>,
@@ -166,12 +199,14 @@ internal fun buildTasteProfile(
         val interaction = (candidate.lastInteraction ?: candidate.dateAdded)
         if (interaction < windowStart) return@forEach
         val ageDays = ((nowMs - interaction) / DAY_MS).coerceAtLeast(0)
-        val freshness = 1.0 / (1.0 + ageDays / 30.0)
         candidate.genres.forEach { genre ->
-            weights[genre] = (weights[genre] ?: 0.0) + freshness
+            val freshness = 1.0 / (1.0 + ageDays / genreDecayDays(genre))
+            val contribution = if (candidate.isDropped) -DROPPED_GENRE_PENALTY else freshness
+            weights[genre] = (weights[genre] ?: 0.0) + contribution
         }
     }
     return weights.entries
+        .filter { it.value > 0.0 }
         .sortedByDescending { it.value }
         .take(topN)
         .map { it.key to it.value }
@@ -244,10 +279,100 @@ internal fun dedupeCrossRow(
     .distinctBy { it.cleanTitle }
 
 /**
+ * Матчит ли хоть один жанр айтема против набора целевых жанров (обычно уже
+ * развёрнутых [expandGenreSet] вариантов). Эвристика [GenreMatcher] покрывает
+ * любые языки и формы: блэклист «экшен» вырежет и «Action», и «aksiyon».
+ */
+internal fun matchesAnyGenre(itemGenres: List<String>, wantedVariants: Set<String>): Boolean =
+    itemGenres.any { genre -> wantedVariants.any { wanted -> GenreMatcher.matches(wanted, genre) } }
+
+/**
+ * V3: обязательные жанры — только тайтлы с хотя бы одним из них.
+ * Best-effort: пустой результат → возвращаем исходный список (лента не голодает),
+ * айтемы без жанров не режем.
+ */
+internal fun <T> applyRequiredGenres(
+    items: List<T>,
+    requiredGenres: Set<String>,
+    itemGenres: (T) -> List<String>,
+): List<T> {
+    if (requiredGenres.isEmpty()) return items
+    val filtered = items.filter { item ->
+        val genres = itemGenres(item)
+        genres.isEmpty() || genres.any { g -> requiredGenres.any { req -> GenreMatcher.matches(req, g) } }
+    }
+    return if (filtered.isEmpty()) items else filtered
+}
+
+/** Перегрузка для [DiscoveryTrendingItem]: жанры — поле genres. */
+internal fun applyRequiredGenres(
+    items: List<DiscoveryTrendingItem>,
+    requiredGenres: Set<String>,
+): List<DiscoveryTrendingItem> = applyRequiredGenres(items, requiredGenres) { it.genres }
+
+/** V3: TASTE-скорование с бустом приоритетных жанров (×1.5, не отсекает). */
+internal fun boostedTasteScore(
+    itemGenres: List<String>,
+    profile: List<Pair<String, Double>>,
+    priorityGenres: Set<String>,
+): Double {
+    val base = tasteScore(itemGenres, profile)
+    if (priorityGenres.isEmpty() || itemGenres.isEmpty()) return base
+    val hasPriority = itemGenres.any { g -> priorityGenres.any { pri -> GenreMatcher.matches(pri, g) } }
+    return if (hasPriority) base * 1.5 else base
+}
+
+// ==================== V3: CSV с raw-префиксом для жанровых фильтров ====================
+
+/**
+ * V3: парсинг CSV жанрового фильтра формата `canonical|canonical|raw:«строка»`.
+ * Возвращает (canonical keys, raw strings) — обе части матчятся через GenreMatcher
+ * (canonical — через онтологию, raw — напрямую).
+ */
+internal fun parseGenreFilterCsv(csv: String?): Pair<Set<String>, List<String>> {
+    if (csv.isNullOrBlank()) return emptySet<String>() to emptyList<String>()
+    val canonical = mutableSetOf<String>()
+    val raw = mutableListOf<String>()
+    csv.splitToSequence(",")
+        .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+        .forEach { entry ->
+            if (entry.startsWith(RAW_GENRE_PREFIX)) {
+                entry.removePrefix(RAW_GENRE_PREFIX).takeIf(String::isNotBlank)?.let(raw::add)
+            } else {
+                canonical.add(entry)
+            }
+        }
+    return canonical to raw
+}
+
+/**
+ * V3: сериализация CSV жанрового фильтра. Raw-жанры получают префикс `raw:`
+ * чтобы отличаться от canonical ключей при следующем чтении.
+ */
+internal fun serializeGenreFilterCsv(canonical: Set<String>, raw: List<String>): String =
+    (canonical + raw.map { RAW_GENRE_PREFIX + it }).filter { it.isNotBlank() }.joinToString(",")
+
+/**
+ * V3: резолв введённого пользователем жанра: канонический → canonical key;
+ * незнакомый → raw string «как есть».
+ */
+internal fun resolveUserGenreInput(input: String): Pair<String, Boolean> {
+    // Запятая — разделитель CSV-хранилища: в жанре она превратится в пробел,
+    // иначе raw-строка распадётся на два битых элемента при следующем чтении.
+    val trimmed = input.trim().replace(',', ' ').replace('\n', ' ').trim()
+    if (trimmed.isEmpty()) return "" to false
+    val canonical = GenreMatcher.resolve(trimmed).firstOrNull()
+    return if (canonical != null) canonical to true else trimmed to false
+}
+
+private const val RAW_GENRE_PREFIX = "raw:"
+
+/**
  * Read-time фильтр tag-blacklist (B2): у TASTE-ряда жанры профиля сохранены в
  * reason-CSV — они фильтруются мгновенно, без регенерации. У TREND/LIKE/SOURCE
  * жанры не персистятся: для них блэклист действует со следующего обновления ряда.
- * [expandedBlacklist] — уже развёрнутый [expandGenreSet] (RU↔EN варианты).
+ * [expandedBlacklist] — уже развёрнутый [expandGenreSet] (RU↔EN варианты),
+ * сравнение — через эвристику [GenreMatcher].
  */
 internal fun isBlacklisted(
     item: tachiyomi.domain.discovery.model.DiscoverySuggestion,
@@ -256,5 +381,5 @@ internal fun isBlacklisted(
     if (expandedBlacklist.isEmpty()) return false
     if (item.rowType != tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE) return false
     val reason = item.reason ?: return false
-    return reason.splitToSequence(",").any { tag -> tag.trim().lowercase() in expandedBlacklist }
+    return reason.splitToSequence(",").any { tag -> matchesAnyGenre(listOf(tag), expandedBlacklist) }
 }

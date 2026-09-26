@@ -11,7 +11,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.window.DialogProperties
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.settingsDialogContainerColor
 import eu.kanade.presentation.more.settings.settingsSubtitleColor
 import eu.kanade.presentation.more.settings.settingsTitleColor
@@ -40,50 +45,74 @@ fun MultiSelectListPreferenceWidget(
                 .filter { values.contains(it) }
                 .toMutableStateList()
         }
-        AlertDialog(
-            onDismissRequest = { isDialogShown = false },
-            title = { Text(text = preference.title, color = settingsTitleColor()) },
-            text = {
-                LazyColumn {
-                    preference.entries.forEach { current ->
-                        item {
-                            val isSelected = selected.contains(current.key)
-                            LabeledCheckbox(
-                                label = current.value,
-                                checked = isSelected,
-                                onCheckedChange = {
-                                    if (it) {
-                                        selected.add(current.key)
-                                    } else {
-                                        selected.remove(current.key)
-                                    }
-                                },
-                            )
-                        }
+        val listContent: @Composable () -> Unit = {
+            LazyColumn {
+                preference.entries.forEach { current ->
+                    item {
+                        val isSelected = selected.contains(current.key)
+                        LabeledCheckbox(
+                            label = current.value,
+                            checked = isSelected,
+                            onCheckedChange = {
+                                if (it) {
+                                    selected.add(current.key)
+                                } else {
+                                    selected.remove(current.key)
+                                }
+                            },
+                        )
                     }
                 }
-            },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = true,
-            ),
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onValuesChange(selected.toMutableSet())
-                        isDialogShown = false
-                    },
-                ) {
-                    Text(text = stringResource(MR.strings.action_ok))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { isDialogShown = false }) {
-                    Text(text = stringResource(MR.strings.action_cancel))
-                }
-            },
-            containerColor = settingsDialogContainerColor(),
-            titleContentColor = settingsTitleColor(),
-            textContentColor = settingsSubtitleColor(),
-        )
+            }
+        }
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = { isDialogShown = false },
+                title = preference.title,
+                innerScroll = false,
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { isDialogShown = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
+                        onClick = {
+                            onValuesChange(selected.toMutableSet())
+                            isDialogShown = false
+                        },
+                    )
+                },
+            ) {
+                listContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = { isDialogShown = false },
+                title = { Text(text = preference.title, color = settingsTitleColor()) },
+                text = { listContent() },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = true,
+                ),
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onValuesChange(selected.toMutableSet())
+                            isDialogShown = false
+                        },
+                    ) {
+                        Text(text = stringResource(MR.strings.action_ok))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { isDialogShown = false }) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+                containerColor = settingsDialogContainerColor(),
+                titleContentColor = settingsTitleColor(),
+                textContentColor = settingsSubtitleColor(),
+            )
+        }
     }
 }

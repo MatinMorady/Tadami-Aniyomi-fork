@@ -120,6 +120,27 @@ class NovelRichContentParserTest {
     }
 
     @Test
+    fun `parser keeps webtoepub illustration wrapped in figure inside image container`() {
+        // WordPress/webtoepub chapters wrap illustrations as div.wp-block-image > figure > img.
+        // The wrapper is neither an image tag nor a paragraph container, so the inline path used
+        // to swallow the img and the rich renderer lost every illustration of such books.
+        val html = """
+            <p>Before</p>
+            <div class="wp-block-image">
+            <figure class="aligncenter size-large"><img src="../Images/0004.jpg" alt="" /></figure>
+            </div>
+            <p>After</p>
+        """.trimIndent()
+
+        val result = parseNovelRichContent(html)
+
+        result.blocks shouldHaveSize 3
+        (result.blocks[0] as NovelRichContentBlock.Paragraph).segments.single().text shouldBe "Before"
+        (result.blocks[1] as NovelRichContentBlock.Image).url shouldBe "../Images/0004.jpg"
+        (result.blocks[2] as NovelRichContentBlock.Paragraph).segments.single().text shouldBe "After"
+    }
+
+    @Test
     fun `parser falls back to picture source srcset when img is missing`() {
         val html = """
             <picture>

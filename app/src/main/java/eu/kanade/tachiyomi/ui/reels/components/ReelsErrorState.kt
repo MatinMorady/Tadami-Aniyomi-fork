@@ -20,19 +20,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.theme.AuroraTheme
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
 /**
  * Full-screen error state for the reels feed (dark immersive surface) with a retry action.
+ * [stringRes] is a static, localizable failure reason; [message] carries raw transport text
+ * (blank values fall back to a generic localized message).
  */
 @Composable
 fun ReelsErrorState(
     message: String,
+    stringRes: StringResource? = null,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val shown = stringRes?.let { stringResource(it) }
+        ?: message.ifBlank { stringResource(MR.strings.reels_feed_load_failed) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -48,7 +54,7 @@ fun ReelsErrorState(
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = message,
+            text = shown,
             color = Color.White.copy(alpha = 0.85f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,

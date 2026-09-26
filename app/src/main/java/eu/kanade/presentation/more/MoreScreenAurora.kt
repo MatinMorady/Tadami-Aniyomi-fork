@@ -17,25 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Help
-import androidx.compose.material.icons.automirrored.outlined.ChromeReaderMode
-import androidx.compose.material.icons.automirrored.outlined.Label
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.QueryStats
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Book
-import androidx.compose.material.icons.outlined.FormatQuote
-import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.NewReleases
-import androidx.compose.material.icons.outlined.ReportProblem
-import androidx.compose.material.icons.outlined.SlowMotionVideo
-import androidx.compose.material.icons.outlined.Storage
-import androidx.compose.material.icons.outlined.VideoSettings
-import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -45,7 +28,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -57,12 +42,16 @@ import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.NavStyle
 import eu.kanade.presentation.components.AuroraBackground
 import eu.kanade.presentation.components.LocalHostScaffoldContentPadding
+import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
+import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenuItem
 import eu.kanade.presentation.more.resolveAuroraMoreSwitchColors
+import eu.kanade.presentation.more.settings.AuroraTopBarIconButton
 import eu.kanade.presentation.more.settings.AuroraTopBarTitleText
 import eu.kanade.presentation.more.settings.auroraCardStyle
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.LocalIsDefaultAppUiFont
 import eu.kanade.tachiyomi.ui.more.DownloadQueueState
+import eu.kanade.tachiyomi.ui.more.MoreEntryId
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -103,12 +92,124 @@ fun MoreScreenAurora(
     onOpenLatticeGridClick: () -> Unit,
     showReelsEntry: Boolean = false,
     onReelsClick: () -> Unit = {},
+    visibleEntryIds: List<MoreEntryId> = MoreEntryId.entries.toList(),
+    onCustomizeMenuClick: () -> Unit = {},
 ) {
     val colors = AuroraTheme.colors
     val hostScaffoldContentPadding = LocalHostScaffoldContentPadding.current
     val bottomContentPadding = (hostScaffoldContentPadding?.calculateBottomPadding() ?: 0.dp) + 24.dp
     val uiPreferences = remember { Injekt.get<UiPreferences>() }
     val darkRimLightEnabled by uiPreferences.auroraDarkRimLightEnabled().collectAsState()
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    val movedTabTitle = navStyle.moreTab.options.title
+    val movedTabIcon = navStyle.moreIcon
+
+    val downloadQueueState = downloadQueueStateProvider()
+    val downloadSubtitle = when (downloadQueueState) {
+        DownloadQueueState.Stopped -> null
+        is DownloadQueueState.Paused -> {
+            val pending = downloadQueueState.pending
+            if (pending == 0) {
+                stringResource(AYMR.strings.aurora_download_paused)
+            } else {
+                "${stringResource(
+                    AYMR.strings.aurora_download_paused,
+                )} • ${stringResource(AYMR.strings.aurora_download_pending, pending)}"
+            }
+        }
+        is DownloadQueueState.Downloading -> {
+            stringResource(AYMR.strings.aurora_download_pending, downloadQueueState.pending)
+        }
+    }
+
+    // Every entry has a stable id, so the user-defined order and hidden set can be applied by the
+    // caller without this screen knowing anything about them.
+    val entries = listOfNotNull(
+        MoreEntry(MoreEntryId.MOVED_TAB, onClick = onClickAlt),
+        if (showReelsEntry) MoreEntry(MoreEntryId.REELS, onClick = onReelsClick) else null,
+        MoreEntry(MoreEntryId.SETTINGS, onClick = onSettingsClick),
+        MoreEntry(MoreEntryId.PLAYER_SETTINGS, onClick = onPlayerSettingsClick),
+        MoreEntry(MoreEntryId.READER_MANGA, onClick = onMangaReaderSettingsClick),
+        MoreEntry(MoreEntryId.READER_NOVEL, onClick = onNovelReaderSettingsClick),
+        MoreEntry(MoreEntryId.QUOTES, onClick = onNovelQuotesClick),
+        MoreEntry(MoreEntryId.STATS, onClick = onStatsClick),
+        MoreEntry(MoreEntryId.ACHIEVEMENTS, onClick = onAchievementsClick),
+        MoreEntry(MoreEntryId.TREASURY, onClick = onTreasuryClick),
+        MoreEntry(MoreEntryId.DATA_STORAGE, onClick = onDataStorageClick),
+        MoreEntry(MoreEntryId.UPDATE_ERRORS, onClick = onLibraryUpdateErrorsClick),
+        MoreEntry(MoreEntryId.DOWNLOADS, subtitle = downloadSubtitle, onClick = onDownloadClick),
+        MoreEntry(MoreEntryId.CATEGORIES, onClick = onCategoriesClick),
+        MoreEntry(
+            id = MoreEntryId.DOWNLOADED_ONLY,
+            checked = downloadedOnly,
+            onCheckedChange = onDownloadedOnlyChange,
+        ),
+        MoreEntry(
+            id = MoreEntryId.INCOGNITO,
+            checked = incognitoMode,
+            onCheckedChange = onIncognitoModeChange,
+        ),
+        MoreEntry(MoreEntryId.ABOUT, onClick = onAboutClick),
+        // Safety net for the Frame resonance easter egg: once every carrier is
+        // latched the Grid must always be reachable by hand.
+        if (latticeGridAvailable) {
+            MoreEntry(
+                id = MoreEntryId.LATTICE_GRID,
+                subtitle = stringResource(AYMR.strings.lattice_open_manual_summary),
+                onClick = onOpenLatticeGridClick,
+            )
+        } else {
+            null
+        },
+        if (BuildConfig.DEBUG) {
+            MoreEntry(
+                id = MoreEntryId.DEBUG_APP_UPDATE,
+                subtitle = stringResource(AYMR.strings.debug_app_update_preview_summary),
+                onClick = onDebugAppUpdatePreviewClick,
+            )
+        } else {
+            null
+        },
+        if (BuildConfig.DEBUG) {
+            MoreEntry(
+                id = MoreEntryId.DEBUG_CHANGELOG,
+                subtitle = stringResource(AYMR.strings.debug_updated_changelog_preview_summary),
+                onClick = onDebugUpdatedChangelogPreviewClick,
+            )
+        } else {
+            null
+        },
+        if (BuildConfig.DEBUG) {
+            MoreEntry(
+                id = MoreEntryId.DEBUG_RESET_HEART,
+                subtitle = stringResource(AYMR.strings.debug_reset_aurora_heart_summary),
+                onClick = onDebugResetAuroraHeartClick,
+            )
+        } else {
+            null
+        },
+        if (BuildConfig.DEBUG) {
+            MoreEntry(
+                id = MoreEntryId.DEBUG_RESET_LATTICE,
+                subtitle = stringResource(AYMR.strings.debug_reset_lattice_resonance_summary),
+                onClick = onDebugResetLatticeResonanceClick,
+            )
+        } else {
+            null
+        },
+        if (BuildConfig.DEBUG) {
+            MoreEntry(
+                id = MoreEntryId.DEBUG_FORCE_BREACH,
+                subtitle = stringResource(AYMR.strings.debug_force_lattice_breach_summary),
+                onClick = onDebugForceLatticeBreachClick,
+            )
+        } else {
+            null
+        },
+        MoreEntry(MoreEntryId.HELP, onClick = onHelpClick),
+    )
+    val entriesById = entries.associateBy { it.id }
 
     AuroraBackground {
         LazyColumn(
@@ -126,213 +227,59 @@ fun MoreScreenAurora(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
-                        modifier = Modifier.height(40.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         AuroraTopBarTitleText(title = stringResource(AYMR.strings.aurora_more))
+                    }
+                    Box {
+                        AuroraTopBarIconButton(
+                            onClick = { menuExpanded = true },
+                            icon = Icons.Filled.MoreVert,
+                            contentDescription = stringResource(MR.strings.action_menu),
+                        )
+                        AuroraEntryDropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            AuroraEntryDropdownMenuItem(
+                                text = stringResource(AYMR.strings.aurora_more_menu_customize),
+                                leadingIcon = Icons.Outlined.Tune,
+                                onClick = {
+                                    menuExpanded = false
+                                    onCustomizeMenuClick()
+                                },
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
             item {
-                AuroraSettingItem(
-                    title = navStyle.moreTab.options.title,
-                    icon = navStyle.moreIcon,
-                    onClick = onClickAlt,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                if (showReelsEntry) {
-                    AuroraSettingItem(
-                        title = stringResource(MR.strings.reels_sources_section_header),
-                        icon = Icons.Outlined.SlowMotionVideo,
-                        onClick = onReelsClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                }
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_settings),
-                    icon = Icons.Filled.Settings,
-                    onClick = onSettingsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_player_settings),
-                    icon = Icons.Outlined.VideoSettings,
-                    onClick = onPlayerSettingsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(MR.strings.pref_category_reader),
-                    icon = Icons.AutoMirrored.Outlined.ChromeReaderMode,
-                    onClick = onMangaReaderSettingsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.pref_category_novel_reader),
-                    icon = Icons.Outlined.Book,
-                    onClick = onNovelReaderSettingsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.novel_quotes_library_title),
-                    icon = Icons.Outlined.FormatQuote,
-                    onClick = onNovelQuotesClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_statistics),
-                    icon = Icons.Filled.QueryStats,
-                    onClick = onStatsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_achievements),
-                    icon = Icons.Filled.EmojiEvents,
-                    onClick = onAchievementsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.label_treasury),
-                    icon = Icons.Outlined.Inventory2,
-                    onClick = onTreasuryClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_data_storage),
-                    icon = Icons.Outlined.Storage,
-                    onClick = onDataStorageClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.option_label_library_update_errors),
-                    icon = Icons.Outlined.ReportProblem,
-                    onClick = onLibraryUpdateErrorsClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                val downloadQueueState = downloadQueueStateProvider()
-                val downloadSubtitle = when (downloadQueueState) {
-                    DownloadQueueState.Stopped -> null
-                    is DownloadQueueState.Paused -> {
-                        val pending = downloadQueueState.pending
-                        if (pending == 0) {
-                            stringResource(AYMR.strings.aurora_download_paused)
-                        } else {
-                            "${stringResource(
-                                AYMR.strings.aurora_download_paused,
-                            )} • ${stringResource(AYMR.strings.aurora_download_pending, pending)}"
-                        }
-                    }
-                    is DownloadQueueState.Downloading -> {
-                        stringResource(AYMR.strings.aurora_download_pending, downloadQueueState.pending)
+                visibleEntryIds.forEach { id ->
+                    val entry = entriesById[id] ?: return@forEach
+                    val onCheckedChange = entry.onCheckedChange
+                    if (onCheckedChange != null) {
+                        AuroraToggleItem(
+                            title = MoreEntryTitle(id, movedTabTitle),
+                            icon = moreEntryIcon(id, movedTabIcon),
+                            checked = entry.checked,
+                            onCheckedChange = onCheckedChange,
+                            darkRimLightEnabled = darkRimLightEnabled,
+                        )
+                    } else {
+                        AuroraSettingItem(
+                            title = MoreEntryTitle(id, movedTabTitle),
+                            subtitle = entry.subtitle,
+                            icon = moreEntryIcon(id, movedTabIcon),
+                            onClick = entry.onClick,
+                            darkRimLightEnabled = darkRimLightEnabled,
+                        )
                     }
                 }
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_downloads),
-                    subtitle = downloadSubtitle,
-                    icon = Icons.Filled.Download,
-                    onClick = onDownloadClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_categories),
-                    icon = Icons.AutoMirrored.Outlined.Label,
-                    onClick = onCategoriesClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraToggleItem(
-                    title = stringResource(AYMR.strings.aurora_downloaded_only),
-                    icon = Icons.Filled.CloudOff,
-                    checked = downloadedOnly,
-                    onCheckedChange = onDownloadedOnlyChange,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraToggleItem(
-                    title = stringResource(AYMR.strings.aurora_incognito_mode),
-                    icon = Icons.Outlined.VisibilityOff,
-                    checked = incognitoMode,
-                    onCheckedChange = onIncognitoModeChange,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_about),
-                    icon = Icons.Filled.Info,
-                    onClick = onAboutClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
-
-                // Safety net for the Frame resonance easter egg: once every carrier is
-                // latched the Grid must always be reachable by hand.
-                if (latticeGridAvailable) {
-                    AuroraSettingItem(
-                        title = stringResource(AYMR.strings.lattice_open_manual),
-                        subtitle = stringResource(AYMR.strings.lattice_open_manual_summary),
-                        icon = Icons.Outlined.Hub,
-                        onClick = onOpenLatticeGridClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                }
-
-                if (BuildConfig.DEBUG) {
-                    AuroraSettingItem(
-                        title = stringResource(AYMR.strings.debug_app_update_preview),
-                        subtitle = stringResource(AYMR.strings.debug_app_update_preview_summary),
-                        icon = Icons.Outlined.NewReleases,
-                        onClick = onDebugAppUpdatePreviewClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                    AuroraSettingItem(
-                        title = stringResource(AYMR.strings.debug_updated_changelog_preview),
-                        subtitle = stringResource(AYMR.strings.debug_updated_changelog_preview_summary),
-                        icon = Icons.Outlined.NewReleases,
-                        onClick = onDebugUpdatedChangelogPreviewClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                    AuroraSettingItem(
-                        title = stringResource(AYMR.strings.debug_reset_aurora_heart),
-                        subtitle = stringResource(AYMR.strings.debug_reset_aurora_heart_summary),
-                        icon = Icons.Outlined.ReportProblem,
-                        onClick = onDebugResetAuroraHeartClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                    AuroraSettingItem(
-                        title = stringResource(AYMR.strings.debug_reset_lattice_resonance),
-                        subtitle = stringResource(AYMR.strings.debug_reset_lattice_resonance_summary),
-                        icon = Icons.Outlined.ReportProblem,
-                        onClick = onDebugResetLatticeResonanceClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                    AuroraSettingItem(
-                        title = stringResource(AYMR.strings.debug_force_lattice_breach),
-                        subtitle = stringResource(AYMR.strings.debug_force_lattice_breach_summary),
-                        icon = Icons.Outlined.NewReleases,
-                        onClick = onDebugForceLatticeBreachClick,
-                        darkRimLightEnabled = darkRimLightEnabled,
-                    )
-                }
-
-                AuroraSettingItem(
-                    title = stringResource(AYMR.strings.aurora_help),
-                    icon = Icons.AutoMirrored.Filled.Help,
-                    onClick = onHelpClick,
-                    darkRimLightEnabled = darkRimLightEnabled,
-                )
             }
         }
     }
@@ -487,3 +434,15 @@ fun AuroraToggleItem(
         }
     }
 }
+
+/**
+ * One row of the «More» screen. Title and icon are resolved from [MoreEntryId] so the screen and the
+ * menu customization screen cannot drift apart; a non-null [onCheckedChange] makes the row a toggle.
+ */
+private class MoreEntry(
+    val id: MoreEntryId,
+    val subtitle: String? = null,
+    val checked: Boolean = false,
+    val onClick: () -> Unit = {},
+    val onCheckedChange: ((Boolean) -> Unit)? = null,
+)

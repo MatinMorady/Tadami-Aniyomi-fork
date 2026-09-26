@@ -42,6 +42,7 @@ fun ReelsContentPreferencesSheet(
     preferences: List<ContentPreferenceOption>?,
     isLoading: Boolean,
     error: String?,
+    saveFailed: Boolean = false,
     onSave: (List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -81,9 +82,11 @@ fun ReelsContentPreferencesSheet(
                     }
                 },
             ) { padding ->
-                if (error != null) {
+                val errorText = error?.takeIf { it.isNotBlank() }
+                    ?: if (saveFailed) stringResource(MR.strings.reels_save_failed) else null
+                if (errorText != null) {
                     Text(
-                        text = error,
+                        text = errorText,
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(horizontal = 16.dp),

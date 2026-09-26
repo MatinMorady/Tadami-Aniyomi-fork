@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.extension.anime.model
+﻿package eu.kanade.tachiyomi.extension.anime.model
 
 import android.graphics.drawable.Drawable
 import eu.kanade.tachiyomi.animesource.AnimeSource
@@ -28,6 +28,7 @@ sealed class AnimeExtension {
         val sources: List<AnimeSource>,
         val icon: Drawable?,
         val hasUpdate: Boolean = false,
+        val updateVersion: String? = null,
         val needsReinstall: Boolean = false,
         val isObsolete: Boolean = false,
         val isShared: Boolean,

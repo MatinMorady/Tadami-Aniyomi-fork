@@ -11,6 +11,33 @@ enum class DiscoveryMediaType(val key: String) {
     }
 }
 
+/**
+ * V1: статус выпуска тайтла для фильтра трендов. Ключ — стабильный идентификатор
+ * (префы/UI); для серверов — валидные значения Shikimori/AniList.
+ */
+enum class DiscoveryReleaseStatus(
+    val key: String,
+    val shikimoriValue: String,
+    val anilistValue: String,
+) {
+    ONGOING("ongoing", "ongoing", "RELEASING"),
+    FINISHED("finished", "released", "FINISHED"),
+    ANONS("anons", "anons", "NOT_YET_RELEASED"),
+    PAUSED("paused", "on_hiatus", "HIATUS"),
+    ;
+
+    companion object {
+        fun fromKey(key: String): DiscoveryReleaseStatus? = entries.firstOrNull { it.key == key }
+
+        /** CSV-ключи → множество; мусорные ключи и пустота молча отбрасываются. */
+        fun parseCsv(csv: String?): Set<DiscoveryReleaseStatus> =
+            csv.orEmpty().splitToSequence(",")
+                .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                .mapNotNull(::fromKey)
+                .toSet()
+    }
+}
+
 /** Порядок enum = приоритет межрядового дедупа (LIKE > TASTE > TREND > SOURCE). */
 enum class DiscoveryRowType(val key: String) {
     LIKE("like"),
@@ -37,6 +64,8 @@ data class DiscoverySuggestion(
     val score: Double,
     val position: Long,
     val createdAt: Long,
+    val sourceId: Long? = null,
+    val sourceUrl: String? = null,
 )
 
 /** Строка `discovery_hidden` для backup (негативный сигнал пользователя). */

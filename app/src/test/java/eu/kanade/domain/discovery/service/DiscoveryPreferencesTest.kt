@@ -8,10 +8,10 @@ import tachiyomi.core.common.preference.InMemoryPreferenceStore
 class DiscoveryPreferencesTest {
 
     @Test
-    fun `defaults are discovery-on, hero-continue, interval 12, teaser 16, seeds 3`() {
+    fun `defaults are discovery-on, hero-auto, interval 12, teaser 16, seeds 3`() {
         val prefs = DiscoveryPreferences(InMemoryPreferenceStore())
         prefs.discoveryEnabled().get() shouldBe true
-        prefs.homeHeroMode().get() shouldBe "continue"
+        prefs.homeHeroMode().get() shouldBe "auto"
         prefs.refreshIntervalHours().get() shouldBe 12
         prefs.teaserCount().get() shouldBe 16
         prefs.seedCount().get() shouldBe 3
@@ -32,13 +32,22 @@ class DiscoveryPreferencesTest {
         prefs.collageRotationIntervalHours().get() shouldBe 2
         prefs.collageAnimationSpeed().get() shouldBe "normal"
         prefs.collageLastRotationTime().get() shouldBe 0L
+        prefs.collageOffset().get() shouldBe 0
         prefs.manualRefreshAt().get() shouldBe 0L
         prefs.filterNsfw().get() shouldBe true
         prefs.lastFailedRows(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME).get() shouldBe ""
     }
 
     @Test
+    fun `source participation defaults keep current behaviour`() {
+        val prefs = DiscoveryPreferences(InMemoryPreferenceStore())
+        prefs.discoverySourceMode(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL).get() shouldBe "auto"
+        prefs.discoverySourceExcluded(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL).get() shouldBe ""
+    }
+
+    @Test
     fun `hero mode fromKey falls back to Continue`() {
+        HomeHeroMode.fromKey("auto") shouldBe HomeHeroMode.Auto
         HomeHeroMode.fromKey("hybrid") shouldBe HomeHeroMode.Hybrid
         HomeHeroMode.fromKey("collage") shouldBe HomeHeroMode.Collage
         HomeHeroMode.fromKey(null) shouldBe HomeHeroMode.Continue

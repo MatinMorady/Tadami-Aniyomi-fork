@@ -49,8 +49,6 @@ abstract class ViewerNavigation {
         }
     }
 
-    private var constantMenuRegion: RectF = RectF(0f, 0f, 1f, 0.05f)
-
     var invertMode: ReaderPreferences.TappingInvertMode = ReaderPreferences.TappingInvertMode.NONE
 
     protected abstract var regionList: List<Region>
@@ -63,11 +61,8 @@ abstract class ViewerNavigation {
     fun getAction(pos: PointF): NavigationRegion {
         val x = pos.x
         val y = pos.y
-        val region = getRegions().find { it.rectF.contains(x, y) }
-        return when {
-            region != null -> region.type
-            constantMenuRegion.contains(x, y) -> NavigationRegion.MENU
-            else -> NavigationRegion.MENU
-        }
+        // Taps outside any configured zone open the menu (historical default; the removed
+        // "constant menu region" strip resolved to the same action).
+        return getRegions().find { it.rectF.contains(x, y) }?.type ?: NavigationRegion.MENU
     }
 }

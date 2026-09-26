@@ -124,10 +124,12 @@ import eu.kanade.tachiyomi.ui.more.OnboardingScreen
 import eu.kanade.tachiyomi.ui.player.ExternalIntents
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
+import eu.kanade.tachiyomi.ui.reels.ReelsPip
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
 import eu.kanade.tachiyomi.util.system.isPreviewBuildType
 import eu.kanade.tachiyomi.util.system.openInBrowser
+import eu.kanade.tachiyomi.util.system.tabletUiNeedsRecreate
 import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.system.updaterEnabled
 import eu.kanade.tachiyomi.util.view.setComposeContent
@@ -629,6 +631,24 @@ class MainActivity : BaseActivity() {
             }
         }
         appSessionStartTime = null
+    }
+
+    // Reels picture-in-picture (declutter redesign): the HOME gesture during playback enters
+    // PiP when the feed screen registered its handler (feature toggle + actual playback are
+    // gated inside the handler). No-op for every other screen.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        ReelsPip.handler?.invoke()
+    }
+
+    // The manifest configChanges (added for the reels PiP) suppresses rotation recreation,
+    // but the tablet-UI context override is computed only in attachBaseContext: recreate
+    // when the computed tablet mode flips, so phone/tablet layouts keep following rotation.
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (tabletUiNeedsRecreate(newConfig)) {
+            recreate()
+        }
     }
 
     override fun onStop() {

@@ -21,6 +21,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import eu.kanade.presentation.components.auroraMenuRimLightBrush
 import eu.kanade.presentation.theme.AuroraColors
 import eu.kanade.presentation.theme.AuroraTheme
@@ -35,6 +39,7 @@ fun AuroraCompactEntryRowCard(
     cornerRadius: Dp = 20.dp,
     outerVerticalPadding: Dp = 6.dp,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+    hazeState: HazeState? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
@@ -47,12 +52,59 @@ fun AuroraCompactEntryRowCard(
         else -> Color.Transparent
     }
 
+    // Frost family of the title-screen hero panel: live blur under a translucent surface.
+    val haze = hazeState?.takeIf { !colors.isEInk }
+    val hazeModifier = if (haze != null) {
+        Modifier.hazeEffect(
+            state = haze,
+            style = HazeStyle(
+                backgroundColor = Color.Transparent,
+                tint = HazeTint(
+                    Color.White.copy(alpha = if (colors.isDark) 0.10f else 0.18f),
+                ),
+                blurRadius = 20.dp,
+                noiseFactor = 0f,
+            ),
+        )
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = outerVerticalPadding),
     ) {
-        val cardModifier = if (!colors.isDark && !colors.isEInk) {
+        val cardModifier = if (haze != null) {
+            // Frost family of the title-screen hero panel: live blur under a translucent surface.
+            if (!colors.isDark) {
+                Modifier
+                    .clip(shape)
+                    .then(hazeModifier)
+                    .auroraCoverHeroCardStyle(
+                        colors = colors,
+                        shape = shape,
+                        cornerRadius = cornerRadius,
+                    )
+            } else {
+                Modifier
+                    .clip(shape)
+                    .then(hazeModifier)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.12f),
+                                Color.White.copy(alpha = 0.08f),
+                            ),
+                        ),
+                    )
+                    .border(
+                        width = 1.dp,
+                        brush = auroraMenuRimLightBrush(colors),
+                        shape = shape,
+                    )
+            }
+        } else if (!colors.isDark && !colors.isEInk) {
             Modifier
                 .drawBehind {
                     val radius = cornerRadius.toPx()

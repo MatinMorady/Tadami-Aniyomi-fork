@@ -93,11 +93,21 @@ abstract class WebViewInterceptor(
     }
 
     fun createWebView(request: Request): WebView {
-        return WebView(context).apply {
+        val webView = object : WebView(context) {
+            // The solve overlay must never swallow touches meant for the activity below it.
+            override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean = false
+        }
+        webView.apply {
             setDefaultSettings()
             // Avoid sending empty User-Agent, Chromium WebView will reset to default if empty
             settings.userAgentString = request.header("User-Agent") ?: defaultUserAgentProvider()
         }
+        attachToWindow(webView)
+        return webView
+    }
+
+    private fun attachToWindow(webView: WebView) {
+        attachWebViewToWindow(webView)
     }
 }
 

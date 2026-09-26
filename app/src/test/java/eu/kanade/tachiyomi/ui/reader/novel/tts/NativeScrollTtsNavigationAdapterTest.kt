@@ -19,6 +19,19 @@ class NativeScrollTtsNavigationAdapterTest {
     }
 
     @Test
+    fun `syncToSegment on chapter title sentinel scrolls to top instead of negative index`() {
+        runBlocking {
+            val navigator = FakeNativeNavigator()
+            val adapter = NativeScrollTtsNavigationAdapter(navigator)
+
+            // sourceBlockIndex = -1 is the chapter-title segment: it has no content block.
+            adapter.syncToSegment(segment(sourceBlockIndex = -1))
+
+            navigator.lastIndex shouldBe 0
+        }
+    }
+
+    @Test
     fun `pause on manual navigation captures block anchor`() {
         val adapter = NativeScrollTtsNavigationAdapter(FakeNativeNavigator())
 
@@ -66,6 +79,10 @@ class NativeScrollTtsNavigationAdapterTest {
         var lastOffsetPx: Int? = null
 
         override suspend fun scrollToBlock(blockIndex: Int, scrollOffsetPx: Int) {
+            // Replicates the LazyListState.scrollToItem contract the real navigator feeds.
+            if (blockIndex < 0) {
+                throw IllegalArgumentException("Index should be non-negative ($blockIndex)")
+            }
             lastIndex = blockIndex
             lastOffsetPx = scrollOffsetPx
         }

@@ -76,7 +76,17 @@ class ReelsFavoritesMigrationTest {
             parameters = 0,
         )
 
-        // Upgrade from 148 to current runs only 148.sqm (the recreate).
+        // Migration 150 (animes.completed_at) targets the animes table, which this reels-only
+        // fixture does not create: provide a minimal stub so "upgrade to current" applies the
+        // whole chain instead of failing on a table this test does not care about.
+        driver.execute(
+            identifier = null,
+            sql = "CREATE TABLE animes(id INTEGER NOT NULL PRIMARY KEY)",
+            parameters = 0,
+        )
+
+        // Upgrade from 148 to current: 148.sqm performs the recreate, the later chain is inert
+        // for this fixture (149 creates the follows table, 150 alters the animes stub).
         AnimeDatabase.Schema.migrate(driver, oldVersion = 148L, newVersion = AnimeDatabase.Schema.version)
 
         val columns = columnNames(driver, "reels_favorites")

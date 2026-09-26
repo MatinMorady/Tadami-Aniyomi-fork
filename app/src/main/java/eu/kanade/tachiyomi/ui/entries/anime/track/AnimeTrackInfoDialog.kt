@@ -47,6 +47,7 @@ import eu.kanade.presentation.track.TrackScoreSelector
 import eu.kanade.presentation.track.TrackStatusSelector
 import eu.kanade.presentation.track.anime.AnimeTrackInfoDialogHome
 import eu.kanade.presentation.track.anime.AnimeTrackerSearch
+import eu.kanade.presentation.track.resolveReadOrdinal
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.DeletableAnimeTracker
@@ -59,10 +60,13 @@ import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -74,6 +78,7 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.anime.interactor.GetAnime
+import tachiyomi.domain.items.episode.interactor.GetEpisodesByAnimeId
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.track.anime.interactor.DeleteAnimeTrack
 import tachiyomi.domain.track.anime.interactor.GetAnimeTracks
@@ -125,6 +130,7 @@ data class AnimeTrackInfoDialogHomeScreen(
                     TrackEpisodeSelectorScreen(
                         track = it.track!!,
                         serviceId = it.tracker.id,
+                        initialOrdinal = it.lastReadOrdinal,
                     ),
                 )
             },
@@ -206,13 +212,31 @@ data class AnimeTrackInfoDialogHomeScreen(
         private val getTracks: GetAnimeTracks = Injekt.get(),
     ) : ScreenModel {
 
-        val state: StateFlow<Model.State> = getTracks.subscribe(animeId)
+        private val itemNumbersFlow: Flow<List<Double>> = flow {
+            emit(withIOContext { loadItemNumbers() })
+        }
+
+        val state: StateFlow<Model.State> = combine(
+            getTracks.subscribe(animeId)
+                .map { it.mapToTrackItem() },
+            itemNumbersFlow,
+        ) { trackItems, numbers ->
+            State(trackItems = trackItems.withReadOrdinal(numbers))
+        }
             .catch { logcat(LogPriority.ERROR, it) }
             .distinctUntilChanged()
-            .map { tracks ->
-                State(trackItems = tracks.mapToTrackItem())
-            }
             .stateIn(screenModelScope, SharingStarted.WhileSubscribed(5000), State())
+
+        private suspend fun loadItemNumbers(): List<Double> {
+            return Injekt.get<GetEpisodesByAnimeId>().await(animeId).map { it.episodeNumber }
+        }
+
+        private fun List<AnimeTrackItem>.withReadOrdinal(numbers: List<Double>): List<AnimeTrackItem> {
+            return map { item ->
+                val track = item.track ?: return@map item
+                item.copy(lastReadOrdinal = resolveReadOrdinal(numbers, track.lastEpisodeSeen))
+            }
+        }
 
         init {
             screenModelScope.launch {
@@ -338,6 +362,7 @@ private data class TrackStatusSelectorScreen(
 private data class TrackEpisodeSelectorScreen(
     private val track: DbAnimeTrack,
     private val serviceId: Long,
+    private val initialOrdinal: Int? = null,
 ) : Screen() {
 
     @Composable
@@ -347,6 +372,7 @@ private data class TrackEpisodeSelectorScreen(
             Model(
                 track = track,
                 tracker = Injekt.get<TrackerManager>().get(serviceId)!!,
+                initialOrdinal = initialOrdinal,
             )
         }
         val state by screenModel.state.collectAsStateWithLifecycle()
@@ -367,7 +393,8 @@ private data class TrackEpisodeSelectorScreen(
     private class Model(
         private val track: DbAnimeTrack,
         private val tracker: Tracker,
-    ) : StateScreenModel<Model.State>(State(track.lastEpisodeSeen.toInt())) {
+        private val initialOrdinal: Int? = null,
+    ) : StateScreenModel<Model.State>(State(initialOrdinal ?: track.lastEpisodeSeen.toInt())) {
 
         fun getRange(): Iterable<Int> {
             val endRange = if (track.totalEpisodes > 0) {

@@ -87,6 +87,7 @@ import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.discovery.CompositeTrendingSource
+import eu.kanade.tachiyomi.data.discovery.DiscoveryCoverRecovery
 import eu.kanade.tachiyomi.data.discovery.DiscoveryMeta
 import eu.kanade.tachiyomi.ui.browse.anime.source.browse.BrowseAnimeSourceScreen
 import eu.kanade.tachiyomi.ui.browse.anime.source.globalsearch.GlobalAnimeSearchScreen
@@ -94,6 +95,9 @@ import eu.kanade.tachiyomi.ui.browse.manga.source.browse.BrowseMangaSourceScreen
 import eu.kanade.tachiyomi.ui.browse.manga.source.globalsearch.GlobalMangaSearchScreen
 import eu.kanade.tachiyomi.ui.browse.novel.source.browse.BrowseNovelSourceScreen
 import eu.kanade.tachiyomi.ui.browse.novel.source.globalsearch.GlobalNovelSearchScreen
+import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
+import eu.kanade.tachiyomi.ui.entries.manga.MangaScreen
+import eu.kanade.tachiyomi.ui.entries.novel.NovelScreen
 import eu.kanade.tachiyomi.ui.entries.suggestions.toDirectEntryScreenOrNull
 import eu.kanade.tachiyomi.ui.entries.suggestions.toGlobalSearchScreen
 import eu.kanade.tachiyomi.ui.home.discoveryReasonText
@@ -210,7 +214,33 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
                     top = if (topBarHeightDp > 0.dp) topBarHeightDp + 8.dp else 140.dp,
                     bottom = 24.dp,
                 ),
-                onItemClick = { sheetItem = it },
+                // Прямое открытие plugin-bound карточки; guard от повторного тапа
+                // на время резолва, fallback в шторку при неполной привязке/ошибке.
+                onItemClick = { item ->
+                    if (state.openingItem != item) {
+                        scope.launch {
+                            screenModel.setOpenPending(item)
+                            // finally: pending сбрасывается и при отмене (rotation/back),
+                            // иначе guard залипнет на пережившем config change ScreenModel.
+                            val entryId = try {
+                                screenModel.resolveEntryId(item)
+                            } finally {
+                                screenModel.setOpenPending(null)
+                            }
+                            if (entryId != null) {
+                                navigator.push(
+                                    when (item.mediaType) {
+                                        DiscoveryMediaType.ANIME -> AnimeScreen(entryId, fromSource = true)
+                                        DiscoveryMediaType.MANGA -> MangaScreen(entryId, fromSource = true)
+                                        DiscoveryMediaType.NOVEL -> NovelScreen(entryId, fromSource = true)
+                                    },
+                                )
+                            } else {
+                                sheetItem = item
+                            }
+                        }
+                    }
+                },
                 onItemLongClick = { longPressItem = it },
                 onItemAdd = { screenModel.addToLibrary(it) },
                 onRetry = { screenModel.refreshNow() },
@@ -310,6 +340,7 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
             LaunchedEffect(state.searchFallbackItem) {
                 val item = state.searchFallbackItem ?: return@LaunchedEffect
                 screenModel.dismissSearchFallback()
+                context.toast(context.contextStringResource(AYMR.strings.for_you_select_source_to_read))
                 navigateFor(item)
             }
             sheetItem?.let { item ->
@@ -434,7 +465,7 @@ private fun FeedToolbar(
                 Icon(
                     Icons.Filled.Refresh,
                     contentDescription = stringResource(AYMR.strings.for_you_refresh),
-                    tint = colors.accent,
+                    tint = colors.textPrimary,
                     modifier = Modifier.size(22.dp),
                 )
             }
@@ -778,6 +809,7 @@ private fun FeedBody(
                     reason = reason,
                     isAdding = item.title in state.addingTitles,
                     coverMediaType = state.mediaType,
+                    coverRecoveryTick = state.coverRecoveryTick,
                     onClick = {
                         appHaptics.tap()
                         onItemClick(item)
@@ -802,6 +834,7 @@ private fun FeedCard(
     reason: String?,
     isAdding: Boolean,
     coverMediaType: DiscoveryMediaType,
+    coverRecoveryTick: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onAdd: () -> Unit,
@@ -811,8 +844,16 @@ private fun FeedCard(
     val context = LocalContext.current
     val fallbackPainter = rememberThemeAwareCoverErrorPainter(variant = AuroraCoverPlaceholderVariant.Portrait)
     val coverReloadTick = rememberCoverReloadTick()
-    val coverRequest = remember(context, item.coverUrl, item.provider, coverReloadTick) {
-        buildAuroraCoverImageRequest(context, discoveryCoverData(coverMediaType, item.provider, item.coverUrl))
+    val coverRequest = remember(context, item.coverUrl, item.provider, coverReloadTick, coverRecoveryTick) {
+        buildAuroraCoverImageRequest(
+            context,
+            discoveryCoverData(
+                coverMediaType,
+                item.provider,
+                item.coverUrl,
+                DiscoveryCoverRecovery.get(coverMediaType, item.cleanTitle),
+            ),
+        )
     }
     val containerShape = RoundedCornerShape(18.dp)
     val posterShape = RoundedCornerShape(16.dp)

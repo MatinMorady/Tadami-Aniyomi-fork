@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
 import eu.kanade.presentation.entries.components.ItemCover
 import eu.kanade.presentation.entries.components.aurora.AURORA_DIMMED_ITEM_ALPHA
 import eu.kanade.presentation.entries.components.aurora.GlassmorphismCard
@@ -52,6 +53,7 @@ fun MangaSeriesEntryCard(
     onRemove: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
 ) {
     val colors = AuroraTheme.colors
     val isCompleted = isSeriesEntryCompleted(manga.readCount, manga.totalChapters)
@@ -70,6 +72,7 @@ fun MangaSeriesEntryCard(
         cornerRadius = 16.dp,
         verticalPadding = 4.dp,
         innerPadding = 0.dp,
+        hazeState = hazeState,
     ) {
         Row(
             modifier = Modifier

@@ -7,11 +7,15 @@ class ReadingSpeedTracker(
     private val maxHistorySize: Int = 5,
     private val maxGapMs: Long = 120_000, // 2 minutes
 ) {
+    // Written on the main thread (page transitions) and read from IO coroutines (progress
+    // estimation): a plain ArrayList raced (torn reads / IndexOutOfBounds under concurrent
+    // removeAt+iteration).
     private val history = mutableListOf<Long>()
 
     /**
      * Records a page transition timestamp.
      */
+    @Synchronized
     fun addPageTransition(timestamp: Long) {
         history.add(timestamp)
         // Keep at most maxHistorySize + 1 timestamps to measure maxHistorySize transitions
@@ -24,6 +28,7 @@ class ReadingSpeedTracker(
      * Calculates the average reading speed in seconds.
      * Returns null if there are not enough valid transitions.
      */
+    @Synchronized
     fun getAverageSpeedSeconds(): Double? {
         if (history.size < 2) return null
 

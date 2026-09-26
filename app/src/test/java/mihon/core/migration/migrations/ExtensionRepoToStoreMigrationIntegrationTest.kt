@@ -90,6 +90,10 @@ class ExtensionRepoToStoreMigrationIntegrationTest {
             ),
             reels_favoritesAdapter = dataanime.Reels_favorites.Adapter(added_atAdapter = DateColumnAdapter),
             reels_followsAdapter = dataanime.Reels_follows.Adapter(added_atAdapter = DateColumnAdapter),
+            reels_watch_historyAdapter = dataanime.Reels_watch_history.Adapter(watched_atAdapter = DateColumnAdapter),
+            reels_hiddenAdapter = dataanime.Reels_hidden.Adapter(hidden_atAdapter = DateColumnAdapter),
+            reels_albumsAdapter = dataanime.Reels_albums.Adapter(added_atAdapter = DateColumnAdapter),
+            reels_album_watchedAdapter = dataanime.Reels_album_watched.Adapter(marked_atAdapter = DateColumnAdapter),
         )
         novelDatabase = NovelDatabase(
             driver = novelDriver,

@@ -1,8 +1,13 @@
 package eu.kanade.tachiyomi.ui.home
 
+import android.animation.ValueAnimator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -18,9 +23,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -31,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,8 +48,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.LabelOff
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -49,11 +61,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,13 +85,25 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import eu.kanade.domain.discovery.service.DiscoveryPreferences
 import eu.kanade.domain.ui.model.HomeHeroMode
@@ -82,6 +113,7 @@ import eu.kanade.presentation.components.AuroraSheetWindowFx
 import eu.kanade.presentation.components.buildAuroraCoverImageRequest
 import eu.kanade.presentation.components.rememberCoverReloadTick
 import eu.kanade.presentation.components.rememberThemeAwareCoverErrorPainter
+import eu.kanade.presentation.components.shouldAnimateAuroraBackground
 import eu.kanade.presentation.entries.components.aurora.AuroraGlassCtaSurface
 import eu.kanade.presentation.entries.components.aurora.AuroraHeroCtaMode
 import eu.kanade.presentation.entries.components.aurora.rememberAuroraPosterColorFilter
@@ -99,8 +131,10 @@ import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
 import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.ui.discovery.discoveryCoverData
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
@@ -110,6 +144,9 @@ import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import kotlin.math.abs
+import kotlin.math.floor
+import kotlin.math.roundToInt
 
 // ============================ Чистые функции (тестируются) ============================
 
@@ -127,14 +164,65 @@ internal fun composeTeaserItems(
             }
         }
     val fullMix = interleaveMix(rows, total = items.size, rrf = rrfScores(rows))
-    val rotated = if (fullMix.size <= capped || offset <= 0) {
+    val safeOffset = if (fullMix.isNotEmpty()) offset % fullMix.size else 0
+    val rotated = if (safeOffset <= 0) {
         fullMix.take(capped)
     } else {
-        val safeOffset = offset % fullMix.size
         (fullMix.drop(safeOffset) + fullMix.take(safeOffset)).take(capped)
     }
     return rotated.mapNotNull { row ->
         items.firstOrNull { it.cleanTitle == row.cleanTitle }?.toHomeHubDiscoveryItem()
+    }
+}
+
+/**
+ * Выбирает элементы тизера с соблюдением 48-часовой уникальности:
+ * 1. Исключает тайтлы из [shownTitles] (показанные за последние 48 ч).
+ * 2. Если свежих тайтлов >= count, формирует сбалансированный тизер только из свежих.
+ * 3. Если свежих тайтлов < count, добирает недостающие из ранее показанных строго в порядке
+ *    [shownCutoffMap] (наименее недавно показанные первыми, без искажения квотами рядов).
+ * 4. Если весь пул меньше или равен count, циклически ротирует порядок отображения по [offset],
+ *    чтобы кнопка обновления и повторный вход не зависали.
+ */
+internal fun selectFreshTeaserItems(
+    pool: List<DiscoverySuggestion>,
+    shownTitles: Set<String>,
+    count: Int,
+    offset: Int = 0,
+    shownCutoffMap: Map<String, Long> = emptyMap(),
+): List<HomeHubDiscoveryItem> {
+    val capped = count.coerceIn(3, 20)
+    if (pool.isEmpty()) return emptyList()
+
+    val freshPool = pool.filterNot { it.cleanTitle in shownTitles }
+    val shownPool = pool.filter { it.cleanTitle in shownTitles }
+
+    val rawSelection: List<HomeHubDiscoveryItem> = when {
+        freshPool.size >= capped -> {
+            composeTeaserItems(freshPool, capped, offset = 0)
+        }
+        freshPool.isNotEmpty() -> {
+            val freshItems = freshPool.map { it.toHomeHubDiscoveryItem() }
+            val needed = capped - freshItems.size
+            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            val backfillItems = sortedShown.take(needed).map { it.toHomeHubDiscoveryItem() }
+            (freshItems + backfillItems).take(capped)
+        }
+        else -> {
+            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            sortedShown.take(capped).map { it.toHomeHubDiscoveryItem() }
+        }
+    }
+
+    return if (pool.size <= capped && rawSelection.isNotEmpty()) {
+        val safeOffset = offset % rawSelection.size
+        if (safeOffset <= 0) {
+            rawSelection
+        } else {
+            rawSelection.drop(safeOffset) + rawSelection.take(safeOffset)
+        }
+    } else {
+        rawSelection
     }
 }
 
@@ -187,17 +275,22 @@ internal fun discoveryReasonText(
 
 /**
  * Режим hero с деградацией: Collage/Hybrid требуют включённый discovery с непустой лентой.
+ * Auto (дефолт) = кинематографичный Stage при работающем «Для тебя», иначе Continue.
  */
 internal fun resolveHeroPresentation(
     prefMode: HomeHeroMode,
     discoveryEnabled: Boolean,
     discoveryCount: Int,
 ): HomeHeroMode = when (prefMode) {
+    HomeHeroMode.Auto ->
+        if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Stage else HomeHeroMode.Continue
     HomeHeroMode.Continue -> HomeHeroMode.Continue
     HomeHeroMode.Collage ->
         if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Collage else HomeHeroMode.Continue
     HomeHeroMode.Hybrid ->
         if (discoveryEnabled && discoveryCount > 0) HomeHeroMode.Hybrid else HomeHeroMode.Continue
+    HomeHeroMode.Stage ->
+        if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Stage else HomeHeroMode.Continue
 }
 
 internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem(
@@ -209,6 +302,8 @@ internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem
     provider = provider,
     rowType = rowType,
     mediaType = mediaType,
+    sourceId = sourceId,
+    sourceUrl = sourceUrl,
 )
 
 internal fun HomeHubDiscoveryItem.toSuggestionItem(): SuggestionItem = SuggestionItem(
@@ -246,6 +341,8 @@ internal fun HomeHubDiscoveryItem.toDiscoverySuggestion(): DiscoverySuggestion =
     score = 1.0,
     position = 0L,
     createdAt = 0L,
+    sourceId = sourceId,
+    sourceUrl = sourceUrl,
 )
 
 // ============================ UI ============================
@@ -295,6 +392,8 @@ internal fun DiscoveryPosterCard(
     coverMediaType: DiscoveryMediaType? = null,
     coverProvider: String? = null,
     onLongClick: (() -> Unit)? = null,
+    // Бейдж «откроется напрямую»: микро-молния в углу постера, читается до тапа.
+    showsDirectOpenBadge: Boolean = false,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -370,6 +469,9 @@ internal fun DiscoveryPosterCard(
                     error = fallbackPainter,
                     fallback = fallbackPainter,
                 )
+                if (showsDirectOpenBadge) {
+                    DirectOpenBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
+                }
             }
             Spacer(Modifier.height(posterSpec.textTopSpacingDp.dp))
             Column(
@@ -503,6 +605,42 @@ internal fun DiscoveryPosterCard(
     }
 }
 
+/**
+ * Микро-бейдж «откроется напрямую» (молния) на привязанных карточках: ожидание
+ * читается до тапа. Полупрозрачная подложка + тонкий бордер — как плавающие
+ * иконки Stage, читается на светлых и тёмных обложках; в e-ink — контурно.
+ */
+@Composable
+internal fun DirectOpenBadge(modifier: Modifier = Modifier) {
+    val colors = AuroraTheme.colors
+    val badgeShape = CircleShape
+    Box(
+        modifier = modifier
+            .size(18.dp)
+            .clip(badgeShape)
+            .background(
+                if (colors.isEInk) {
+                    Color.White.copy(alpha = 0.85f)
+                } else {
+                    Color.Black.copy(alpha = 0.45f)
+                },
+            )
+            .border(
+                width = 1.dp,
+                color = if (colors.isEInk) colors.divider else Color.White.copy(alpha = 0.35f),
+                shape = badgeShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.Bolt,
+            contentDescription = stringResource(AYMR.strings.for_you_direct_open_badge),
+            tint = if (colors.isEInk) Color.Black else colors.accent,
+            modifier = Modifier.size(11.dp),
+        )
+    }
+}
+
 @Composable
 private fun discoveryReasonOrNull(item: HomeHubDiscoveryItem): String? {
     val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
@@ -598,7 +736,7 @@ private fun DiscoveryRefreshIconButton(isRefreshing: Boolean, onClick: () -> Uni
         Icon(
             Icons.Filled.Refresh,
             contentDescription = stringResource(AYMR.strings.for_you_refresh),
-            tint = if (colors.isDark && !colors.isEInk) colors.accent else colors.textPrimary,
+            tint = colors.textPrimary,
             modifier = Modifier
                 .size(16.dp)
                 .graphicsLayer { rotationZ = rotationAngle },
@@ -694,6 +832,7 @@ internal fun ForYouSection(
                     deviceClass = auroraAdaptiveSpec.deviceClass,
                     coverMediaType = coverMediaType,
                     coverProvider = item.provider,
+                    showsDirectOpenBadge = item.showsDirectOpenBadge(),
                     onLongClick = onLongClick?.let { { it(item) } },
                     onClick = {
                         appHaptics.tap()
@@ -804,6 +943,7 @@ internal fun HybridDiscoveryStrip(
                     deviceClass = stripAdaptiveSpec.deviceClass,
                     coverMediaType = coverMediaType,
                     coverProvider = item.provider,
+                    showsDirectOpenBadge = item.showsDirectOpenBadge(),
                     onClick = {
                         appHaptics.tap()
                         onItemClick(item)
@@ -983,8 +1123,13 @@ internal fun DiscoveryHeroCollage(
     val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
     val intervalHours by discoveryPreferences.collageRotationIntervalHours().collectAsStateWithLifecycle()
     val animSpeed by discoveryPreferences.collageAnimationSpeed().collectAsStateWithLifecycle()
-    var offset by remember { mutableIntStateOf(0) }
+    var offset by rememberSaveable { mutableIntStateOf(discoveryPreferences.collageOffset().get()) }
     var userInteractionToken by remember { mutableIntStateOf(0) }
+
+    val updateOffset: (Int) -> Unit = { newOffset ->
+        offset = newOffset
+        discoveryPreferences.collageOffset().set(newOffset)
+    }
 
     // Авто-ротация с настраиваемым интервалом (от 1 до 24 ч, 0 = отключено)
     if (!colors.isEInk && items.size > 5 && intervalHours > 0) {
@@ -998,13 +1143,13 @@ internal fun DiscoveryHeroCollage(
                     discoveryPreferences.collageLastRotationTime().set(now)
                     delay(intervalMillis)
                 } else if (elapsed >= intervalMillis) {
-                    offset += 1
+                    updateOffset(offset + 1)
                     discoveryPreferences.collageLastRotationTime().set(now)
                     delay(intervalMillis)
                 } else {
                     val remaining = maxOf(1000L, intervalMillis - elapsed)
                     delay(remaining)
-                    offset += 1
+                    updateOffset(offset + 1)
                     discoveryPreferences.collageLastRotationTime().set(System.currentTimeMillis())
                 }
             }
@@ -1160,7 +1305,7 @@ internal fun DiscoveryHeroCollage(
                         appHaptics.tap()
                         discoveryPreferences.collageLastRotationTime().set(System.currentTimeMillis())
                         userInteractionToken++
-                        offset = offset + 1
+                        updateOffset(offset + 1)
                     },
                 ),
             contentAlignment = Alignment.Center,
@@ -1232,6 +1377,715 @@ internal fun resolveCollageSlotTransition(
         val exit = fadeOut(animationSpec = tween(durationMillis = exitDuration)) +
             scaleOut(targetScale = 1.02f, animationSpec = tween(durationMillis = exitDuration))
         enter togetherWith exit
+    }
+}
+
+// ==================== Hero «Кинематографичный фокус» (stage) ====================
+
+/** Сколько слотов держим по каждую сторону от фокуса: 5 видимых (−2..+2) + 2 буфера (±3). */
+private const val STAGE_BUFFER = 3
+
+/**
+ * B1: путь одного слота при драге. Смещение соседа в позе = 42% ширины слота,
+ * слот = 60% ширины сцены: 0.42 * 0.60 = 0.252 — постер следует за пальцем 1:1.
+ */
+private const val STAGE_DRAG_TRAVEL_FRACTION = 0.252f
+
+/** B2: порог визуального фокуса — подпись и подсветка переключаются при пересечении центра слота. */
+private const val STAGE_FOCUS_EPSILON = 0.5f
+
+/** B1: минимальное смещение драга, при котором скорость броска вообще учитывается: микро-драги не листают. */
+private const val STAGE_FLICK_MIN_DP = 16f
+
+/** B1: порог флика — скорость, проходящая страницу за 300 мс (страниц/мс). Не зависит от плотности экрана. */
+private const val STAGE_FLICK_VELOCITY_MIN_PAGES = 1f / 300f
+
+/** B1: потолок скорости броска (страниц/мс): реальные флики ~0.02, выше — цифрайзерные спайки. */
+private const val STAGE_FLICK_VELOCITY_MAX_PAGES = 0.03f
+
+/**
+ * B1: драг меньше этой величины — максимум ОДИН слот за отпускание, независимо от скорости:
+ * «небольшой свайп = следующий тайтл». До двух страниц доходит только длинный свайп
+ * (примерно треть экрана при пути 1:1) — «больше порога = запускается скролл».
+ */
+private const val STAGE_SINGLE_STEP_DRAG_PAGES = 1.25f
+
+/** B1: миллисекунды «свободного полёта», которые скорость проецирует после отпускания. */
+private const val STAGE_FLING_PROJECTION_MILLIS = 120f
+
+/** B1: порог выбора оси жеста — стандартный touch slop Android. */
+private const val STAGE_TOUCH_SLOP_DP = 8f
+
+/** B1: касание считается «ловлей летящей сцены», если визуальный центр ушёл от коммита. */
+private const val STAGE_CAUGHT_EPSILON = 0.01f
+
+private const val STAGE_KEN_BURNS_MIN_SCALE = 1.04f
+private const val STAGE_KEN_BURNS_MAX_SCALE = 1.14f
+
+/** Поза слота карусели: только числа — держим её чистой и тестируемой. */
+@androidx.compose.runtime.Immutable
+internal data class StageSlotPose(
+    val scale: Float,
+    val alpha: Float,
+    val dimAlpha: Float,
+    val translationXPercent: Float,
+    val rotationYDeg: Float,
+)
+
+/**
+ * Поза по расстоянию до фокуса: фокус → соседи (±1) → дальние (±2) → невидимый буфер (|rel| ≥ 3).
+ * Затемнение выражено [StageSlotPose.dimAlpha], потому что brightness в graphicsLayer недоступен.
+ */
+internal fun resolveStageSlotPose(rel: Int): StageSlotPose {
+    val sign = if (rel < 0) -1f else 1f
+    return when (abs(rel)) {
+        0 -> StageSlotPose(scale = 1f, alpha = 1f, dimAlpha = 0f, translationXPercent = 0f, rotationYDeg = 0f)
+        1 -> StageSlotPose(
+            scale = 0.82f,
+            alpha = 1f,
+            dimAlpha = 0.38f,
+            translationXPercent = 42f * sign,
+            rotationYDeg = -15f * sign,
+        )
+        2 -> StageSlotPose(
+            scale = 0.7f,
+            alpha = 0.72f,
+            dimAlpha = 0.6f,
+            translationXPercent = 76f * sign,
+            rotationYDeg = -24f * sign,
+        )
+        else -> StageSlotPose(
+            scale = 0.62f,
+            alpha = 0f,
+            dimAlpha = 0.7f,
+            translationXPercent = 104f * sign,
+            rotationYDeg = -28f * sign,
+        )
+    }
+}
+
+/** Линейная интерполяция позы: карусель движется плавно между целыми позициями. */
+internal fun lerpStageSlotPose(from: StageSlotPose, to: StageSlotPose, fraction: Float): StageSlotPose {
+    val f = fraction.coerceIn(0f, 1f)
+    fun mix(a: Float, b: Float) = a + (b - a) * f
+    return StageSlotPose(
+        scale = mix(from.scale, to.scale),
+        alpha = mix(from.alpha, to.alpha),
+        dimAlpha = mix(from.dimAlpha, to.dimAlpha),
+        translationXPercent = mix(from.translationXPercent, to.translationXPercent),
+        rotationYDeg = mix(from.rotationYDeg, to.rotationYDeg),
+    )
+}
+
+/** Данные слота берутся по модулю: у ленты нет ни начала, ни конца. */
+internal fun stageItemIndex(center: Int, slot: Int, size: Int): Int {
+    if (size <= 0) return 0
+    return ((center + slot) % size + size) % size
+}
+
+/** Длительности перехода карусели: e-ink и выключенные системные анимации дают мгновенную смену кадра. */
+internal data class StageMotionSpec(val settleMillis: Int, val fadeMillis: Int)
+
+internal fun resolveStageMotionSpec(speed: String, isEInk: Boolean, animationsEnabled: Boolean): StageMotionSpec {
+    if (isEInk || !animationsEnabled) return StageMotionSpec(settleMillis = 0, fadeMillis = 0)
+    return when (speed) {
+        "fast" -> StageMotionSpec(settleMillis = 250, fadeMillis = 200)
+        "smooth" -> StageMotionSpec(settleMillis = 700, fadeMillis = 500)
+        else -> StageMotionSpec(settleMillis = 420, fadeMillis = 300)
+    }
+}
+
+/**
+ * B1: цель довода после отпускания (чистая, тестируемая). Все расстояния и скорость —
+ * в страницах: px конвертируются в месте жеста, поэтому проекция не зависит от плотности экрана.
+ * Скорость не ПРИБАВЛЯЕТ страницы к протащенному смещению (иначе сосед + флик = +3), а проецирует
+ * продолжение полёта от позиции пальца; суммарный шаг от слота на касании ограничен [maxPages].
+ * Драг меньше [STAGE_SINGLE_STEP_DRAG_PAGES] — шаг ограничен одним слотом: небольшой свайп
+ * всегда даёт следующий тайтл, до двух доходит только длинный свайп.
+ * Флик действует только когда скорость СОВПАДАЕТ по направлению с драгом: отскок пальца при
+ * подъёме (скорость против смещения) — это не флик, сцена доводится к ближайшему слоту.
+ * Микро-драг (< [flickMinPages]) всегда возвращает к слоту на касании.
+ */
+internal fun resolveStageDragTarget(
+    dragBase: Float,
+    intent: Float,
+    velocityPagesPerMs: Float,
+    displacementPages: Float,
+    flickMinPages: Float,
+    maxPages: Int = 2,
+): Int {
+    val base = dragBase.roundToInt()
+    if (abs(displacementPages) < flickMinPages) return base
+    val isFlick = abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES &&
+        velocityPagesPerMs * displacementPages > 0f
+    val projected = if (isFlick) {
+        // Свайп влево (velocity < 0) уводит сцену вперёд: проекция со знаком минус.
+        intent - velocityPagesPerMs * STAGE_FLING_PROJECTION_MILLIS
+    } else {
+        intent
+    }
+    // Небольшой драг — максимум один слот: скорость лишь доталкивает до границы, не дальше.
+    val deltaCap = if (abs(displacementPages) < STAGE_SINGLE_STEP_DRAG_PAGES) 1 else maxPages
+    val delta = (projected.roundToInt() - base).coerceIn(-deltaCap, deltaCap)
+    return base + delta
+}
+
+/** Авто-ротация: та же политика, что у фоновых анимаций Aurora (e-ink, lifecycle, системные анимации). */
+internal fun shouldAutoRotateStage(
+    isEInk: Boolean,
+    intervalHours: Int,
+    isLifecycleResumed: Boolean,
+    systemAnimationsEnabled: Boolean,
+): Boolean = shouldAnimateAuroraBackground(
+    userEnabled = !isEInk && intervalHours > 0,
+    isLifecycleResumed = isLifecycleResumed,
+    systemAnimationsEnabled = systemAnimationsEnabled,
+)
+
+/**
+ * Hero «Кинематографичный фокус»: бесконечная карусель подборки — один постер в фокусе,
+ * соседи уходят в перспективу. Слоты живут в окне ±3 от непрерывного центра, данные берутся
+ * по модулю, поэтому листание идёт по кругу в обе стороны. Драг (B1) ведёт сцену за пальцем,
+ * подпись (B2) и ken-burns-профиль (B3) сменяются по визуальному фокусу, за фокусом — ambient-свечение (B6).
+ */
+@Composable
+internal fun DiscoveryHeroStage(
+    items: List<HomeHubDiscoveryItem>,
+    coverMediaType: DiscoveryMediaType,
+    onMoreClick: () -> Unit,
+    onItemClick: (HomeHubDiscoveryItem) -> Unit,
+    onLongClick: ((HomeHubDiscoveryItem) -> Unit)? = null,
+) {
+    if (items.isEmpty()) return
+    val colors = AuroraTheme.colors
+    val appHaptics = LocalAppHaptics.current
+    val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
+    val intervalHours by discoveryPreferences.stageRotationIntervalHours().collectAsStateWithLifecycle()
+    val speed by discoveryPreferences.stageAnimationSpeed().collectAsStateWithLifecycle()
+    var offset by rememberSaveable { mutableIntStateOf(discoveryPreferences.stageOffset().get()) }
+    var userInteractionToken by remember { mutableIntStateOf(0) }
+    var center by rememberSaveable { mutableIntStateOf(0) }
+
+    // B1: непрерывный центр сцены. Драг двигает его за пальцем (snapTo), отпускание/кнопки/авто-ротация
+    // доводят tween'ом от текущей визуальной позиции — без скачков. Касание ловит сцену в любой точке
+    // (см. жест ниже). Значение читается только внутри graphicsLayer/derivedStateOf: рекомпозиций на кадр нет.
+    val centerAnim = remember { Animatable(center.toFloat()) }
+    val scope = rememberCoroutineScope()
+
+    val ordered = remember(items, offset) { items.shuffled(kotlin.random.Random(offset)) }
+    val systemAnimationsEnabled = ValueAnimator.areAnimatorsEnabled()
+    val motionSpec = remember(speed, colors.isEInk, systemAnimationsEnabled) {
+        resolveStageMotionSpec(speed = speed, isEInk = colors.isEInk, animationsEnabled = systemAnimationsEnabled)
+    }
+
+    // Единая точка довода [settleTo]: коммит центра и анимация всегда идут парой, все источники
+    // движения (кнопки, авто-ротация, жесты) проходят только через неё. Спокойный довод —
+    // fast-out-slow-in (tween без bounce: недодемпфированная пружина давала «заряженность»
+    // на микро-драгах); флик — linear-out-slow-in: импульс продолжается быстро и тормозит к слоту.
+    // e-ink и выключенные анимации — мгновенно.
+    fun settleTo(target: Int, isFlick: Boolean) {
+        if (target != center) {
+            center = target
+        }
+        if (motionSpec.settleMillis == 0) {
+            scope.launch(start = CoroutineStart.UNDISPATCHED) { centerAnim.snapTo(target.toFloat()) }
+            return
+        }
+        val easing = if (isFlick) LinearOutSlowInEasing else FastOutSlowInEasing
+        scope.launch { centerAnim.animateTo(target.toFloat(), tween(motionSpec.settleMillis, easing = easing)) }
+    }
+    // Ken-burns у фокуса: состояние читается внутри graphicsLayer, поэтому кадры не рекомпозируют слоты.
+    // B3: профиль (направление/дрейф) выбирается по постеру и применяется в слое слота.
+    val kenBurnsTransition = rememberInfiniteTransition(label = "stage_ken_burns")
+    val kenBurnsScale = kenBurnsTransition.animateFloat(
+        initialValue = STAGE_KEN_BURNS_MIN_SCALE,
+        targetValue = STAGE_KEN_BURNS_MAX_SCALE,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 20_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "stage_ken_burns_scale",
+    )
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isLifecycleResumed by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ ->
+            isLifecycleResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
+    val contentMaxWidthDp = auroraAdaptiveSpec.updatesMaxWidthDp ?: auroraAdaptiveSpec.entryMaxWidthDp
+    val outerShape = RoundedCornerShape(20.dp)
+
+    // Авто-ротация по кругу: выключается в e-ink, при нулевом интервале, на паузе и без системных анимаций.
+    if (ordered.size > 1) {
+        if (shouldAutoRotateStage(colors.isEInk, intervalHours, isLifecycleResumed, systemAnimationsEnabled)) {
+            LaunchedEffect(ordered.size, intervalHours, userInteractionToken) {
+                val intervalMillis = intervalHours * 3600_000L
+                while (isActive) {
+                    val last = discoveryPreferences.stageLastRotationTime().get()
+                    val elapsed = if (last == 0L) 0L else System.currentTimeMillis() - last
+                    delay(if (last == 0L) intervalMillis else (intervalMillis - elapsed).coerceAtLeast(1000L))
+                    discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
+                    settleTo(center + 1, isFlick = false)
+                }
+            }
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .auroraCenteredMaxWidth(contentMaxWidthDp)
+            .height(440.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            // Клип держим на контейнере: свечение затухает внутри области, а соседи не вылезают на соседние секции.
+            .clip(outerShape),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 5.dp, vertical = 10.dp)
+                .pointerInput(ordered.size) {
+                    // Ключ зависит только от размера ленты: жест не рвётся при смене позиции.
+                    // Путь одного слота согласован с позой соседа: палец и постер движутся 1:1.
+                    val travelPx = size.width * STAGE_DRAG_TRAVEL_FRACTION
+                    val slopPx = STAGE_TOUCH_SLOP_DP.dp.toPx()
+                    val flickMinPx = STAGE_FLICK_MIN_DP.dp.toPx()
+                    awaitEachGesture {
+                        // Касание = ловля: сцена замирает под пальцем ДО slop и до выбора оси —
+                        // «удержание» останавливает ленту в любой точке полёта.
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        // Остановка довода на касании — UNDISPATCHED: встаёт в очередь раньше
+                        // snap'ов драга и выполняется без задержки диспетчера.
+                        scope.launch(start = CoroutineStart.UNDISPATCHED) { centerAnim.stop() }
+                        // База драга — позиция сцены на момент касания: захват середины довода
+                        // не телепортирует карусель к целому слоту.
+                        val dragBase = centerAnim.value
+                        val caughtMoving = abs(dragBase - center) > STAGE_CAUGHT_EPSILON
+                        var lockedAxis = 0 // 0 — ось не выбрана, 1 — горизонталь (наш драг), −1 — вертикаль
+                        var totalDx = 0f
+                        var totalDy = 0f
+                        var dragAccumulator = 0f
+                        val pointerId = down.id
+                        while (true) {
+                            // Initial-пасс: родитель видит движение раньше детей — потребление здесь
+                            // глушит click/long-press слотов и вертикальный скролл родителя.
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) {
+                                // Отпускание отслеживаемого пальца — финализируем жест.
+                                // Якорь финальной позиции: без него VelocityTracker считает скорость
+                                // по устаревшим сэмплам и выдаёт спайк при подъёме пальца.
+                                tracker.addPosition(change.uptimeMillis, change.position)
+                                if (lockedAxis == 1 || (caughtMoving && lockedAxis == 0)) {
+                                    change.consume()
+                                }
+                                break
+                            }
+                            val delta = change.positionChange()
+                            if (delta != Offset.Zero) {
+                                if (lockedAxis == 0) {
+                                    totalDx += delta.x
+                                    totalDy += delta.y
+                                    if (abs(totalDx) > slopPx || abs(totalDy) > slopPx) {
+                                        lockedAxis = if (abs(totalDx) >= abs(totalDy)) 1 else -1
+                                        if (lockedAxis == 1) {
+                                            dragAccumulator = totalDx
+                                            tracker.addPosition(change.uptimeMillis, change.position)
+                                        }
+                                    }
+                                } else if (lockedAxis == 1) {
+                                    dragAccumulator += delta.x
+                                    tracker.addPosition(change.uptimeMillis, change.position)
+                                    // Сцена едет за пальцем. Restricted-ско́п жеста не позволяет
+                                    // звать suspend напрямую — UNDISPATCHED-запуск выполняется
+                                    // синхронно до первой приостановки, а snapTo на свободном
+                                    // (уже остановленном на down) мьютексе не подвисает.
+                                    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                        centerAnim.snapTo(dragBase - dragAccumulator / travelPx)
+                                    }
+                                }
+                            }
+                            if (lockedAxis == 1 || (caughtMoving && lockedAxis == 0)) {
+                                // Наш драг или ловля летящей сцены: клики слота под пальцем подавлены.
+                                change.consume()
+                            }
+                            // lockedAxis == −1: вертикаль отдаётся родителю без потребления.
+                        }
+                        if (lockedAxis == 1) {
+                            // Отпускание с драгом: флик проецирует полёт от позиции пальца.
+                            // Клампа скорости: реальные флики ~0.02 стр/мс, выше — цифрайзерные
+                            // спайки (завышенная или развёрнутая скорость при подъёме пальца).
+                            val maxVelocityPxPerMs = STAGE_FLICK_VELOCITY_MAX_PAGES * travelPx
+                            val velocityPxPerMs = tracker.calculateVelocity().x
+                                .coerceIn(-maxVelocityPxPerMs, maxVelocityPxPerMs)
+                            val velocityPagesPerMs = velocityPxPerMs / travelPx
+                            val displacementPages = dragAccumulator / travelPx
+                            val target = resolveStageDragTarget(
+                                dragBase = dragBase,
+                                intent = dragBase - displacementPages,
+                                velocityPagesPerMs = velocityPagesPerMs,
+                                displacementPages = displacementPages,
+                                flickMinPages = flickMinPx / travelPx,
+                            )
+                            val isFlick = abs(velocityPagesPerMs) >= STAGE_FLICK_VELOCITY_MIN_PAGES &&
+                                abs(dragAccumulator) >= flickMinPx &&
+                                velocityPagesPerMs * dragAccumulator > 0f
+                            if (target != center) {
+                                appHaptics.tap()
+                                userInteractionToken++
+                            }
+                            settleTo(target, isFlick)
+                        } else if (caughtMoving) {
+                            // Тап/удержание поймали летящую сцену — спокойно доводим до ближайшего.
+                            settleTo(centerAnim.value.roundToInt(), isFlick = false)
+                        }
+                        // Чистый тап по спокойной сцене: события не потреблены, clickable слота работает.
+                    }
+                },
+        ) {
+            // Окно слотов следует за ВИЗУАЛЬНЫМ центром: при пути 1:1 свайп на весь экран ≈ 4 страницы,
+            // и коммитное окно ±3 оставило бы пустой край. derivedStateOf рекомпозирует только на
+            // пересечении целых границ; слоты переиспользуются по key(absIndex).
+            val windowBase by remember { derivedStateOf { centerAnim.value.roundToInt() } }
+            for (absIndex in (windowBase - STAGE_BUFFER)..(windowBase + STAGE_BUFFER)) {
+                val item = ordered[stageItemIndex(absIndex, 0, ordered.size)]
+                val rel = absIndex - windowBase
+                key(absIndex) {
+                    StageSlot(
+                        item = item,
+                        rel = rel,
+                        absIndex = absIndex,
+                        distanceToFocus = abs(rel),
+                        animatedCenter = centerAnim,
+                        kenBurnsScale = kenBurnsScale,
+                        useKenBurns = !colors.isEInk,
+                        coverMediaType = coverMediaType,
+                        onClick = {
+                            appHaptics.tap()
+                            if (rel == 0) {
+                                onItemClick(item)
+                            } else {
+                                // Шаг всегда один: слоты живут окном вокруг центра, переброс не нужен.
+                                settleTo(center + if (rel > 0) 1 else -1, isFlick = false)
+                                userInteractionToken++
+                            }
+                        },
+                        onLongClick = onLongClick?.let { callback -> { callback(item) } },
+                    )
+                }
+            }
+        }
+
+        // Стрелки: у ленты нет конца, поэтому обе кнопки всегда активны.
+        StageNavButton(
+            icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = stringResource(AYMR.strings.for_you_stage_prev),
+            onClick = {
+                appHaptics.tap()
+                settleTo(center - 1, isFlick = false)
+                userInteractionToken++
+            },
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+        )
+        StageNavButton(
+            icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = stringResource(AYMR.strings.for_you_stage_next),
+            onClick = {
+                appHaptics.tap()
+                settleTo(center + 1, isFlick = false)
+                userInteractionToken++
+            },
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+        )
+
+        // Реролл: новый порядок подборки, позиция сохраняется (без «проезда» через всю ленту).
+        // Кнопка без подложки — только иконка с тенью-двойником, чтобы читалась на любом постере.
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(10.dp)
+                .size(34.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(bounded = false, radius = 17.dp),
+                    onClick = {
+                        appHaptics.tap()
+                        offset += 1
+                        discoveryPreferences.stageOffset().set(offset)
+                        discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
+                        userInteractionToken++
+                    },
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            StageFloatingIcon(
+                icon = Icons.Filled.Refresh,
+                contentDescription = stringResource(AYMR.strings.for_you_collage_reroll),
+                size = 21.dp,
+                tint = colors.accent,
+            )
+        }
+
+        Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) {
+            val buttonInteractionSource = remember { MutableInteractionSource() }
+            AuroraGlassCtaSurface(
+                mode = AuroraHeroCtaMode.Aurora,
+                onClick = {
+                    appHaptics.tap()
+                    onMoreClick()
+                },
+                modifier = Modifier.height(44.dp),
+                isHome = true,
+                shape = CircleShape,
+                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 8.dp),
+                interactionSource = buttonInteractionSource,
+            ) { contentColor ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(AYMR.strings.for_you_all_picks),
+                        color = contentColor,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Иконка поверх постера без подложки: тень-двойник держит читаемость на светлых и тёмных обложках.
+ * В e-ink тень не нужна — там иконка идёт сплошным чёрным.
+ */
+@Composable
+private fun StageFloatingIcon(
+    icon: ImageVector,
+    contentDescription: String?,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+) {
+    val colors = AuroraTheme.colors
+    val onDarkTheme = colors.isDark && !colors.isEInk
+    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+        if (!colors.isEInk) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (onDarkTheme) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.90f),
+                modifier = Modifier
+                    .size(size)
+                    .offset(y = 1.dp),
+            )
+        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint ?: if (onDarkTheme) Color.White else colors.textPrimary,
+            modifier = Modifier.size(size),
+        )
+    }
+}
+
+@Composable
+private fun StageNavButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(32.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = false, radius = 16.dp),
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        StageFloatingIcon(icon = icon, contentDescription = contentDescription, size = 22.dp)
+    }
+}
+
+/**
+ * Слот карусели. Обложка создаётся только для слотов внутри окна (|rel| ≤ 2), буферные слоты
+ * остаются пустыми — так 7 загрузок Coil не плодятся на каждый переброс.
+ */
+@Composable
+private fun BoxScope.StageSlot(
+    item: HomeHubDiscoveryItem,
+    rel: Int,
+    absIndex: Int,
+    distanceToFocus: Int,
+    animatedCenter: Animatable<Float, AnimationVector1D>,
+    kenBurnsScale: State<Float>,
+    useKenBurns: Boolean,
+    coverMediaType: DiscoveryMediaType,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    val colors = AuroraTheme.colors
+    val context = LocalContext.current
+    val coverReloadTick = rememberCoverReloadTick()
+    val coverRequest = remember(context, item.coverUrl, coverMediaType, item.provider, coverReloadTick) {
+        buildAuroraCoverImageRequest(context, discoveryCoverData(coverMediaType, item.provider, item.coverUrl))
+    }
+    val fallbackPainter = rememberThemeAwareCoverErrorPainter(variant = AuroraCoverPlaceholderVariant.Wide)
+    val tileShape = RoundedCornerShape(18.dp)
+    // B2: фокус считается по визуальному центру — подпись, градиент и подсветка сменяются
+    // в середине перелёта, а не по коммиту. derivedStateOf рекомпозирует слот только на пересечении.
+    val isVisualFocus by remember {
+        derivedStateOf { abs(absIndex - animatedCenter.value) < STAGE_FOCUS_EPSILON }
+    }
+    val focusReason = if (isVisualFocus) discoveryReasonOrNull(item) else null
+
+    Box(
+        Modifier
+            .align(Alignment.Center)
+            .fillMaxHeight(0.92f)
+            .fillMaxWidth(0.6f)
+            .zIndex(10f - distanceToFocus)
+            .graphicsLayer {
+                val relFloat = absIndex - animatedCenter.value
+                val base = floor(relFloat).toInt()
+                val pose = lerpStageSlotPose(
+                    from = resolveStageSlotPose(base),
+                    to = resolveStageSlotPose(base + 1),
+                    fraction = relFloat - base,
+                )
+                translationX = size.width * pose.translationXPercent / 100f
+                scaleX = pose.scale
+                scaleY = pose.scale
+                rotationY = pose.rotationYDeg
+                cameraDistance = 12f * density
+                alpha = pose.alpha
+            }
+            .then(
+                if (isVisualFocus) {
+                    Modifier.semantics {
+                        contentDescription = listOfNotNull(item.title, focusReason).joinToString(", ")
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            .clip(tileShape)
+            .background(colors.cardBackground)
+            .then(
+                if (colors.isDark || colors.isEInk) {
+                    Modifier.border(1.dp, colors.divider, tileShape)
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                },
+            ),
+    ) {
+        if (distanceToFocus <= 2) {
+            // Нейтральная подложка на время загрузки: тематическая Aurora-заглушка слишком яркая для hero-слота.
+            val neutralCoverBrush = remember(colors) {
+                Brush.verticalGradient(
+                    listOf(
+                        colors.cardBackground,
+                        colors.divider.copy(alpha = if (colors.isEInk) 0.30f else 0.22f),
+                    ),
+                )
+            }
+            Box(Modifier.fillMaxSize().background(neutralCoverBrush))
+            AsyncImage(
+                model = coverRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = rememberAuroraPosterColorFilter(),
+                // Ken-burns живёт только на обложке: раньше он масштабировал весь слот вместе с подписью.
+                // B3: профиль по хешу постера — наезд/отъезд и дрейф различаются между соседями.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val kenBurns = if (useKenBurns && isVisualFocus) kenBurnsScale.value else 1f
+                        scaleX = kenBurns
+                        scaleY = kenBurns
+                    },
+                error = fallbackPainter,
+                fallback = fallbackPainter,
+            )
+            // Затемнение соседей: brightness в graphicsLayer нет, поэтому кладём scrim-слой.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val relFloat = absIndex - animatedCenter.value
+                        val base = floor(relFloat).toInt()
+                        alpha = lerpStageSlotPose(
+                            from = resolveStageSlotPose(base),
+                            to = resolveStageSlotPose(base + 1),
+                            fraction = relFloat - base,
+                        ).dimAlpha
+                    }
+                    .background(if (colors.isEInk) Color.White else Color.Black),
+            )
+            if (isVisualFocus) {
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            0.55f to Color.Transparent,
+                            1.0f to if (colors.isEInk) Color.White.copy(alpha = 0.95f) else Color(0xCC04060A),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        // V1: подпись переключается мгновенно на пересечении визуального фокуса (как в прототипе),
+        // без enter/exit-анимаций — кадр меняется целиком, кино даёт движение сцены, а не текста.
+        if (isVisualFocus) {
+            Column(Modifier.align(Alignment.BottomStart).padding(start = 14.dp, end = 14.dp, bottom = 70.dp)) {
+                Text(
+                    item.title,
+                    color = if (colors.isEInk) Color.Black else Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 22.sp,
+                )
+                focusReason?.let { reason ->
+                    Text(
+                        reason,
+                        color = colors.accent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

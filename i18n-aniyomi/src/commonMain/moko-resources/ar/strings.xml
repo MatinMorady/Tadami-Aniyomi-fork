@@ -514,6 +514,18 @@
     <string name="novel_reader_theme_preset_none">لا شيء</string>
     <string name="novel_reader_background_color">لون الخلفية</string>
     <string name="novel_reader_text_color">لون النص</string>
+    <string name="novel_reader_global_text_color">لون النص العام</string>
+    <string name="novel_reader_global_text_color_summary">يُطبَّق في وضع المظهر ووضع الخلفية؛ «تلقائي» يختار اللون حسب سطوع الخلفية</string>
+    <string name="novel_reader_text_swatch_auto">تلقائي</string>
+    <string name="novel_reader_text_swatch_white">أبيض</string>
+    <string name="novel_reader_text_swatch_cream">كريمي</string>
+    <string name="novel_reader_text_swatch_amber">كهرماني</string>
+    <string name="novel_reader_text_swatch_sky">سماوي</string>
+    <string name="novel_reader_text_swatch_gray">رمادي</string>
+    <string name="novel_reader_text_swatch_black">أسود</string>
+    <string name="novel_reader_text_swatch_custom">أي لون</string>
+    <string name="novel_reader_text_swatch_custom_set">لوني</string>
+    <string name="novel_reader_text_color_picker_title">لون مخصص</string>
     <string name="novel_reader_color_input_hint">استخدم #RRGGBB أو #AARRGGBB</string>
     <string name="novel_reader_save_custom_theme">حفظ المظهر المخصص</string>
     <string name="novel_reader_delete_custom_theme">حذف المظهر المخصص</string>
@@ -1430,7 +1442,7 @@
     <string name="aurora_greeting_italic">تحية مائلة</string>
     <string name="aurora_recently_watched">شوهد مؤخراً</string>
     <string name="aurora_open_source">مفتوح المصدر</string>
-    <string name="aurora_episode_progress">الحلقة %d</string>
+    <string name="aurora_episode_progress">الحلقة %s</string>
     <string name="aurora_tap_to_change">اضغط للتغيير</string>
     <string name="aurora_nothing_to_continue">لا يوجد شيء لمتابعة المشاهدة</string>
     <string name="aurora_add_anime_to_library">أضف بعض الأنمي إلى مكتبتك لرؤيتها هنا</string>
@@ -1730,7 +1742,7 @@
     <string name="aurora_browse_sources">ربط المستودع</string>
     <string name="aurora_add_extension">إضافة إضافة</string>
     <string name="aurora_tap_to_change">اضغط للتغيير</string>
-    <string name="aurora_episode_progress">الحلقة %d</string>
+    <string name="aurora_episode_progress">الحلقة %s</string>
     <string name="aurora_rating">التقييم</string>
     <string name="aurora_source">المصدر</string>
     <string name="aurora_translation">الترجمة</string>
@@ -1748,7 +1760,7 @@
     <string name="aurora_chapter_count">%d فصل</string>
     <string name="aurora_episode_progress_format">%1$d/%2$d حلقة</string>
     <string name="aurora_chapter_progress_format">%1$d/%2$d فصل</string>
-    <string name="aurora_chapter_progress">الفصل %d</string>
+    <string name="aurora_chapter_progress">الفصل %s</string>
     <string name="aurora_progress">التقدم</string>
     <string name="aurora_select_dubbing">اختر الدبلجة</string>
     <string name="aurora_no_description">لا يوجد وصف</string>

@@ -82,6 +82,8 @@ import eu.kanade.tachiyomi.data.discovery.DiscoverySeedSources
 import eu.kanade.tachiyomi.data.updater.AppUpdateFileManager
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
+import eu.kanade.tachiyomi.ui.reels.ReelsOfflineStore
+import eu.kanade.tachiyomi.ui.reels.ReelsOfflineStoreImpl
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import mihon.data.extension.repository.ExtensionStoreFetcher
@@ -148,8 +150,11 @@ import tachiyomi.data.history.novel.NovelHistoryRepositoryImpl
 import tachiyomi.data.items.chapter.ChapterRepositoryImpl
 import tachiyomi.data.items.episode.EpisodeRepositoryImpl
 import tachiyomi.data.items.novelchapter.NovelChapterRepositoryImpl
+import tachiyomi.data.reels.anime.ReelsAlbumRepositoryImpl
 import tachiyomi.data.reels.anime.ReelsFavoriteRepositoryImpl
 import tachiyomi.data.reels.anime.ReelsFollowRepositoryImpl
+import tachiyomi.data.reels.anime.ReelsHiddenRepositoryImpl
+import tachiyomi.data.reels.anime.ReelsWatchRepositoryImpl
 import tachiyomi.data.release.ReleaseServiceImpl
 import tachiyomi.data.series.manga.MangaSeriesRepositoryImpl
 import tachiyomi.data.series.novel.NovelSeriesRepositoryImpl
@@ -294,8 +299,11 @@ import tachiyomi.domain.items.novelchapter.repository.NovelChapterRepository
 import tachiyomi.domain.items.season.interactor.GetAnimeSeasonsByParentId
 import tachiyomi.domain.items.season.interactor.SetAnimeDefaultSeasonFlags
 import tachiyomi.domain.items.season.interactor.ShouldUpdateDbSeason
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFollowRepository
+import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
+import tachiyomi.domain.reels.anime.repository.ReelsWatchRepository
 import tachiyomi.domain.release.interactor.GetApplicationRelease
 import tachiyomi.domain.release.service.AppUpdatePreferences
 import tachiyomi.domain.release.service.ReleaseService
@@ -672,6 +680,10 @@ class DomainModule : InjektModule {
         addSingletonFactory<AnimeStubSourceRepository> { AnimeStubSourceRepositoryImpl(get()) }
         addSingletonFactory<ReelsFavoriteRepository> { ReelsFavoriteRepositoryImpl(get()) }
         addSingletonFactory<ReelsFollowRepository> { ReelsFollowRepositoryImpl(get()) }
+        addSingletonFactory<ReelsWatchRepository> { ReelsWatchRepositoryImpl(get()) }
+        addSingletonFactory<ReelsHiddenRepository> { ReelsHiddenRepositoryImpl(get()) }
+        addSingletonFactory<ReelsAlbumRepository> { ReelsAlbumRepositoryImpl(get()) }
+        addSingletonFactory<ReelsOfflineStore> { ReelsOfflineStoreImpl() }
         addFactory { GetEnabledAnimeSources(get(), get()) }
         addFactory { GetLanguagesWithAnimeSources(get(), get()) }
         addFactory { GetRemoteAnime(get()) }

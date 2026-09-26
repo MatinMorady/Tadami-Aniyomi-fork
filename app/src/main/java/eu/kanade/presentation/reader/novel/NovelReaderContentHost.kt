@@ -840,10 +840,15 @@ internal fun NovelReaderContentHost(
     val themeModeBackground = parseReaderColor(state.readerSettings.backgroundColor)
         .takeIf { state.readerSettings.backgroundColor?.isNotBlank() == true }
         ?: fallbackBackground
+    val globalTextColorOverride = parseReaderColor(state.readerSettings.globalTextColor)
     val textColor = when {
         isEInkMode -> AuroraTheme.colors.textPrimary
-        isBackgroundMode -> backgroundModeTextColor
-        else -> themeModeTextColor
+        else -> resolveEffectiveReaderTextColor(
+            globalTextColor = globalTextColorOverride,
+            isBackgroundMode = isBackgroundMode,
+            backgroundModeTextColor = backgroundModeTextColor,
+            themeModeTextColor = themeModeTextColor,
+        )
     }
     val chapterTitleTextColor = textColor
     val textBackground = when {
@@ -1000,6 +1005,17 @@ internal fun NovelReaderContentHost(
             ),
         )
     }
+    val pageReaderImageBlocks = remember(state.chapter.id, scrollContentBlocks) {
+        scrollContentBlocks.mapIndexedNotNull { index, block ->
+            (block as? NovelReaderScreenModel.ContentBlock.Image)?.let { image ->
+                PlainPageImageBlock(
+                    sourceBlockIndex = index,
+                    imageUrl = image.url,
+                    contentDescription = image.alt,
+                )
+            }
+        }
+    }
     val richScrollBlocks = remember(state.chapter.id, state.richContentBlocks) {
         state.richContentBlocks
     }
@@ -1058,6 +1074,7 @@ internal fun NovelReaderContentHost(
     val pageReaderPages: List<List<PlainPageSlice>> = remember(
         state.chapter.id,
         pageReaderTextBlocks,
+        pageReaderImageBlocks,
         showPageChapterTitle,
         shouldPaginatePageReader,
         state.readerSettings.fontSize,
@@ -1074,7 +1091,7 @@ internal fun NovelReaderContentHost(
         statusBarTopPadding,
         novelSpreadColumns,
     ) {
-        if (!shouldPaginatePageReader || pageReaderTextBlocks.isEmpty()) {
+        if (!shouldPaginatePageReader || (pageReaderTextBlocks.isEmpty() && pageReaderImageBlocks.isEmpty())) {
             emptyList()
         } else {
             val screenWidthPx = pageViewportSize.width.takeIf { it > 0 }
@@ -1129,8 +1146,9 @@ internal fun NovelReaderContentHost(
                 cutoutLeftPx = spreadCutoutLeftPx,
                 cutoutRightPx = spreadCutoutRightPx,
             )
-            paginatePlainPageBlocks(
+            paginatePlainPageBlocksWithImages(
                 textBlocks = pageReaderTextBlocks,
+                imageBlocks = pageReaderImageBlocks,
                 paragraphSpacingPx = with(density) { state.readerSettings.paragraphSpacing.dp.roundToPx() },
                 widthPx = spreadColumnWidthPx,
                 heightPx = (screenHeightPx - verticalPaddingPx).coerceAtLeast(1),
@@ -1635,7 +1653,7 @@ internal fun NovelReaderContentHost(
                 }
             } else {
                 pageReaderPages.map { page ->
-                    page.map { slice ->
+                    page.filterIsInstance<PlainPageSlice.Text>().map { slice ->
                         NovelTtsPageSlice(
                             blockIndex = slice.blockIndex,
                             start = slice.range.start,

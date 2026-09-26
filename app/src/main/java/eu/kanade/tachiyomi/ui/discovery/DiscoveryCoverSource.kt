@@ -68,22 +68,25 @@ object DiscoveryCoverSource {
     fun clearCache() = cache.clear()
 }
 
-/** Coil-модель обложки: с заголовками источника, если источник найден, иначе голый URL. */
+/** Coil-модель обложки: headers источника, если он найден; recoveryUrl — primary для null-обложек, иначе fallback. */
 internal fun discoveryCoverData(
     mediaType: DiscoveryMediaType?,
     provider: String?,
     coverUrl: String?,
+    recoveryUrl: String? = null,
 ): Any? {
-    if (coverUrl == null) return null
+    val primary = coverUrl?.takeIf { it.isNotBlank() } ?: recoveryUrl ?: return null
+    val fallback = recoveryUrl?.takeIf { it.isNotBlank() && it != primary && !coverUrl.isNullOrBlank() }
     val resolved = if (mediaType != null) DiscoveryCoverSource.resolve(mediaType, provider) else null
-    return if (resolved != null) {
+    return if (resolved != null || fallback != null) {
         AuroraPosterRequest(
-            primaryUrl = coverUrl,
-            refererUrl = resolved.referer,
-            headers = resolved.headers,
-            client = resolved.client,
+            primaryUrl = primary,
+            fallbackUrl = fallback,
+            refererUrl = resolved?.referer,
+            headers = resolved?.headers,
+            client = resolved?.client,
         )
     } else {
-        coverUrl
+        primary
     }
 }

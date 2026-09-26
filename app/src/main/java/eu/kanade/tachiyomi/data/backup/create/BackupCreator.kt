@@ -31,6 +31,7 @@ import eu.kanade.tachiyomi.data.backup.create.creators.NovelSeriesBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.NovelSourcesBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.PreferenceBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.ReelsFavoritesBackupCreator
+import eu.kanade.tachiyomi.data.backup.create.creators.ReelsFollowsBackupCreator
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupAnime
 import eu.kanade.tachiyomi.data.backup.models.BackupAnimeSource
@@ -110,6 +111,7 @@ class BackupCreator(
     private val novelSeriesBackupCreator: NovelSeriesBackupCreator = NovelSeriesBackupCreator(),
     private val feedBackupCreator: FeedBackupCreator = FeedBackupCreator(),
     private val reelsFavoritesBackupCreator: ReelsFavoritesBackupCreator = ReelsFavoritesBackupCreator(),
+    private val reelsFollowsBackupCreator: ReelsFollowsBackupCreator = ReelsFollowsBackupCreator(),
     private val discoveryBackupCreator: DiscoveryBackupCreator = DiscoveryBackupCreator(),
     private val extensionsBackupCreator: ExtensionsBackupCreator = ExtensionsBackupCreator(context),
     private val achievementBackupCreator: AchievementBackupCreator = AchievementBackupCreator(),
@@ -210,6 +212,14 @@ class BackupCreator(
                     emptyList()
                 }
             }
+            // Creator follows: same rule as favorites (Tadami-only, never for sister exports).
+            val backupReelsFollows = BackupDiagnosticLog.measure(context, "collect_reels_follows") {
+                if (options.reelsFollows && !options.sisterAppCompatible) {
+                    reelsFollowsBackupCreator()
+                } else {
+                    emptyList()
+                }
+            }
             // Discovery «Для тебя»: скрытые тайтлы + теговый блэклист (Tadami-only, не для sister-экспорта).
             val backupDiscovery = BackupDiagnosticLog.measure(context, "collect_discovery") {
                 if (options.discoveryData && !options.sisterAppCompatible) {
@@ -290,6 +300,7 @@ class BackupCreator(
                 } else {
                     backupReelsFavorites
                 },
+                backupReelsFollows = if (options.sisterAppCompatible) emptyList() else backupReelsFollows,
                 backupDiscoveryHidden = if (options.sisterAppCompatible) emptyList() else backupDiscovery.first,
                 backupDiscoveryBlacklistTags = if (options.sisterAppCompatible) emptyList() else backupDiscovery.second,
             )

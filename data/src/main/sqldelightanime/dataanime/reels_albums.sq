@@ -1,0 +1,57 @@
+import java.util.Date;
+
+CREATE TABLE reels_albums(
+    source_id INTEGER NOT NULL,
+    album_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    cover_url TEXT,
+    added_at INTEGER AS Date NOT NULL,
+    PRIMARY KEY (source_id, album_id)
+);
+
+CREATE TABLE reels_album_watched(
+    source_id INTEGER NOT NULL,
+    video_id TEXT NOT NULL,
+    marked_at INTEGER AS Date NOT NULL,
+    PRIMARY KEY (source_id, video_id)
+);
+
+getAlbumsBySource:
+SELECT *
+FROM reels_albums
+WHERE source_id = :sourceId
+ORDER BY added_at DESC;
+
+getAllAlbums:
+SELECT *
+FROM reels_albums
+ORDER BY added_at DESC;
+
+insertAlbum:
+INSERT OR REPLACE INTO reels_albums(source_id, album_id, name, cover_url, added_at)
+VALUES (?, ?, ?, ?, ?);
+
+deleteAlbum:
+DELETE FROM reels_albums
+WHERE source_id = :sourceId AND album_id = :albumId;
+
+deleteAlbumsBySource:
+DELETE FROM reels_albums
+WHERE source_id = :sourceId;
+
+getWatchedBySource:
+SELECT *
+FROM reels_album_watched
+WHERE source_id = :sourceId;
+
+insertWatched:
+INSERT OR REPLACE INTO reels_album_watched(source_id, video_id, marked_at)
+VALUES (?, ?, ?);
+
+deleteWatched:
+DELETE FROM reels_album_watched
+WHERE source_id = :sourceId AND video_id = :videoId;
+
+deleteWatchedBySource:
+DELETE FROM reels_album_watched
+WHERE source_id = :sourceId;

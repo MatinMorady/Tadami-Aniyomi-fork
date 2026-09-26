@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
+import android.graphics.drawable.BitmapDrawable
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -13,6 +14,7 @@ import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.tadami.aurora.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.viewer.ProcessedPageImage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -70,6 +72,13 @@ class WebtoonPageHolder(
      */
     private var page: ReaderPage? = null
 
+    /**
+     * The page whose layout has settled after the last [bind]. A height change during the bind
+     * itself is the RecyclerView positioning a freshly bound item, not a reflow of the page the
+     * reader is looking at, so it must not be compensated.
+     */
+    private var layoutSettledForPage: ReaderPage? = null
+
     private val scope = MainScope()
 
     /**
@@ -80,8 +89,24 @@ class WebtoonPageHolder(
     init {
         refreshLayoutParams()
 
+        // The item keeps a placeholder height until the page image is decoded. RecyclerView pins
+        // the top of the first visible item, so when THAT item changes height every page below it
+        // moves by the difference; let the viewer keep the reading position instead.
+        frame.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            val newHeight = bottom - top
+            val oldHeight = oldBottom - oldTop
+            if (newHeight == oldHeight) return@addOnLayoutChangeListener
+            val currentPage = page
+            // Only the placeholder -> real image transition of a page that is already loaded is a
+            // reflow of what the reader is looking at; layout changes while the page is still
+            // loading (and during a bind) belong to the RecyclerView positioning the item.
+            if (currentPage == null || currentPage.status != Page.State.READY) return@addOnLayoutChangeListener
+            if (layoutSettledForPage !== currentPage) return@addOnLayoutChangeListener
+            viewer.schedulePositionPreservation(frame, oldHeight, newHeight)
+        }
+
         frame.onImageLoaded = { onImageDecoded() }
-        frame.onImageLoadError = { setError() }
+        frame.onImageLoadError = { markDecodeError() }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
     }
 
@@ -90,15 +115,26 @@ class WebtoonPageHolder(
      */
     fun bind(page: ReaderPage) {
         this.page = page
+        layoutSettledForPage = null
+        // The bind-induced layout happens in the traversal this call belongs to, so anything the
+        // view reports after it has settled is a genuine reflow of this page.
+        frame.post {
+            if (this.page === page) layoutSettledForPage = page
+        }
         loadJob?.cancel()
-        loadJob = scope.launch { loadPageAndProcessStatus() }
+        loadJob = scope.launch {
+            // A preloaded or downloaded page can be measured right here: knowing the page size
+            // before the image is ready keeps the item height stable while scrolling.
+            launchIO { cacheImageDimensions(page) }
+            loadPageAndProcessStatus()
+        }
         refreshLayoutParams()
         refreshPlaceholderHeight()
     }
 
     private fun refreshLayoutParams() {
         val margin = (Resources.getSystem().displayMetrics.widthPixels * (viewer.config.sidePadding / 100f)).toInt()
-        val bottomMargin = if (!viewer.isContinuous) 15.dpToPx else 0
+        val bottomMargin = if (viewer.hasPageGaps) 15.dpToPx else 0
 
         // Avoid layout thrash: rebinds while scrolling must not trigger a requestLayout
         // when nothing about the layout params actually changed.
@@ -119,20 +155,90 @@ class WebtoonPageHolder(
     }
 
     /**
-     * Keeps the loading placeholder matched to the current viewport height. The container is
-     * sized once at holder creation, when the recycler may not be measured yet (height 0) or may
-     * have been resized since (rotation, split screen). A zero or stale placeholder height makes
-     * the layout manager create and bind far more holders than needed and makes content jump
-     * when the real image height arrives.
+     * Keeps the loading placeholder in sync with the size the item will actually have. The
+     * container is sized once at holder creation, when the recycler may not be measured yet
+     * (height 0) or may have been resized since (rotation, split screen), and again when the
+     * page's pixel size becomes known. A zero or stale placeholder height makes the layout
+     * manager create and bind far more holders than needed and makes content jump when the real
+     * image height arrives.
      */
     private fun refreshPlaceholderHeight() {
-        val height = parentHeight
+        val height = resolvePlaceholderHeight()
         val params = progressContainer.layoutParams ?: return
         if (height > 0 && params.height != height) {
             progressContainer.updateLayoutParams { this.height = height }
             progressIndicator.updateLayoutParams<FrameLayout.LayoutParams> {
                 updateMargins(top = height / 4)
             }
+        }
+    }
+
+    /**
+     * Height reserved for the item while the image is not decoded yet. When the page's pixel size
+     * is known, the reserved height is its final rendered height (fit width), so the RecyclerView
+     * does not relayout the page when the image becomes ready; otherwise the viewport height is
+     * used, as before.
+     */
+    private fun resolvePlaceholderHeight(): Int {
+        val viewportHeight = parentHeight
+        val currentPage = page ?: return viewportHeight
+        if (currentPage.isAnimatedImage ||
+            viewer.config.webtoonSmartFit ||
+            viewer.config.imageCropBorders ||
+            viewer.config.dualPageSplit ||
+            viewer.config.dualPageRotateToFit
+        ) {
+            return viewportHeight
+        }
+
+        val ratio = currentPage.imageDimensions
+            ?.let { it.height.toFloat() / it.width.toFloat() }
+            ?: currentPage.chapter.typicalPageRatio
+            ?: viewer.activity.viewModel.sessionTypicalPageRatio
+            ?: return viewportHeight
+        val margins = (frame.layoutParams as? FrameLayout.LayoutParams)
+            ?.let { it.marginStart + it.marginEnd }
+            ?: 0
+        val contentWidth = viewer.recycler.width - margins
+        if (contentWidth <= 0) return viewportHeight
+
+        return (contentWidth * ratio).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * Sniffs the page's pixel size (and whether it is animated) once on IO and stores it on the
+     * page. Pages that are not downloaded yet have no [ReaderPage.stream] and are measured later,
+     * when the image bytes are already available.
+     */
+    private suspend fun cacheImageDimensions(page: ReaderPage) {
+        if (page.imageDimensions != null || page.isAnimatedImage) return
+        val streamFn = page.stream ?: return
+
+        val sniffed = withIOContext {
+            runCatching {
+                streamFn().use { stream ->
+                    val source = Buffer().readFrom(stream)
+                    ImageUtil.isAnimatedAndSupported(source) to ImageUtil.getImageDimensions(source)
+                }
+            }.getOrNull()
+        } ?: return
+
+        val (isAnimated, dimensions) = sniffed
+        page.isAnimatedImage = isAnimated
+        if (!isAnimated && dimensions != null && dimensions.width > 0 && dimensions.height > 0) {
+            page.imageDimensions = dimensions
+        }
+
+        val boundPage = this.page
+        withUIContext {
+            dimensions
+                ?.takeIf { it.width > 0 && it.height > 0 }
+                ?.let {
+                    val ratio = it.height.toFloat() / it.width.toFloat()
+                    page.chapter.notePageRatio(ratio)
+                    viewer.activity.viewModel.noteSessionPageRatio(ratio)
+                }
+            if (boundPage === page) refreshPlaceholderHeight()
         }
     }
 
@@ -213,42 +319,88 @@ class WebtoonPageHolder(
     private suspend fun setImage() {
         progressIndicator.setProgress(0)
 
-        val streamFn = page?.stream ?: return
+        val currentPage = page ?: return
+        val streamFn = currentPage.stream ?: return
 
         try {
-            val (source, isAnimated, isTall, canUseHardware) = withIOContext {
-                val source = streamFn().use { process(Buffer().readFrom(it)) }
-                val isAnimated = ImageUtil.isAnimatedAndSupported(source)
-                // Sniff image headers here so the UI thread does not have to instantiate
-                // native decoders per page while the user is scrolling.
-                val isTall = !isAnimated && ImageUtil.isTallImage(source)
-                val canUseHardware = !isAnimated && ImageUtil.canUseHardwareBitmap(source)
-                PageImageData(source, isAnimated, isTall, canUseHardware)
+            var sniffedDims: ImageUtil.ImageDimensions? = null
+            val prepared = withIOContext {
+                when (val processed = streamFn().use { process(Buffer().readFrom(it)) }) {
+                    is ProcessedPageImage.Decoded -> {
+                        sniffedDims = ImageUtil.ImageDimensions(processed.bitmap.width, processed.bitmap.height)
+                        PageImageData.Decoded(processed.bitmap)
+                    }
+                    is ProcessedPageImage.Encoded -> {
+                        val source = processed.source
+                        // Sizes sniffed at bind time are reused here (unless the image was
+                        // transformed by the dual-page options, which changes its geometry);
+                        // otherwise sniff image headers here so the UI thread does not have to
+                        // instantiate native decoders per page while the user is scrolling.
+                        val reusable = currentPage
+                            .takeIf { !viewer.config.dualPageSplit && !viewer.config.dualPageRotateToFit }
+                            ?.imageDimensions
+                        val isAnimated = if (reusable != null) false else ImageUtil.isAnimatedAndSupported(source)
+                        val dims = if (isAnimated) null else (reusable ?: ImageUtil.getImageDimensions(source))
+                        sniffedDims = dims
+                        if (reusable == null && dims != null) {
+                            currentPage.imageDimensions = dims
+                        }
+                        val isTall = dims?.let { it.height.toFloat() / it.width.toFloat() > 3F } ?: false
+                        val canUseHardware = dims?.let { ImageUtil.canUseHardwareBitmap(it.width, it.height) } ?: false
+                        PageImageData.Encoded(source, isAnimated, isTall, canUseHardware)
+                    }
+                }
             }
             withUIContext {
-                frame.setImage(
-                    source,
-                    isAnimated,
-                    ReaderPageImageView.Config(
-                        zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
-                        cropBorders = viewer.config.imageCropBorders,
-                        webtoonSmartFit = viewer.config.webtoonSmartFit,
-                        isTallImage = isTall,
-                        canUseHardwareBitmap = canUseHardware,
-                    ),
-                )
+                sniffedDims?.let {
+                    val ratio = it.height.toFloat() / it.width.toFloat()
+                    currentPage.chapter.notePageRatio(ratio)
+                    viewer.activity.viewModel.noteSessionPageRatio(ratio)
+                }
+                when (prepared) {
+                    is PageImageData.Encoded -> {
+                        frame.setImage(
+                            prepared.source,
+                            prepared.isAnimated,
+                            ReaderPageImageView.Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                cropBorders = viewer.config.imageCropBorders,
+                                webtoonSmartFit = viewer.config.webtoonSmartFit,
+                                isTallImage = prepared.isTall,
+                                canUseHardwareBitmap = prepared.canUseHardware,
+                            ),
+                        )
+                    }
+                    is PageImageData.Decoded -> {
+                        // Split-and-merge/rotate results arrive pre-decoded: hand the bitmap
+                        // straight to the image view instead of a JPEG q=100 re-encode plus
+                        // second decode on the scroll path.
+                        val bitmap = prepared.bitmap
+                        frame.setImage(
+                            BitmapDrawable(frame.resources, bitmap),
+                            ReaderPageImageView.Config(
+                                zoomDuration = viewer.config.doubleTapAnimDuration,
+                                minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                                cropBorders = viewer.config.imageCropBorders,
+                                webtoonSmartFit = viewer.config.webtoonSmartFit,
+                                isTallImage = bitmap.width > 0 &&
+                                    bitmap.height.toFloat() / bitmap.width.toFloat() > 3F,
+                            ),
+                        )
+                    }
+                }
                 removeErrorLayout()
             }
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
             withUIContext {
-                setError()
+                markDecodeError()
             }
         }
     }
 
-    private fun process(imageSource: BufferedSource): BufferedSource {
+    private fun process(imageSource: BufferedSource): ProcessedPageImage {
         if (viewer.config.dualPageRotateToFit) {
             return rotateDualPage(imageSource)
         }
@@ -257,21 +409,26 @@ class WebtoonPageHolder(
             val isDoublePage = ImageUtil.isWideImage(imageSource)
             if (isDoublePage) {
                 val upperSide = if (viewer.config.dualPageInvert) ImageUtil.Side.LEFT else ImageUtil.Side.RIGHT
-                return ImageUtil.splitAndMerge(imageSource, upperSide)
+                // peek() keeps the source intact so the stream variant remains a viable fallback.
+                ImageUtil.splitAndMergeBitmap(imageSource.peek(), upperSide)?.let {
+                    return ProcessedPageImage.Decoded(it)
+                }
+                return ProcessedPageImage.Encoded(ImageUtil.splitAndMerge(imageSource, upperSide))
             }
         }
 
-        return imageSource
+        return ProcessedPageImage.Encoded(imageSource)
     }
 
-    private fun rotateDualPage(imageSource: BufferedSource): BufferedSource {
+    private fun rotateDualPage(imageSource: BufferedSource): ProcessedPageImage {
         val isDoublePage = ImageUtil.isWideImage(imageSource)
-        return if (isDoublePage) {
-            val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
-            ImageUtil.rotateImage(imageSource, rotation)
-        } else {
-            imageSource
+        if (!isDoublePage) {
+            return ProcessedPageImage.Encoded(imageSource)
         }
+        val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
+        return ImageUtil.rotateImageBitmap(imageSource.peek(), rotation)
+            ?.let { ProcessedPageImage.Decoded(it) }
+            ?: ProcessedPageImage.Encoded(ImageUtil.rotateImage(imageSource, rotation))
     }
 
     /**
@@ -280,6 +437,19 @@ class WebtoonPageHolder(
     private fun setError() {
         progressContainer.isVisible = false
         initErrorLayout()
+    }
+
+    /**
+     * Decode/render failure while the page status is READY: move the status to ERROR so the
+     * Retry button can re-queue it through the page loader. Showing the error layout alone left
+     * the status at READY and retryPage() became a no-op (the loader skips non-QUEUE pages).
+     */
+    private fun markDecodeError() {
+        val currentPage = page
+        if (currentPage != null && currentPage.status == Page.State.READY) {
+            currentPage.status = Page.State.ERROR
+        }
+        setError()
     }
 
     /**
@@ -347,9 +517,13 @@ class WebtoonPageHolder(
     }
 }
 
-private data class PageImageData(
-    val source: BufferedSource,
-    val isAnimated: Boolean,
-    val isTall: Boolean,
-    val canUseHardware: Boolean,
-)
+private sealed interface PageImageData {
+    data class Encoded(
+        val source: BufferedSource,
+        val isAnimated: Boolean,
+        val isTall: Boolean,
+        val canUseHardware: Boolean,
+    ) : PageImageData
+
+    data class Decoded(val bitmap: android.graphics.Bitmap) : PageImageData
+}

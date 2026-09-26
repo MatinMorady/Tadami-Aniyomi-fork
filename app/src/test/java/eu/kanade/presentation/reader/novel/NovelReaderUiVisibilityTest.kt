@@ -95,6 +95,76 @@ class NovelReaderUiVisibilityTest {
     }
 
     @Test
+    fun `global text color overrides background mode auto color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = Color(0xFFFF3333),
+            isBackgroundMode = true,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFFFF3333), resolved)
+    }
+
+    @Test
+    fun `global text color overrides theme mode color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = Color(0xFF33FF33),
+            isBackgroundMode = false,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFF33FF33), resolved)
+    }
+
+    @Test
+    fun `without global override background mode keeps luminance color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = null,
+            isBackgroundMode = true,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFF111111), resolved)
+    }
+
+    @Test
+    fun `without global override theme mode keeps theme color`() {
+        val resolved = resolveEffectiveReaderTextColor(
+            globalTextColor = null,
+            isBackgroundMode = false,
+            backgroundModeTextColor = Color(0xFF111111),
+            themeModeTextColor = Color(0xFFEDEDED),
+        )
+        assertEquals(Color(0xFFEDEDED), resolved)
+    }
+
+    @Test
+    fun `swatch selection resolves auto for blank value`() {
+        val selection = resolveTextColorSwatchSelection("", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.AUTO, selection.kind)
+    }
+
+    @Test
+    fun `swatch selection matches preset hex`() {
+        val selection = resolveTextColorSwatchSelection("#FFB74D", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.PRESET, selection.kind)
+        assertEquals(novelReaderTextColorPresetHexes.indexOf("#FFB74D"), selection.presetIndex)
+    }
+
+    @Test
+    fun `swatch selection matches picker argb output to preset`() {
+        val selection = resolveTextColorSwatchSelection("#FFFFFFFF", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.PRESET, selection.kind)
+        assertEquals(0, selection.presetIndex)
+    }
+
+    @Test
+    fun `swatch selection falls back to custom for unknown color`() {
+        val selection = resolveTextColorSwatchSelection("#123456", novelReaderTextColorPresetHexes)
+        assertEquals(NovelTextColorSwatchKind.CUSTOM, selection.kind)
+    }
+
+    @Test
     fun `background mode falls back to preset when custom file is missing`() {
         val selection = resolveReaderBackgroundSelection(
             backgroundSource = NovelReaderBackgroundSource.CUSTOM,
@@ -1015,8 +1085,8 @@ class NovelReaderUiVisibilityTest {
             PlainPageReaderTextBlock(sourceBlockIndex = 1, text = "0123456789"),
         )
         val page = listOf(
-            PlainPageSlice(blockIndex = 0, range = TextPageRange(start = 1, endExclusive = 4)),
-            PlainPageSlice(blockIndex = 1, range = TextPageRange(start = 2, endExclusive = 7)),
+            PlainPageSlice.Text(blockIndex = 0, range = TextPageRange(start = 1, endExclusive = 4)),
+            PlainPageSlice.Text(blockIndex = 1, range = TextPageRange(start = 2, endExclusive = 7)),
         )
 
         assertTrue(plainPageReaderCharacterCount(page, blocks) == 8)
@@ -1168,7 +1238,7 @@ class NovelReaderUiVisibilityTest {
             typeface = null,
             textAlign = ReaderTextAlign.LEFT,
         ).map { page ->
-            page.joinToString("\n") { slice ->
+            page.filterIsInstance<PlainPageSlice.Text>().joinToString("\n") { slice ->
                 textBlocks[slice.blockIndex].substring(slice.range.start, slice.range.endExclusive)
             }
         }
@@ -1182,7 +1252,7 @@ class NovelReaderUiVisibilityTest {
             typeface = null,
             textAlign = ReaderTextAlign.LEFT,
         ).map { page ->
-            page.joinToString("\n") { slice ->
+            page.filterIsInstance<PlainPageSlice.Text>().joinToString("\n") { slice ->
                 textBlocks[slice.blockIndex].substring(slice.range.start, slice.range.endExclusive)
             }
         }
@@ -1217,7 +1287,7 @@ class NovelReaderUiVisibilityTest {
                 typeface = null,
                 textAlign = ReaderTextAlign.LEFT,
             ).map { page ->
-                page.joinToString("\n") { slice ->
+                page.filterIsInstance<PlainPageSlice.Text>().joinToString("\n") { slice ->
                     blocks[slice.blockIndex].substring(slice.range.start, slice.range.endExclusive)
                 }
             }
@@ -1267,7 +1337,7 @@ class NovelReaderUiVisibilityTest {
         assertTrue(pages.size > 1)
         assertTrue(pages.first().any { it.blockIndex == 1 })
         assertTrue(pages.drop(1).first().first().blockIndex == 1)
-        assertTrue(pages.drop(1).first().first().range.start > 0)
+        assertTrue((pages.drop(1).first().first() as PlainPageSlice.Text).range.start > 0)
         assertPlainPageSliceCoverage(textBlocks = textBlocks, pages = pages)
 
         val continuationBlocks = buildPlainPageRenderBlocks(
@@ -1521,11 +1591,11 @@ class NovelReaderUiVisibilityTest {
     fun `plain paged page assembly marks chapter title block`() {
         val renderBlocks = buildPlainPageRenderBlocks(
             page = listOf(
-                PlainPageSlice(
+                PlainPageSlice.Text(
                     blockIndex = 0,
                     range = TextPageRange(start = 0, endExclusive = "Chapter 12".length),
                 ),
-                PlainPageSlice(
+                PlainPageSlice.Text(
                     blockIndex = 1,
                     range = TextPageRange(start = 0, endExclusive = "First paragraph".length),
                 ),
@@ -1696,13 +1766,13 @@ class NovelReaderUiVisibilityTest {
             useRichPageReader = false,
             plainPages = listOf(
                 listOf(
-                    PlainPageSlice(
+                    PlainPageSlice.Text(
                         blockIndex = 0,
                         range = TextPageRange(start = 0, endExclusive = "Chapter 12".length),
                     ),
                 ),
                 listOf(
-                    PlainPageSlice(
+                    PlainPageSlice.Text(
                         blockIndex = 1,
                         range = TextPageRange(start = 0, endExclusive = "First paragraph".length),
                     ),
@@ -1723,6 +1793,56 @@ class NovelReaderUiVisibilityTest {
         assertTrue(firstBlock.isChapterTitle)
         assertEquals("First paragraph", secondBlock.text)
         assertEquals(2f, secondBlock.firstLineIndentEm)
+    }
+
+    @Test
+    fun `plain page reader keeps illustrations between text pages`() {
+        // The image keeps its original position in the chapter block stream: index 1 sits between
+        // the two text blocks, like an epub chapter parsed into text / image / text.
+        val textBlocks = listOf(
+            PlainPageReaderTextBlock(sourceBlockIndex = 0, text = "First paragraph"),
+            PlainPageReaderTextBlock(sourceBlockIndex = 2, text = "Second paragraph"),
+        )
+        val imageBlocks = listOf(
+            PlainPageImageBlock(
+                sourceBlockIndex = 1,
+                imageUrl = "file:///book/images/a.jpg",
+                contentDescription = "art",
+            ),
+        )
+
+        val pages = paginatePlainPageBlocksWithImages(
+            textBlocks = textBlocks,
+            imageBlocks = imageBlocks,
+            paragraphSpacingPx = 12,
+            widthPx = 600,
+            heightPx = 400,
+            textSizePx = 20f,
+            lineHeightMultiplier = 1.2f,
+            typeface = null,
+            textAlign = ReaderTextAlign.LEFT,
+        )
+
+        val flat = pages.flatten()
+        val imagePosition = flat.indexOfFirst { it is PlainPageSlice.Image }
+        assertTrue(imagePosition >= 0)
+        val imageSlice = flat[imagePosition] as PlainPageSlice.Image
+        assertEquals("file:///book/images/a.jpg", imageSlice.imageUrl)
+        assertEquals("art", imageSlice.contentDescription)
+        // The illustration stays between its surrounding paragraphs in reading order.
+        assertTrue(imagePosition > flat.indexOfLast { it is PlainPageSlice.Text && it.blockIndex == 0 })
+        assertTrue(imagePosition < flat.indexOfFirst { it is PlainPageSlice.Text && it.blockIndex == 2 })
+
+        val contentPages = normalizePageReaderContentPages(
+            useRichPageReader = false,
+            plainPages = pages,
+            richPages = emptyList(),
+            plainTextBlocks = textBlocks,
+            richBlockTexts = emptyList(),
+            paragraphSpacingPx = 12,
+            forceParagraphIndent = false,
+        )
+        assertTrue(contentPages.any { page -> page.blocks.any { it is NovelPageContentBlock.Image } })
     }
 
     @Test
@@ -5474,6 +5594,7 @@ private fun assertPlainPageSliceCoverage(
 ) {
     textBlocks.forEachIndexed { blockIndex, expectedText ->
         val slices = pages.flatten()
+            .filterIsInstance<PlainPageSlice.Text>()
             .filter { it.blockIndex == blockIndex }
             .sortedBy { it.range.start }
         var cursor = 0

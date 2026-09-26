@@ -17,12 +17,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -93,6 +93,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -615,6 +616,7 @@ internal fun AuroraTabRow(
     onTabSelected: (Int) -> Unit,
     scrollable: Boolean,
     showBorder: Boolean = true,
+    compact: Boolean = false,
 ) {
     val colors = AuroraTheme.colors
     val scrollState = rememberScrollState()
@@ -938,6 +940,7 @@ internal fun AuroraTabRow(
                     badgeCount = tab.badgeNumber,
                     onClick = { onTabSelected(index) },
                     fillAvailableWidth = !scrollable,
+                    compact = compact,
                     modifier = tabModifier
                         .onGloballyPositioned { coords ->
                             tabWidths[index] = coords.size.width.toFloat()
@@ -959,6 +962,7 @@ internal fun AuroraTab(
     badgeCount: Int?,
     onClick: () -> Unit,
     fillAvailableWidth: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val colors = AuroraTheme.colors
@@ -980,7 +984,7 @@ internal fun AuroraTab(
                 appHaptics.tap()
                 onClick()
             }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = if (compact) 10.dp else 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -991,7 +995,11 @@ internal fun AuroraTab(
             Text(
                 text = text,
                 modifier = if (fillAvailableWidth) {
-                    Modifier.weight(1f)
+                    // fill = false: лейбл не растягивается на весь слот, иначе он
+                    // центрируется внутри слота, а бейдж прибивается к краю — между
+                    // ними «дырка» в полслота. Группа «лейбл+бейдж» центрируется
+                    // Arrangement.Center, зазор = только Spacer.
+                    Modifier.weight(1f, fill = false)
                 } else {
                     Modifier.widthIn(max = maxTabTextWidth)
                 },
@@ -1005,6 +1013,7 @@ internal fun AuroraTab(
                 style = resolveAuroraTabTextStyle(
                     baseStyle = MaterialTheme.typography.bodyLarge,
                     isSelected = isSelected,
+                    fontSize = if (compact) 12.sp else 14.sp,
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1013,17 +1022,23 @@ internal fun AuroraTab(
             )
 
             if (badgeCount != null && badgeCount > 0) {
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(if (compact) 4.dp else 6.dp))
+                // defaultMinSize вместо size: двух-/трёхзначные счётчики (99, 120)
+                // центрируются в «пилюле», а не вылезают из фиксированного круга.
                 Box(
                     modifier = Modifier
-                        .size(18.dp)
-                        .background(colors.accent, CircleShape),
+                        .defaultMinSize(
+                            minWidth = if (compact) 16.dp else 18.dp,
+                            minHeight = if (compact) 16.dp else 18.dp,
+                        )
+                        .background(colors.accent, CircleShape)
+                        .padding(horizontal = if (compact) 4.dp else 5.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = if (badgeCount > 99) "99+" else badgeCount.toString(),
                         color = colors.textOnAccent,
-                        fontSize = 10.sp,
+                        fontSize = if (compact) 9.sp else 10.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -1035,11 +1050,12 @@ internal fun AuroraTab(
 internal fun resolveAuroraTabTextStyle(
     baseStyle: TextStyle,
     isSelected: Boolean,
+    fontSize: TextUnit = 14.sp,
 ): TextStyle {
     return TextStyle(
         fontFamily = baseStyle.fontFamily,
         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-        fontSize = 14.sp,
+        fontSize = fontSize,
         hyphens = Hyphens.None,
     )
 }

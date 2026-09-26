@@ -451,6 +451,22 @@ class MangaScreenModel(
         }
     }
 
+    // Declared above `init` on purpose: init launches IO coroutines (fetchFromSourceTasks ->
+    // fetchMangaAndChaptersFromSource) that read these fields, and Kotlin runs property
+    // initializers in declaration order. Declaring them after init opens a constructor-order
+    // race - observed in production 0.62/209 as
+    // "NullPointerException: TtlCache.get(java.lang.Long) on a null object reference".
+    // Guarded by ScreenModelInitOrderTest.
+
+    /** Serializes source update calls: 1.6 sources reject concurrent getMangaUpdate per entry. */
+    private val sourceUpdateMutex = Mutex()
+
+    // Lightweight in-memory TTL cache for recent combined manga update responses from source.
+    // Bypasses the network for re-opens within the TTL; manual refresh always bypasses the read
+    // but overwrites the entry with the fresh response. Never persists to disk.
+    private val recentMangaUpdateCache =
+        TtlCache<Long, eu.kanade.tachiyomi.source.model.SMangaUpdate>(ttlMs = 90_000L)
+
     init {
         val restoredState = restoreStateFromCache(mangaId)
         restoredState?.let {
@@ -769,15 +785,6 @@ class MangaScreenModel(
     }
 
     // Manga info - start
-
-    /** Serializes source update calls: 1.6 sources reject concurrent getMangaUpdate per entry. */
-    private val sourceUpdateMutex = Mutex()
-
-    // Lightweight in-memory TTL cache for recent combined manga update responses from source.
-    // Bypasses the network for re-opens within the TTL; manual refresh always bypasses the read
-    // but overwrites the entry with the fresh response. Never persists to disk.
-    private val recentMangaUpdateCache =
-        TtlCache<Long, eu.kanade.tachiyomi.source.model.SMangaUpdate>(ttlMs = 90_000L)
 
     /**
      * Fetches details and chapters in a single source call.

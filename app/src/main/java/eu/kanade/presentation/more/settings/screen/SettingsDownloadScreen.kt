@@ -23,7 +23,12 @@ import androidx.compose.ui.util.fastMap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.presentation.category.visualName
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.widget.DiscreteSliderPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
 import kotlinx.collections.immutable.ImmutableList
@@ -506,46 +511,67 @@ object SettingsDownloadScreen : SearchableSettings {
         onValueChanged: (newValue: Int) -> Unit,
         onConfirm: () -> Unit,
     ) {
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = { Text(stringResource(AYMR.strings.download_speed_limit)) },
-            text = {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .padding(bottom = MaterialTheme.padding.medium)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        OutlinedNumericChooser(
-                            label = stringResource(AYMR.strings.download_speed_limit),
-                            placeholder = "0",
-                            suffix = "KiB/s",
-                            value = initialValue,
-                            step = 100,
-                            min = 0,
-                            onValueChanged = onValueChanged,
-                        )
-                    }
-                    Text(text = stringResource(AYMR.strings.download_speed_limit_hint))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissRequest) {
-                    Text(text = stringResource(MR.strings.action_cancel))
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onConfirm()
-                    },
+        val dialogContent: @Composable () -> Unit = {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .padding(bottom = MaterialTheme.padding.medium)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    Text(text = stringResource(MR.strings.action_ok))
+                    OutlinedNumericChooser(
+                        label = stringResource(AYMR.strings.download_speed_limit),
+                        placeholder = "0",
+                        suffix = "KiB/s",
+                        value = initialValue,
+                        step = 100,
+                        min = 0,
+                        onValueChanged = onValueChanged,
+                    )
                 }
-            },
-        )
+                Text(text = stringResource(AYMR.strings.download_speed_limit_hint))
+            }
+        }
+
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = stringResource(AYMR.strings.download_speed_limit),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = onDismissRequest,
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
+                        onClick = onConfirm,
+                    )
+                },
+            ) {
+                dialogContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = { Text(stringResource(AYMR.strings.download_speed_limit)) },
+                text = { dialogContent() },
+                dismissButton = {
+                    TextButton(onClick = onDismissRequest) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onConfirm()
+                        },
+                    ) {
+                        Text(text = stringResource(MR.strings.action_ok))
+                    }
+                },
+            )
+        }
     }
 }
 

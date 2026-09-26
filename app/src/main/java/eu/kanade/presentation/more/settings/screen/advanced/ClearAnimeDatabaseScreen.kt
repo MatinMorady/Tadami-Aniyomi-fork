@@ -38,7 +38,12 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.browse.anime.components.AnimeSourceIcon
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.components.AppBarActions
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.SettingsScaffold
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.canScroll
 import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
 import eu.kanade.presentation.util.Screen
@@ -88,31 +93,52 @@ class ClearAnimeDatabaseScreen : Screen() {
             is ClearAnimeDatabaseScreenModel.State.Loading -> LoadingScreen()
             is ClearAnimeDatabaseScreenModel.State.Ready -> {
                 if (s.showConfirmation) {
-                    AlertDialog(
-                        onDismissRequest = model::hideConfirmation,
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    scope.launchUI {
-                                        model.removeAnimeBySourceId()
-                                        model.clearSelection()
-                                        model.hideConfirmation()
-                                        context.toast(MR.strings.clear_database_completed)
-                                    }
-                                },
-                            ) {
-                                Text(text = stringResource(MR.strings.action_ok))
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = model::hideConfirmation) {
-                                Text(text = stringResource(MR.strings.action_cancel))
-                            }
-                        },
-                        text = {
-                            Text(text = stringResource(AYMR.strings.clear_database_confirmation))
-                        },
-                    )
+                    val dialogContent: @Composable () -> Unit = {
+                        Text(text = stringResource(AYMR.strings.clear_database_confirmation))
+                    }
+                    val onConfirm = {
+                        scope.launchUI {
+                            model.removeAnimeBySourceId()
+                            model.clearSelection()
+                            model.hideConfirmation()
+                            context.toast(MR.strings.clear_database_completed)
+                        }
+                    }
+                    if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+                        AuroraFrostDialog(
+                            onDismiss = model::hideConfirmation,
+                            title = stringResource(AYMR.strings.pref_clear_anime_database),
+                            footer = {
+                                AuroraFrostCancel(
+                                    label = stringResource(MR.strings.action_cancel),
+                                    onClick = model::hideConfirmation,
+                                )
+                                AuroraFrostConfirm(
+                                    label = stringResource(MR.strings.action_ok),
+                                    onClick = { onConfirm() },
+                                )
+                            },
+                        ) {
+                            dialogContent()
+                        }
+                    } else {
+                        AlertDialog(
+                            onDismissRequest = model::hideConfirmation,
+                            confirmButton = {
+                                TextButton(onClick = { onConfirm() }) {
+                                    Text(text = stringResource(MR.strings.action_ok))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = model::hideConfirmation) {
+                                    Text(text = stringResource(MR.strings.action_cancel))
+                                }
+                            },
+                            text = {
+                                dialogContent()
+                            },
+                        )
+                    }
                 }
 
                 SettingsScaffold(

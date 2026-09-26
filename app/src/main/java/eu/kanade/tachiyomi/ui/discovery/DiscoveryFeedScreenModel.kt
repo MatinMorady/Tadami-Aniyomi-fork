@@ -4,29 +4,38 @@ import android.content.Context
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.domain.discovery.service.DiscoveryPreferences
+import eu.kanade.tachiyomi.data.discovery.CompositeTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryLibraryAdder
 import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
+import eu.kanade.tachiyomi.data.discovery.DiscoveryTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob
+import eu.kanade.tachiyomi.data.discovery.META_PREFETCH_COUNT
 import eu.kanade.tachiyomi.data.discovery.dedupeCrossRow
 import eu.kanade.tachiyomi.data.discovery.expandGenreSet
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
 import eu.kanade.tachiyomi.data.discovery.isBlacklisted
+import eu.kanade.tachiyomi.data.discovery.recoverMissingCovers
 import eu.kanade.tachiyomi.data.discovery.rrfScores
 import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
 import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.util.system.isRunningFlow
 import eu.kanade.tachiyomi.util.system.workManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import tachiyomi.core.common.util.lang.launchIO
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
+import tachiyomi.domain.entries.anime.interactor.NetworkToLocalAnime
+import tachiyomi.domain.entries.manga.interactor.NetworkToLocalManga
+import tachiyomi.domain.entries.novel.interactor.NetworkToLocalNovel
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -43,12 +52,16 @@ data class DiscoveryFeedUiState(
     // «+» промахнулся (внешний провайдер или нет точного совпадения): экран
     // открывает каталог источника/глобальный поиск вместо тупика.
     val searchFallbackItem: DiscoverySuggestion? = null,
+    // Прямое открытие plugin-bound карточки: item, который сейчас резолвится (guard повторного тапа).
+    val openingItem: DiscoverySuggestion? = null,
     val addingTitles: Set<String> = emptySet(),
     // Ряды, упавшие при последней генерации: в ленте показан устаревший кэш —
     // surfaced баннером вместо молчаливой стужи.
     val failedRows: Set<DiscoveryRowType> = emptySet(),
     // B2: «Скрыть всё с тегом X» — tag к числу затронутых подборок (undo-snackbar).
     val tagSnackbar: Pair<String, Int>? = null,
+    // Lazy cover recovery: инкремент на каждое восстановленное покрытие — ключ рекомпозиции обложек.
+    val coverRecoveryTick: Int = 0,
 )
 
 /** CSV ключей упавших рядов из prefs → набор [DiscoveryRowType]. */
@@ -144,6 +157,24 @@ internal fun DiscoverySuggestion.toSuggestionItem(): SuggestionItem = Suggestion
     },
 )
 
+/** SWR-прогрев globalMetaCache: шторка карточки открывается без спиннера. */
+internal suspend fun prefetchDiscoveryMeta(
+    items: List<DiscoverySuggestion>,
+    mediaType: DiscoveryMediaType,
+    trendingSource: DiscoveryTrendingSource,
+    limit: Int = META_PREFETCH_COUNT,
+) {
+    items.take(limit).forEach { item ->
+        try {
+            trendingSource.fetchMeta(item.title, mediaType)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Одна карточка без меты не должна останавливать прогрев остальных.
+        }
+    }
+}
+
 /**
  * Полный экран «Для тебя» v3: читает только кэш ленты из БД (ноль сети на рендер);
  *_mix_ = интерлив квот сигналов; табы/чипсы фильтруют поток; «+» добавляет в
@@ -156,9 +187,14 @@ class DiscoveryFeedScreenModel(
     private val repository: DiscoveryRepository = Injekt.get(),
     private val adder: DiscoveryLibraryAdder = DiscoveryLibraryAdder(),
     private val preferences: DiscoveryPreferences = Injekt.get(),
+    private val trendingSource: DiscoveryTrendingSource = CompositeTrendingSource(),
+    private val networkToLocalManga: NetworkToLocalManga = Injekt.get(),
+    private val networkToLocalAnime: NetworkToLocalAnime = Injekt.get(),
+    private val networkToLocalNovel: NetworkToLocalNovel = Injekt.get(),
 ) : StateScreenModel<DiscoveryFeedUiState>(DiscoveryFeedUiState(mediaType = initialMedia)) {
 
     private var observeJob: Job? = null
+    private var prefetchJob: Job? = null
     private var lastHidden: DiscoverySuggestion? = null
     private var lastBlacklistedTag: String? = null
 
@@ -199,6 +235,18 @@ class DiscoveryFeedScreenModel(
                             isRefreshing = refreshing,
                             isLoading = false,
                             failedRows = parseFailedRows(failedCsv),
+                        )
+                    }
+                    prefetchJob?.cancel()
+                    prefetchJob = screenModelScope.launchIO {
+                        prefetchDiscoveryMeta(mix, mediaType, trendingSource)
+                        recoverMissingCovers(
+                            mix,
+                            mediaType,
+                            trendingSource,
+                            onRecovered = {
+                                mutableState.update { s -> s.copy(coverRecoveryTick = s.coverRecoveryTick + 1) }
+                            },
                         )
                     }
                 }
@@ -300,4 +348,21 @@ class DiscoveryFeedScreenModel(
     fun dismissSearchFallback() = mutableState.update { it.copy(searchFallbackItem = null) }
 
     fun dismissAddedSnackbar() = mutableState.update { it.copy(addedSnackbarTitle = null) }
+
+    /** Отметить карточку как резолвящуюся для прямого открытия (guard повторного тапа). */
+    fun setOpenPending(item: DiscoverySuggestion?) = mutableState.update { it.copy(openingItem = item) }
+
+    /**
+     * Прямое открытие plugin-bound карточки: materialize тайтла в локальной БД
+     * по связке (sourceId, sourceUrl). Null при неполной привязке, неустановленном
+     * (или стаб) источнике и при любой ошибке — вызывающий экран уходит в шторку.
+     */
+    suspend fun resolveEntryId(item: DiscoverySuggestion): Long? =
+        directOpenResolver.resolveEntryId(item)
+
+    private val directOpenResolver = DiscoveryDirectOpenResolver(
+        networkToLocalManga = networkToLocalManga,
+        networkToLocalAnime = networkToLocalAnime,
+        networkToLocalNovel = networkToLocalNovel,
+    )
 }

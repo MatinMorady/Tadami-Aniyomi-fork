@@ -208,6 +208,14 @@ abstract class MangaSearchScreenModel(
                         if (isActive) {
                             updateItem(source, MangaSearchItemResult.Error(e))
                         }
+                    } catch (e: OutOfMemoryError) {
+                        // OOM — это Error, не Exception: без этого catch «тяжёлый» источник
+                        // (напр. Hitomi, строящий in-memory индекс всех галерей при поиске)
+                        // убивает весь процесс. Буферы источника становятся мусором здесь,
+                        // поиск продолжается без него.
+                        if (isActive) {
+                            updateItem(source, MangaSearchItemResult.Error(e))
+                        }
                     }
                 }
             }

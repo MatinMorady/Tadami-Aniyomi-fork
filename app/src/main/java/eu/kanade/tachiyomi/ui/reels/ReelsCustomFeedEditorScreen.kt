@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.reels
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -59,13 +61,49 @@ data class ReelsCustomFeedEditorScreen(
             if (state.isSaved) navigator.pop()
         }
 
+        // Audit H11: unsaved edits must not die silently on back — snapshot the first loaded
+        // state as the baseline and confirm the discard when the user diverges from it.
+        var baseline by remember { mutableStateOf<Pair<String, Set<String>>?>(null) }
+        LaunchedEffect(state.isLoading) {
+            if (!state.isLoading && baseline == null) {
+                baseline = state.name to state.selectedTags
+            }
+        }
+        val dirty = baseline?.let { it.first != state.name || it.second != state.selectedTags } ?: false
+        var confirmDiscard by remember { mutableStateOf(false) }
+        BackHandler(enabled = dirty) { confirmDiscard = true }
+
+        if (confirmDiscard) {
+            AlertDialog(
+                onDismissRequest = { confirmDiscard = false },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmDiscard = false
+                            navigator.pop()
+                        },
+                    ) {
+                        Text(stringResource(MR.strings.action_close))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDiscard = false }) {
+                        Text(stringResource(MR.strings.action_cancel))
+                    }
+                },
+                title = { Text(stringResource(MR.strings.reels_editor_discard)) },
+            )
+        }
+
         Scaffold(
             topBar = {
                 AppBar(
                     title = stringResource(
                         if (feedId != null) MR.strings.reels_custom_feed_edit else MR.strings.reels_custom_feed_new,
                     ),
-                    navigateUp = navigator::pop,
+                    navigateUp = {
+                        if (dirty) confirmDiscard = true else navigator.pop()
+                    },
                     actions = {
                         TextButton(
                             enabled = state.name.isNotBlank() && !state.isSaving && !state.isLoading,
@@ -107,9 +145,16 @@ data class ReelsCustomFeedEditorScreen(
                         onToggle = screenModel::toggleTag,
                         modifier = Modifier.weight(1f),
                     )
-                    state.error?.let { error ->
+                    state.error?.takeIf { it.isNotBlank() }?.let { error ->
                         Text(
                             text = error,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    state.errorRes?.let { errorRes ->
+                        Text(
+                            text = stringResource(errorRes),
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -141,7 +186,11 @@ private fun TagPicker(
 
         if (filtered.isEmpty()) {
             Text(
-                text = stringResource(MR.strings.reels_custom_feeds_empty),
+                // Audit H11: "no feeds" text on an empty TAG SEARCH was misleading —
+                // distinguish "the source has no tags" from "nothing matches the query".
+                text = stringResource(
+                    if (allTags.isEmpty()) MR.strings.reels_custom_feeds_empty else MR.strings.no_results_found,
+                ),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(top = 8.dp),
             )

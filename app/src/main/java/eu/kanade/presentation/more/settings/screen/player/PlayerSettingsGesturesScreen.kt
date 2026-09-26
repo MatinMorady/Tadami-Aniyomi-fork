@@ -16,7 +16,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.screen.SearchableSettings
 import eu.kanade.tachiyomi.ui.player.LongPressGesture
 import eu.kanade.tachiyomi.ui.player.SingleActionGesture
@@ -255,39 +260,59 @@ object PlayerSettingsGesturesScreen : SearchableSettings {
     ) {
         val skipIntroLengthValue by rememberSaveable { mutableStateOf(initialSkipIntroLength) }
         var newLength = 0
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = { Text(text = stringResource(AYMR.strings.pref_intro_length)) },
-            text = {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    content = {
-                        WheelTextPicker(
-                            modifier = Modifier.align(Alignment.Center),
-                            items = remember { 0..255 }.map {
-                                stringResource(
-                                    MR.strings.seconds_short,
-                                    it,
-                                )
-                            }.toImmutableList(),
-                            onSelectionChanged = {
-                                newLength = it
-                            },
-                            startIndex = skipIntroLengthValue,
-                        )
-                    },
-                )
-            },
-            dismissButton = {
-                TextButton(onClick = onDismissRequest) {
-                    Text(text = stringResource(MR.strings.action_cancel))
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { onValueChanged(newLength) }) {
-                    Text(text = stringResource(MR.strings.action_ok))
-                }
-            },
-        )
+        val dialogContent: @Composable () -> Unit = {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                content = {
+                    WheelTextPicker(
+                        modifier = Modifier.align(Alignment.Center),
+                        items = remember { 0..255 }.map {
+                            stringResource(
+                                MR.strings.seconds_short,
+                                it,
+                            )
+                        }.toImmutableList(),
+                        onSelectionChanged = {
+                            newLength = it
+                        },
+                        startIndex = skipIntroLengthValue,
+                    )
+                },
+            )
+        }
+        if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+            AuroraFrostDialog(
+                onDismiss = onDismissRequest,
+                title = stringResource(AYMR.strings.pref_intro_length),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = onDismissRequest,
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
+                        onClick = { onValueChanged(newLength) },
+                    )
+                },
+            ) {
+                dialogContent()
+            }
+        } else {
+            AlertDialog(
+                onDismissRequest = onDismissRequest,
+                title = { Text(text = stringResource(AYMR.strings.pref_intro_length)) },
+                text = { dialogContent() },
+                dismissButton = {
+                    TextButton(onClick = onDismissRequest) {
+                        Text(text = stringResource(MR.strings.action_cancel))
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { onValueChanged(newLength) }) {
+                        Text(text = stringResource(MR.strings.action_ok))
+                    }
+                },
+            )
+        }
     }
 }

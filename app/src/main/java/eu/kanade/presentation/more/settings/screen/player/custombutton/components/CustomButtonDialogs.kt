@@ -1,9 +1,10 @@
-package eu.kanade.presentation.more.settings.screen.player.custombutton.components
+﻿package eu.kanade.presentation.more.settings.screen.player.custombutton.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -23,6 +24,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.TextFieldValue
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.SettingsUiStyle
+import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
 import eu.kanade.presentation.more.settings.screen.player.editor.codeeditor.githubTheme
 import eu.kanade.presentation.more.settings.screen.player.editor.codeeditor.luaHighlight
 import eu.kanade.presentation.more.settings.screen.player.editor.codeeditor.toAnnotatedString
@@ -76,103 +82,141 @@ fun CustomButtonButtonDialog(
     val focusRequester = remember { FocusRequester() }
     val titleAlreadyExists = remember(title) { buttonNames.contains(title) }
 
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(
-                enabled = title.isNotEmpty() && content.text.isNotEmpty() && !titleAlreadyExists,
-                onClick = {
-                    onAction(title, content.text, longPressContent.text, startUp.text)
-                    onDismissRequest()
+    val titleText = stringResource(titleRes)
+    val buttonIdText = initialState?.id?.let { stringResource(AYMR.strings.pref_player_custom_button_id, it) }
+
+    val dialogContent: @Composable () -> Unit = {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
+            modifier = Modifier.verticalScroll(rememberScrollState()),
+        ) {
+            OutlinedTextField(
+                modifier = Modifier
+                    .focusRequester(focusRequester),
+                value = title,
+                onValueChange = { title = it },
+                label = {
+                    Text(text = stringResource(AYMR.strings.pref_player_custom_button_title))
                 },
-            ) {
-                Text(text = stringResource(actionRes))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(text = stringResource(MR.strings.action_cancel))
-            }
-        },
-        title = {
-            Row {
-                Text(text = stringResource(titleRes))
-                initialState?.id?.let { buttonId ->
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = stringResource(AYMR.strings.pref_player_custom_button_id, buttonId),
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.alpha(alpha = DISABLED_ALPHA),
-                    )
-                }
-            }
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-            ) {
-                OutlinedTextField(
+                supportingText = {
+                    val msgRes = if (title.isNotEmpty() && titleAlreadyExists) {
+                        AYMR.strings.pref_player_custom_button_error_exists
+                    } else {
+                        MR.strings.information_required_plain
+                    }
+                    Text(text = stringResource(msgRes))
+                },
+                isError = title.isNotEmpty() && titleAlreadyExists,
+                singleLine = true,
+            )
+
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it.copy(luaHighlight.toAnnotatedString(it.text)) },
+                label = {
+                    Text(text = stringResource(AYMR.strings.pref_player_custom_button_content))
+                },
+                supportingText = {
+                    Text(text = stringResource(MR.strings.information_required_plain))
+                },
+                minLines = 3,
+                maxLines = 5,
+            )
+
+            OutlinedTextField(
+                value = longPressContent,
+                onValueChange = { longPressContent = it.copy(luaHighlight.toAnnotatedString(it.text)) },
+                label = {
+                    Text(text = stringResource(AYMR.strings.pref_player_custom_button_content_long))
+                },
+                supportingText = {
+                    Text(text = stringResource(AYMR.strings.pref_player_custom_button_optional))
+                },
+                minLines = 3,
+                maxLines = 5,
+            )
+
+            OutlinedTextField(
+                value = startUp,
+                onValueChange = { startUp = it.copy(luaHighlight.toAnnotatedString(it.text)) },
+                label = {
+                    Text(text = stringResource(AYMR.strings.pref_player_custom_button_startup))
+                },
+                supportingText = {
+                    Text(text = stringResource(AYMR.strings.pref_player_custom_button_optional))
+                },
+                minLines = 2,
+                maxLines = 4,
+            )
+        }
+    }
+
+    if (rememberResolvedSettingsUiStyle() == SettingsUiStyle.Aurora) {
+        AuroraFrostDialog(
+            onDismiss = onDismissRequest,
+            title = titleText,
+            innerScroll = false,
+            footer = {
+                AuroraFrostCancel(
+                    label = stringResource(MR.strings.action_cancel),
+                    onClick = onDismissRequest,
+                )
+                AuroraFrostConfirm(
+                    label = stringResource(actionRes),
+                    onClick = {
+                        onAction(title, content.text, longPressContent.text, startUp.text)
+                        onDismissRequest()
+                    },
+                    enabled = title.isNotEmpty() && content.text.isNotEmpty() && !titleAlreadyExists,
+                )
+            },
+        ) {
+            buttonIdText?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
-                        .focusRequester(focusRequester),
-                    value = title,
-                    onValueChange = { title = it },
-                    label = {
-                        Text(text = stringResource(AYMR.strings.pref_player_custom_button_title))
-                    },
-                    supportingText = {
-                        val msgRes = if (title.isNotEmpty() && titleAlreadyExists) {
-                            AYMR.strings.pref_player_custom_button_error_exists
-                        } else {
-                            MR.strings.information_required_plain
-                        }
-                        Text(text = stringResource(msgRes))
-                    },
-                    isError = title.isNotEmpty() && titleAlreadyExists,
-                    singleLine = true,
-                )
-
-                OutlinedTextField(
-                    value = content,
-                    onValueChange = { content = it.copy(luaHighlight.toAnnotatedString(it.text)) },
-                    label = {
-                        Text(text = stringResource(AYMR.strings.pref_player_custom_button_content))
-                    },
-                    supportingText = {
-                        Text(text = stringResource(MR.strings.information_required_plain))
-                    },
-                    minLines = 3,
-                    maxLines = 5,
-                )
-
-                OutlinedTextField(
-                    value = longPressContent,
-                    onValueChange = { longPressContent = it.copy(luaHighlight.toAnnotatedString(it.text)) },
-                    label = {
-                        Text(text = stringResource(AYMR.strings.pref_player_custom_button_content_long))
-                    },
-                    supportingText = {
-                        Text(text = stringResource(AYMR.strings.pref_player_custom_button_optional))
-                    },
-                    minLines = 3,
-                    maxLines = 5,
-                )
-
-                OutlinedTextField(
-                    value = startUp,
-                    onValueChange = { startUp = it.copy(luaHighlight.toAnnotatedString(it.text)) },
-                    label = {
-                        Text(text = stringResource(AYMR.strings.pref_player_custom_button_startup))
-                    },
-                    supportingText = {
-                        Text(text = stringResource(AYMR.strings.pref_player_custom_button_optional))
-                    },
-                    minLines = 2,
-                    maxLines = 4,
+                        .alpha(alpha = DISABLED_ALPHA)
+                        .padding(bottom = MaterialTheme.padding.small),
                 )
             }
-        },
-    )
+            dialogContent()
+        }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            confirmButton = {
+                TextButton(
+                    enabled = title.isNotEmpty() && content.text.isNotEmpty() && !titleAlreadyExists,
+                    onClick = {
+                        onAction(title, content.text, longPressContent.text, startUp.text)
+                        onDismissRequest()
+                    },
+                ) {
+                    Text(text = stringResource(actionRes))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissRequest) {
+                    Text(text = stringResource(MR.strings.action_cancel))
+                }
+            },
+            title = {
+                Row {
+                    Text(text = titleText)
+                    initialState?.id?.let { buttonId ->
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = stringResource(AYMR.strings.pref_player_custom_button_id, buttonId),
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.alpha(alpha = DISABLED_ALPHA),
+                        )
+                    }
+                }
+            },
+            text = { dialogContent() },
+        )
+    }
 
     LaunchedEffect(focusRequester) {
         // TODO: https://issuetracker.google.com/issues/204502668
@@ -220,26 +264,50 @@ fun CustomButtonDeleteDialog(
     onDelete: () -> Unit,
     buttonTitle: String,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(onClick = {
-                onDelete()
-                onDismissRequest()
-            }) {
-                Text(text = stringResource(MR.strings.action_ok))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(text = stringResource(MR.strings.action_cancel))
-            }
-        },
-        title = {
-            Text(text = stringResource(AYMR.strings.pref_player_custom_button_delete))
-        },
-        text = {
-            Text(text = stringResource(AYMR.strings.pref_player_custom_button_delete_confirm, buttonTitle))
-        },
-    )
+    val dialogContent: @Composable () -> Unit = {
+        Text(text = stringResource(AYMR.strings.pref_player_custom_button_delete_confirm, buttonTitle))
+    }
+
+    if (rememberResolvedSettingsUiStyle() == SettingsUiStyle.Aurora) {
+        AuroraFrostDialog(
+            onDismiss = onDismissRequest,
+            title = stringResource(AYMR.strings.pref_player_custom_button_delete),
+            footer = {
+                AuroraFrostCancel(
+                    label = stringResource(MR.strings.action_cancel),
+                    onClick = onDismissRequest,
+                )
+                AuroraFrostConfirm(
+                    label = stringResource(MR.strings.action_ok),
+                    onClick = {
+                        onDelete()
+                        onDismissRequest()
+                    },
+                )
+            },
+        ) {
+            dialogContent()
+        }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete()
+                    onDismissRequest()
+                }) {
+                    Text(text = stringResource(MR.strings.action_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissRequest) {
+                    Text(text = stringResource(MR.strings.action_cancel))
+                }
+            },
+            title = {
+                Text(text = stringResource(AYMR.strings.pref_player_custom_button_delete))
+            },
+            text = { dialogContent() },
+        )
+    }
 }

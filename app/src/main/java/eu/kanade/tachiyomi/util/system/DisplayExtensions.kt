@@ -55,6 +55,29 @@ fun Context.isNightMode(): Boolean {
 }
 
 /**
+ * MainActivity declares configChanges (orientation/screenSize/… for the reels PiP), so a
+ * rotation no longer recreates it — but the tablet-UI override from [prepareTabletUiContext]
+ * is computed ONCE in attachBaseContext. When the computed tablet mode flips (AUTOMATIC's
+ * width threshold is orientation-dependent; LANDSCAPE mode follows orientation), the
+ * activity must recreate itself to pick up the right context.
+ *
+ * The receiver's `resources.configuration` is the OVERRIDDEN one (the currently active UI
+ * mode); [newConfig] is the real incoming configuration.
+ */
+fun Context.tabletUiNeedsRecreate(newConfig: Configuration): Boolean {
+    val expected = when (Injekt.get<UiPreferences>().tabletUiMode().get()) {
+        TabletUiMode.AUTOMATIC ->
+            newConfig.smallestScreenWidthDp >= when (newConfig.orientation) {
+                Configuration.ORIENTATION_PORTRAIT -> TABLET_UI_MIN_SCREEN_WIDTH_PORTRAIT_DP
+                else -> TABLET_UI_MIN_SCREEN_WIDTH_LANDSCAPE_DP
+            }
+        TabletUiMode.LANDSCAPE -> newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+        TabletUiMode.ALWAYS, TabletUiMode.NEVER -> return false
+    }
+    return resources.configuration.isTabletUi() != expected
+}
+
+/**
  * Checks whether if the device has a display cutout (i.e. notch, camera cutout, etc.).
  *
  * Only works in Android 9+.

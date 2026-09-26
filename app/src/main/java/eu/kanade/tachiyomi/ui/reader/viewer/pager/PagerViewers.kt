@@ -38,6 +38,22 @@ class R2LPagerViewer(activity: ReaderActivity) : PagerViewer(activity) {
     override fun moveToPrevious() {
         moveRight()
     }
+
+    /**
+     * The list is reversed for R2L: the last list item is the START of the series, so hitting it
+     * while moving right (backwards) must not preload/meltdown.
+     */
+    override fun onReachedListEnd() = Unit
+
+    /**
+     * The first list item is the END of the reading direction for R2L: moving left into it is the
+     * forward edge (preload the next chapter / meltdown when there is none).
+     */
+    override fun onReachedListStart() {
+        handleReadingEndReached()
+    }
+
+    override fun isAtReadingEnd(position: Int): Boolean = position == 0
 }
 
 /**

@@ -84,6 +84,12 @@ class UiPreferences(
 
     fun navStyle() = preferenceStore.getEnum("bottom_rail_nav_style", NavStyle.MOVE_HISTORY_TO_MORE)
 
+    /** Order of the Aurora «More» screen entries; empty means the default order. */
+    fun moreMenuOrder() = preferenceStore.getString("aurora_more_menu_order", "")
+
+    /** Names of the [eu.kanade.tachiyomi.ui.more.MoreEntryId] entries hidden from the «More» screen. */
+    fun moreMenuHidden() = preferenceStore.getStringSet("aurora_more_menu_hidden", emptySet())
+
     fun hapticFeedbackMode() = preferenceStore.getEnum(
         "haptic_feedback_mode",
         HapticFeedbackMode.PARTIAL,

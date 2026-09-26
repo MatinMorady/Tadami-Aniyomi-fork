@@ -172,6 +172,7 @@ class NovelJsRuntimeFactoryTest {
     fun `buildRequest adds browser headers when absent`() {
         val networkHelper = mockk<NetworkHelper>(relaxed = true)
         every { networkHelper.defaultUserAgentProvider() } returns "Tadami-Test-Agent/1.0"
+        every { networkHelper.pluginUserAgentProvider() } returns "Tadami-Test-Agent/1.0"
 
         val nativeApiClass = Class.forName(
             "eu.kanade.tachiyomi.extension.novel.runtime.NovelJsRuntimeFactory\$NativeApiImpl",

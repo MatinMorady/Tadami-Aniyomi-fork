@@ -35,4 +35,10 @@
         <item quantity="many">%d книг</item>
         <item quantity="other">%d книги</item>
     </plurals>
+    <plurals name="discovery_sources_weight">
+        <item quantity="one">%d тайтл в библиотеке</item>
+        <item quantity="few">%d тайтла в библиотеке</item>
+        <item quantity="many">%d тайтлов в библиотеке</item>
+        <item quantity="other">%d тайтла в библиотеке</item>
+    </plurals>
 </resources>

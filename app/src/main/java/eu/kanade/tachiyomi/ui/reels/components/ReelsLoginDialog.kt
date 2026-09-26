@@ -35,12 +35,20 @@ fun ReelsLoginDialog(
     loggedInAccount: String?,
     isLoggingIn: Boolean,
     loginError: String?,
+    loginRejected: Boolean,
     onLogin: (email: String, password: String) -> Unit,
     onLogout: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    // Rejected credentials are a distinct, localizable state; raw transport text (if any)
+    // takes precedence and blank transport messages render nothing.
+    val errorText = when {
+        loginError?.isNotBlank() == true -> loginError
+        loginRejected -> stringResource(MR.strings.reels_login_failed)
+        else -> null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -79,9 +87,9 @@ fun ReelsLoginDialog(
                         ),
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (loginError != null) {
+                    if (errorText != null) {
                         Text(
-                            text = loginError,
+                            text = errorText,
                             color = MaterialTheme.colorScheme.error,
                             fontSize = 12.sp,
                         )

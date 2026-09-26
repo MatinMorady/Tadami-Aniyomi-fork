@@ -276,7 +276,7 @@ fun ReadingTab(
     } else {
         Color(0xFFF3E7D0)
     }
-    val previewInk = if (AuroraTheme.colors.isDark) {
+    val previewInk = parseReaderColor(settings.globalTextColor) ?: if (AuroraTheme.colors.isDark) {
         Color(0xFFE8DFD0)
     } else {
         Color(0xFF1A1612)
@@ -468,6 +468,14 @@ fun ReadingTab(
                     ),
                 ),
             )
+            AuroraFieldLabel(stringResource(AYMR.strings.novel_reader_global_text_color))
+            NovelTextColorSwatchRow(
+                savedValue = settings.globalTextColor,
+                onSelectHex = { hex ->
+                    update(hex, { o, v -> o.copy(globalTextColor = v) }, { preferences.globalTextColor().set(it) })
+                },
+            )
+            NovelGlassHint(stringResource(AYMR.strings.novel_reader_global_text_color_summary))
             if (settings.textShadow) {
                 EditTextPreferenceWidget(
                     title = stringResource(AYMR.strings.novel_reader_text_shadow_color),

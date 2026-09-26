@@ -74,6 +74,38 @@ class NovelPluginScriptOverridesApplierTest {
     }
 
     @Test
+    fun `novelupdates patch survives terser remangling of the cheerio local`() {
+        // The published minified plugin renames the cheerio local on every republish (v -> f in
+        // 0.9.9), so a literal pattern silently no-ops; the regex form captures whatever name
+        // terser picked and reuses it in the replacement.
+        val json = Json { ignoreUnknownKeys = true }
+        val payload = readOverridesJson()
+        val overrides = NovelPluginRuntimeOverrides.fromJson(json, payload)
+        val applier = NovelPluginScriptOverridesApplier(overrides)
+        val source = """n="https:"+f(t).find("a").first().next().attr("href");"""
+
+        val patched = applier.apply(pluginId = "novelupdates", script = source)
+
+        patched.shouldNotContain("""first().next().attr("href")""")
+        patched.shouldContain("""(f(t).find("a").eq(1).attr("href")""")
+    }
+
+    @Test
+    fun `novelupdates patch adds mygrpfilter field expected by admin-ajax`() {
+        val json = Json { ignoreUnknownKeys = true }
+        val payload = readOverridesJson()
+        val overrides = NovelPluginRuntimeOverrides.fromJson(json, payload)
+        val applier = NovelPluginScriptOverridesApplier(overrides)
+        val source = """
+            (h=new FormData).append("action","nd_getchapters"),h.append("mygrr","0"),h.append("mypostid",p),[4];
+        """.trimIndent()
+
+        val patched = applier.apply(pluginId = "novelupdates", script = source)
+
+        patched.shouldContain("""h.append("mypostid",p),h.append("mygrpfilter","")""")
+    }
+
+    @Test
     fun `tl patch guards null json payload before reading data`() {
         val json = Json { ignoreUnknownKeys = true }
         val payload = readOverridesJson()

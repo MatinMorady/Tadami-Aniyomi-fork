@@ -23,6 +23,7 @@ import coil3.asDrawable
 import coil3.dispose
 import coil3.imageLoader
 import coil3.request.CachePolicy
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Precision
@@ -79,6 +80,19 @@ open class ReaderPageImageView @JvmOverloads constructor(
 
     private var scope: CoroutineScope? = null
     private var smartFitJob: Job? = null
+    private var landscapeZoomRunnable: Runnable? = null
+
+    /**
+     * In-flight Coil request for the current image. Tracked so a rebind (or recycle) cancels it:
+     * an orphaned request's onError/onSuccess used to land on the NEXT page bound into this view,
+     * marking a healthy page as failed or overwriting the new image.
+     */
+    private var coilDisposable: Disposable? = null
+
+    private fun cancelCoilRequest() {
+        coilDisposable?.dispose()
+        coilDisposable = null
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -95,6 +109,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
         scope = null
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelLandscapeZoom()
+    }
+
+    private fun cancelLandscapeZoom() {
+        landscapeZoomRunnable?.let { handler?.removeCallbacks(it) }
+        landscapeZoomRunnable = null
     }
 
     var onImageLoaded: (() -> Unit)? = null
@@ -158,7 +178,11 @@ open class ReaderPageImageView @JvmOverloads constructor(
             sWidth > sHeight &&
             scale == minScale
         ) {
-            handler?.postDelayed(500) {
+            // Track the delayed runnable: a stale callback firing after a fast page flip or a
+            // detach used to zoom the wrong/recycled view.
+            cancelLandscapeZoom()
+            val runnable = Runnable {
+                landscapeZoomRunnable = null
                 val point = when (config!!.zoomStartPosition) {
                     ZoomStartPosition.LEFT -> if (forward) {
                         PointF(0F, 0F)
@@ -186,6 +210,8 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     .withInterruptible(true)
                     .start()
             }
+            landscapeZoomRunnable = runnable
+            handler?.postDelayed(runnable, 500)
         }
     }
 
@@ -193,6 +219,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         this.config = config
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelCoilRequest()
         if (drawable is Animatable) {
             prepareAnimatedImageView()
             setAnimatedImage(drawable, config)
@@ -206,6 +233,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         this.config = config
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelCoilRequest()
         if (isAnimated) {
             prepareAnimatedImageView()
             setAnimatedImage(source, config)
@@ -218,6 +246,8 @@ open class ReaderPageImageView @JvmOverloads constructor(
     fun recycle() {
         smartFitJob?.cancel()
         smartFitJob = null
+        cancelLandscapeZoom()
+        cancelCoilRequest()
         pageView?.let {
             when (it) {
                 is SubsamplingScaleImageView -> it.recycle()
@@ -432,7 +462,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     .customDecoder(true)
                     .crossfade(false)
                     .build()
-                    .let(context.imageLoader::enqueue)
+                    .let { request ->
+                        coilDisposable = context.imageLoader.enqueue(request)
+                    }
             }
             else -> {
                 throw IllegalArgumentException("Not implemented for class ${data::class.simpleName}")
@@ -506,7 +538,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
             )
             .crossfade(false)
             .build()
-        context.imageLoader.enqueue(request)
+        coilDisposable = context.imageLoader.enqueue(request)
     }
 
     private fun Int.getSystemScaledDuration(): Int {
@@ -543,3 +575,14 @@ open class ReaderPageImageView @JvmOverloads constructor(
 }
 
 private const val MAX_ZOOM_SCALE = 5F
+
+/**
+ * Result of a holder's page-image preprocessing (dual-page split / rotate-to-fit).
+ * [Decoded] lets those operations hand a bitmap directly to the image view, skipping the
+ * historical JPEG q=100 re-encode plus second decode round trip; [Encoded] is the untouched
+ * (or re-encoded fallback) byte stream.
+ */
+internal sealed interface ProcessedPageImage {
+    data class Encoded(val source: BufferedSource) : ProcessedPageImage
+    data class Decoded(val bitmap: android.graphics.Bitmap) : ProcessedPageImage
+}

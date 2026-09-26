@@ -18,8 +18,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
+import okio.Buffer
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.system.ImageUtil
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.util.concurrent.PriorityBlockingQueue
@@ -66,15 +68,22 @@ internal class HttpPageLoader(
     // SY <--
 
     init {
-        scope.launchIO {
-            while (true) {
-                val queuedPage = runInterruptible { queue.take() }
-                try {
-                    if (queuedPage.page.status == Page.State.QUEUE) {
-                        internalLoadPage(queuedPage.page)
+        // Bounded parallelism: a single sequential worker let one slow or hung image block the
+        // whole chapter queue - the visible page could not overtake in-flight preloads, and a
+        // stalled connection froze everything until the (30h) call timeout. Workers share the
+        // priority queue, so ordering semantics are unchanged; 3 keeps connection pressure
+        // modest while a stalled worker no longer starves the rest.
+        repeat(PAGE_DOWNLOAD_WORKERS) {
+            scope.launchIO {
+                while (true) {
+                    val queuedPage = runInterruptible { queue.take() }
+                    try {
+                        if (queuedPage.page.status == Page.State.QUEUE) {
+                            internalLoadPage(queuedPage.page)
+                        }
+                    } finally {
+                        removeQueuedPage(queuedPage)
                     }
-                } finally {
-                    removeQueuedPage(queuedPage)
                 }
             }
         }
@@ -149,8 +158,14 @@ internal class HttpPageLoader(
      * Retries a page. This method is only called from user interaction on the viewer.
      */
     override fun retryPage(page: ReaderPage) {
-        if (page.status == Page.State.ERROR) {
-            page.status = Page.State.QUEUE
+        // READY is included on purpose: a cached file evicted under a READY page, or a decode
+        // failure the holder surfaced while the status stayed READY, both left the worker
+        // skipping the re-offered page (it only processes QUEUE) - Retry was a dead button.
+        // Pages genuinely in flight (QUEUE/LOAD_PAGE/DOWNLOAD_IMAGE) are left alone to avoid
+        // double fetches.
+        when (page.status) {
+            Page.State.ERROR, Page.State.READY -> page.status = Page.State.QUEUE
+            else -> return
         }
         offerPage(page, 2)
     }
@@ -261,6 +276,23 @@ internal class HttpPageLoader(
                 chapterCache.putImageToCache(imageUrl, imageResponse)
             }
 
+            // Sniff the pixel size while the file is still hot in the page cache: preloaded
+            // pages then bind with a correct placeholder height and do not relayout on decode.
+            // Animated pages are skipped: their height comes from the decoded drawable, and a
+            // pre-set size would route them into the non-animated image path.
+            if (page.imageDimensions == null) {
+                page.imageDimensions = runCatching {
+                    chapterCache.getImageFile(imageUrl).inputStream().use { stream ->
+                        val source = Buffer().readFrom(stream)
+                        if (ImageUtil.isAnimatedAndSupported(source)) {
+                            null
+                        } else {
+                            ImageUtil.getImageDimensions(source)
+                        }
+                    }
+                }.getOrNull()
+            }
+
             page.stream = { chapterCache.getImageFile(imageUrl).inputStream() }
             page.status = Page.State.READY
         } catch (e: Throwable) {
@@ -290,3 +322,9 @@ private class PriorityPage(
         return if (p != 0) p else identifier.compareTo(other.identifier)
     }
 }
+
+/**
+ * Concurrent page-download workers per chapter loader. 3 balances visible-page latency
+ * (a stalled worker no longer starves the queue) against connection pressure on sources.
+ */
+private const val PAGE_DOWNLOAD_WORKERS = 3

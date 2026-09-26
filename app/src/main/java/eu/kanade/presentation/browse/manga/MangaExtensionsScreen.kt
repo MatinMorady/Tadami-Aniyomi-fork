@@ -1,6 +1,7 @@
-package eu.kanade.presentation.browse.manga
+﻿package eu.kanade.presentation.browse.manga
 
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,9 +11,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -40,7 +45,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -51,6 +61,7 @@ import eu.kanade.presentation.browse.manga.components.MangaExtensionIcon
 import eu.kanade.presentation.components.WarningBanner
 import eu.kanade.presentation.entries.components.DotSeparatorNoSpaceText
 import eu.kanade.presentation.more.settings.screen.browse.MangaExtensionStoreScreen
+import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.util.animateItemFastScroll
 import eu.kanade.presentation.util.rememberRequestPackageInstallsPermissionState
 import eu.kanade.tachiyomi.extension.InstallStep
@@ -202,11 +213,19 @@ private fun ExtensionContent(
                                 }
                             ) {
                                 {
-                                    Button(onClick = { onClickUpdateAll() }) {
+                                    // Aurora-стиль: чистая accent-пилла вместо M3 Button.
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .background(AuroraTheme.colors.accent)
+                                            .clickable { onClickUpdateAll() }
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    ) {
                                         Text(
                                             text = stringResource(MR.strings.ext_update_all),
-                                            style = LocalTextStyle.current.copy(
+                                            style = MaterialTheme.typography.labelLarge.copy(
                                                 color = MaterialTheme.colorScheme.onPrimary,
+                                                fontWeight = FontWeight.Bold,
                                             ),
                                         )
                                     }
@@ -244,51 +263,57 @@ private fun ExtensionContent(
                 }
             }
 
-            items(
+            itemsIndexed(
                 items = items,
-                contentType = { "item" },
-                key = { item -> "extension-${header.hashCode()}-${item.extension.pkgName}" },
-            ) { item ->
-                ExtensionItem(
-                    modifier = Modifier.animateItemFastScroll(this),
-                    item = item,
-                    onClickItem = {
-                        when (it) {
-                            is MangaExtension.Available -> onInstallExtension(it)
-                            is MangaExtension.Installed -> onOpenExtension(it)
-                            is MangaExtension.Untrusted -> {
-                                trustState = it
-                            }
-                        }
-                    },
-                    onLongClickItem = onLongClickItem,
-                    onClickItemSecondaryAction = {
-                        when (it) {
-                            is MangaExtension.Available -> onOpenWebView(it)
-                            is MangaExtension.Installed -> onOpenExtension(it)
-                            else -> {}
-                        }
-                    },
-                    onClickItemCancel = onClickItemCancel,
-                    onClickItemAction = {
-                        when (it) {
-                            is MangaExtension.Available -> onInstallExtension(it)
-                            is MangaExtension.Installed -> {
-                                if (it.needsReinstall) {
-                                    onReinstallExtension(it)
-                                } else if (it.hasUpdate) {
-                                    onUpdateExtension(it)
-                                } else {
-                                    onOpenExtension(it)
+                contentType = { _, _ -> "item" },
+                key = { _, item -> "extension-${header.hashCode()}-${item.extension.pkgName}" },
+            ) { index, item ->
+                Column {
+                    // Светящийся разделитель между расширениями внутри группы (стиль источников).
+                    if (index > 0) {
+                        ElegantExtensionDivider()
+                    }
+                    ExtensionItem(
+                        modifier = Modifier.animateItemFastScroll(this@itemsIndexed),
+                        item = item,
+                        onClickItem = {
+                            when (it) {
+                                is MangaExtension.Available -> onInstallExtension(it)
+                                is MangaExtension.Installed -> onOpenExtension(it)
+                                is MangaExtension.Untrusted -> {
+                                    trustState = it
                                 }
                             }
-
-                            is MangaExtension.Untrusted -> {
-                                trustState = it
+                        },
+                        onLongClickItem = onLongClickItem,
+                        onClickItemSecondaryAction = {
+                            when (it) {
+                                is MangaExtension.Available -> onOpenWebView(it)
+                                is MangaExtension.Installed -> onOpenExtension(it)
+                                else -> {}
                             }
-                        }
-                    },
-                )
+                        },
+                        onClickItemCancel = onClickItemCancel,
+                        onClickItemAction = {
+                            when (it) {
+                                is MangaExtension.Available -> onInstallExtension(it)
+                                is MangaExtension.Installed -> {
+                                    if (it.needsReinstall) {
+                                        onReinstallExtension(it)
+                                    } else if (it.hasUpdate) {
+                                        onUpdateExtension(it)
+                                    } else {
+                                        onOpenExtension(it)
+                                    }
+                                }
+
+                                is MangaExtension.Untrusted -> {
+                                    trustState = it
+                                }
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -655,4 +680,47 @@ fun ExtensionTrustDialog(
         },
         onDismissRequest = onDismissRequest,
     )
+}
+
+/** Контрастный «хром»-акцент (эталон манги-источников). */
+@Composable
+private fun chromeAccent(): Color {
+    val colors = AuroraTheme.colors
+    return lerp(colors.accent, colors.textPrimary, 0.30f)
+}
+
+/** Светящаяся градиентная линия между расширениями внутри группы. */
+@Composable
+private fun ElegantExtensionDivider() {
+    val chrome = chromeAccent()
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.12f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.45f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+    }
 }

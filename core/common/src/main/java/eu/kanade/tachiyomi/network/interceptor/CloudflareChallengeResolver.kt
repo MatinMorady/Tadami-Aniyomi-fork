@@ -13,6 +13,7 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import eu.kanade.tachiyomi.network.AndroidCookieJar
 import eu.kanade.tachiyomi.util.system.toast
+import logcat.logcat
 import okhttp3.Cookie
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -167,6 +168,9 @@ internal class WebViewCloudflareChallengeResolver(
 
                 webview?.run {
                     stopLoading()
+                    // The solve WebView may be attached to an activity window as an invisible
+                    // overlay; destroying it while attached leaks the view hierarchy reference.
+                    (parent as? android.view.ViewGroup)?.removeView(this)
                     destroy()
                 }
             }

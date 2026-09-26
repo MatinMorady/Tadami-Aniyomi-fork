@@ -71,6 +71,15 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     private var awaitingIdleViewerChapters: ViewerChapters? = null
 
     /**
+     * Deferred dataset mutations. Any notifyDataSetChanged while dragging/settling makes the
+     * pager run completeScroll(false)+scrollTo, yanking the page out from under the user's
+     * finger; config refreshes, split inserts and split cleanups wait for idle instead.
+     */
+    private var pendingConfigRefresh = false
+    private val pendingPageSplits = mutableListOf<Pair<ReaderPage, InsertPage>>()
+    private var pendingCleanupPageSplit = false
+
+    /**
      * Whether the view pager is currently in idle mode. It sets the awaiting chapters if setting
      * this field to true.
      */
@@ -81,6 +90,19 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 awaitingIdleViewerChapters?.let { viewerChapters ->
                     setChaptersInternal(viewerChapters)
                     awaitingIdleViewerChapters = null
+                }
+                if (pendingCleanupPageSplit) {
+                    applyCleanupPageSplit()
+                }
+                if (pendingPageSplits.isNotEmpty()) {
+                    val splits = pendingPageSplits.toList()
+                    pendingPageSplits.clear()
+                    splits.forEach { (page, insertPage) ->
+                        adapter.onPageSplit(page, insertPage)
+                    }
+                }
+                if (pendingConfigRefresh) {
+                    applyRefreshAdapter()
                 }
             }
         }
@@ -112,12 +134,12 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 override fun onPageScrollStateChanged(state: Int) {
                     when (state) {
                         ViewPager.SCROLL_STATE_DRAGGING -> {
-                            // Record if user starts dragging when already on the last page
-                            dragStartedAtLastPage = pager.currentItem == adapter.count - 1
+                            // Record if user starts dragging when already at the reading end
+                            dragStartedAtLastPage = isAtReadingEnd(pager.currentItem)
                             pauseAutoScroll()
                         }
                         ViewPager.SCROLL_STATE_IDLE -> {
-                            if (dragStartedAtLastPage && pager.currentItem == adapter.count - 1) {
+                            if (dragStartedAtLastPage && isAtReadingEnd(pager.currentItem)) {
                                 // Drag started and ended on last page — user swiped into void
                                 activity.onMeltdownTransitionActivated()
                             }
@@ -133,11 +155,12 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         pager.tapListener = { event ->
             val viewPosition = IntArray(2)
             pager.getLocationOnScreen(viewPosition)
-            val viewPositionRelativeToWindow = IntArray(2)
-            pager.getLocationInWindow(viewPositionRelativeToWindow)
+            // rawX/rawY are screen coordinates: subtracting the on-screen position already gives
+            // view-relative points. The old "+ locationInWindow" term double-counted the window
+            // offset whenever the pager was not flush with the window origin.
             val pos = PointF(
-                (event.rawX - viewPosition[0] + viewPositionRelativeToWindow[0]) / pager.width,
-                (event.rawY - viewPosition[1] + viewPositionRelativeToWindow[1]) / pager.height,
+                (event.rawX - viewPosition[0]) / pager.width,
+                (event.rawY - viewPosition[1]) / pager.height,
             )
             when (config.navigator.getAction(pos)) {
                 NavigationRegion.MENU -> activity.toggleMenu()
@@ -258,8 +281,16 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      */
     private fun getPageHolder(page: ReaderPage): PagerPageHolder? =
         pager.children
-            .filterIsInstance(PagerPageHolder::class.java)
-            .firstOrNull { it.item == page }
+            .mapNotNull { child ->
+                when (child) {
+                    is PagerPageHolder -> child.takeIf { it.item == page }
+                    // Spread holders nest the per-half page holders; without this, pan
+                    // navigation and onPageSelected(forward) were dead in landscape spreads.
+                    is JoinedPagerPageHolder -> child.findPageHolder(page)
+                    else -> null
+                }
+            }
+            .firstOrNull()
 
     /**
      * Called when a new page (either a [ReaderPage] or [ChapterTransition]) is marked as active
@@ -380,6 +411,13 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         // The setting controls whether to show the info screen. We do not force the info screen just because
         // the previous current item was a transition (this was causing it to show for 1-page chapters etc even when disabled).
         val forceTransition = config.alwaysShowChapterTransition
+        // PAGER-JUMP (parity with WEBTOON-ARROWS-2): detect a toolbar/jump chapter switch BEFORE
+        // the adapter rebuilds. ViewPager keeps the NUMERIC current item across notifyDataSetChanged,
+        // so jumping from a deep position used to land on an arbitrary page of the new chapter -
+        // and immediately save it as progress, possibly chaining into the next chapter through its
+        // 2-page preview window.
+        val isProgrammaticSwitch = adapter.currentChapter != chapters.currChapter &&
+            activity.viewModel.state.value.isLoadingAdjacentChapter
         adapter.setChapters(chapters, forceTransition)
 
         // Layout the pager once a chapter is being set
@@ -389,6 +427,21 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
             moveToPage(pages[min(chapters.currChapter.requestedPage, pages.lastIndex)])
             pager.isVisible = true
         } else {
+            if (isProgrammaticSwitch) {
+                val pages = chapters.currChapter.pages
+                if (pages != null) {
+                    val target = pages[min(chapters.currChapter.requestedPage, pages.lastIndex)]
+                    val position = adapter.items.indexOfFirst { item ->
+                        when (item) {
+                            is JoinedReaderPage -> item.firstPage === target || item.secondPage === target
+                            else -> item === target
+                        }
+                    }
+                    if (position != -1) {
+                        pager.setCurrentItem(position, false)
+                    }
+                }
+            }
             pager.post {
                 onPageChange(pager.currentItem)
             }
@@ -451,15 +504,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 pager.setCurrentItem(pager.currentItem + 1, config.usePageTransitions)
             }
         } else {
-            // At the end of the current list.
-            // If there is a logical next chapter, request its preload (so switching can happen when it loads).
-            // Only fire meltdown if there is truly no next (the "no more chapters" case).
-            val next = adapter.nextTransition?.to
-            if (next != null) {
-                activity.requestPreloadChapter(next)
-            } else {
-                activity.onMeltdownTransitionActivated()
-            }
+            onReachedListEnd()
         }
     }
 
@@ -475,12 +520,41 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
                 pager.setCurrentItem(pager.currentItem - 1, config.usePageTransitions)
             }
         } else {
-            // Already at the first item — for R2L viewers this is the "end".
-            // Fire meltdown only if this is the logical forward direction (R2L).
-            // We rely on R2LPagerViewer.moveToNext() -> moveLeft(), so the activity
-            // call is safe here. PagerViewer will silently no-op for L2R.
+            onReachedListStart()
         }
     }
+
+    /**
+     * Hit the last item in list order. For L2R/Vertical this is the end of the reading direction;
+     * for R2L (reversed list) it is the start of the series - see [R2LPagerViewer].
+     */
+    protected open fun onReachedListEnd() {
+        handleReadingEndReached()
+    }
+
+    /**
+     * Hit the first item in list order. No-op for L2R/Vertical; for R2L this is the end of the
+     * reading direction - see [R2LPagerViewer].
+     */
+    protected open fun onReachedListStart() = Unit
+
+    /**
+     * Forward navigation hit the end of the readable window: request the next chapter preload so
+     * switching can happen when it loads, or fire meltdown when there is truly no next chapter.
+     */
+    protected fun handleReadingEndReached() {
+        val next = adapter.nextTransition?.to
+        if (next != null) {
+            activity.requestPreloadChapter(next)
+        } else {
+            activity.onMeltdownTransitionActivated()
+        }
+    }
+
+    /**
+     * Whether [position] is the end of the reading direction in list coordinates.
+     */
+    protected open fun isAtReadingEnd(position: Int): Boolean = position == adapter.count - 1
 
     /**
      * Moves to the page at the top (or previous).
@@ -501,10 +575,23 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
      * changed.
      */
     internal fun refreshAdapter() {
-        val currentItem = pager.currentItem
+        if (!isIdle) {
+            pendingConfigRefresh = true
+            return
+        }
+        applyRefreshAdapter()
+    }
+
+    private fun applyRefreshAdapter() {
+        pendingConfigRefresh = false
         adapter.refresh()
-        pager.adapter = adapter
-        pager.setCurrentItem(currentItem, false)
+        // Re-assigning pager.adapter tore down every holder, reset the internal position to 0 and
+        // populated from there - item 0 was instantiated and decoded only to be destroyed right
+        // after by setCurrentItem. POSITION_NONE + notifyDataSetChanged recreates the views while
+        // keeping the current item index.
+        adapter.forceRecreateAll = true
+        adapter.notifyDataSetChanged()
+        adapter.forceRecreateAll = false
     }
 
     /**
@@ -573,11 +660,37 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     fun onPageSplit(currentPage: ReaderPage, newPage: InsertPage) {
         activity.runOnUiThread {
             // Need to insert on UI thread else images will go blank
+            if (!isIdle) {
+                // A mid-gesture insert makes the pager completeScroll(false)+scrollTo, yanking
+                // the page out from under the user's finger. Apply once scrolling settles.
+                pendingPageSplits.add(currentPage to newPage)
+                return@runOnUiThread
+            }
             adapter.onPageSplit(currentPage, newPage)
         }
     }
 
     private fun cleanupPageSplit() {
+        if (!isIdle) {
+            pendingCleanupPageSplit = true
+            return
+        }
+        applyCleanupPageSplit()
+    }
+
+    private fun applyCleanupPageSplit() {
+        pendingCleanupPageSplit = false
+        pendingPageSplits.clear()
+        val previousPage = currentPage
         adapter.cleanupPageSplit()
+        if (previousPage is InsertPage) {
+            // The user stood on an insert half that was just removed; the pager clamped the index
+            // to a neighbouring item. Resync currentPage/progress with the parent half explicitly.
+            val parentPosition = adapter.items.indexOf(previousPage.parent)
+            if (parentPosition != -1) {
+                pager.setCurrentItem(parentPosition, false)
+                onPageChange(parentPosition)
+            }
+        }
     }
 }

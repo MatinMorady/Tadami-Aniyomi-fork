@@ -2,10 +2,15 @@ package eu.kanade.tachiyomi.data.discovery
 
 import eu.kanade.tachiyomi.data.suggestions.SuggestionTitleResolver
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 
 /**
  * Общий интерфейс провайдера трендовых тайтлов, сезонных подборок
  * и метаданных для экрана «Для тебя» и превью-шторки.
+ *
+ * [releaseStatuses] (V1): пусто — без фильтра; провайдеры применяют статус
+ * серверно (AniList `status_in`, Shikimori `&status=` при одиночном статусе,
+ * иначе пост-фильтр по выдаче).
  */
 interface DiscoveryTrendingSource {
 
@@ -14,6 +19,7 @@ interface DiscoveryTrendingSource {
         season: TrendSeason = TrendSeason.CURRENT,
         sort: TrendSort = TrendSort.POPULARITY,
         page: Int = 1,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem>
 
     suspend fun fetchByGenres(
@@ -21,6 +27,7 @@ interface DiscoveryTrendingSource {
         genres: List<String>,
         sort: TrendSort = TrendSort.POPULARITY,
         page: Int = 1,
+        releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryTrendingItem>
 
     suspend fun fetchMeta(title: String, mediaType: DiscoveryMediaType): DiscoveryMeta?

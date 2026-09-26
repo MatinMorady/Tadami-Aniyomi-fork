@@ -66,4 +66,26 @@ class JikanTrendingSourceTest {
         parseJikanAnimePage(json, dropRx = true).map { it.title } shouldBe listOf("Normal Anime", "No Rating Field")
         parseJikanAnimePage(json, dropRx = false).size shouldBe 3
     }
+
+    @Test
+    fun `filterByJikanStatus does not leak Finished Airing into ONGOING`() {
+        fun item(status: String) = DiscoveryTrendingItem(
+            title = status,
+            cleanTitle = status,
+            coverUrl = null,
+            seasonLabel = null,
+            releaseStatus = status,
+        )
+        val items = listOf(
+            item("Currently Airing"),
+            item("Finished Airing"),
+            item("Not yet aired"),
+            item("On Hiatus"),
+        )
+        filterByJikanStatus(items, setOf(tachiyomi.domain.discovery.model.DiscoveryReleaseStatus.ONGOING))
+            .map { it.title } shouldBe listOf("Currently Airing")
+        filterByJikanStatus(items, setOf(tachiyomi.domain.discovery.model.DiscoveryReleaseStatus.FINISHED))
+            .map { it.title } shouldBe listOf("Finished Airing")
+        filterByJikanStatus(items, emptySet()).size shouldBe 4
+    }
 }

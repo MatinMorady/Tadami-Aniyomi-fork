@@ -1,0 +1,29 @@
+CREATE TABLE discovery_shown (
+    media_type TEXT NOT NULL,
+    clean_title TEXT NOT NULL,
+    shown_at INTEGER NOT NULL,
+    PRIMARY KEY (media_type, clean_title)
+);
+
+CREATE INDEX discovery_shown_time ON discovery_shown(media_type, shown_at);
+
+selectShownSince:
+SELECT clean_title FROM discovery_shown
+WHERE media_type = ? AND shown_at >= ?;
+
+selectShownWithTimeSince:
+SELECT clean_title, shown_at FROM discovery_shown
+WHERE media_type = ? AND shown_at >= ?
+ORDER BY shown_at ASC;
+
+insertOrReplace:
+INSERT OR REPLACE INTO discovery_shown(media_type, clean_title, shown_at)
+VALUES (?, ?, ?);
+
+cleanupOld:
+DELETE FROM discovery_shown
+WHERE shown_at < ?;
+
+deleteAllByMedia:
+DELETE FROM discovery_shown
+WHERE media_type = ?;

@@ -1,4 +1,4 @@
-import mihon.buildlogic.Config
+﻿import mihon.buildlogic.Config
 import mihon.buildlogic.generatedBuildDir
 import mihon.buildlogic.getBuildTime
 import mihon.buildlogic.getCommitCount
@@ -18,9 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 209
+        versionCode = 215
 
-        versionName = "0.62"
+        versionName = "0.62.8"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
@@ -91,6 +91,10 @@ android {
         getByName("release").res.directories += generatedBuildDir.resolve("android/res").path
         getByName("preview").res.directories += "src/debug/res"
         getByName("benchmark").res.directories += "src/debug/res"
+        // Generated locales_config.xml lives here (see localesConfigTask); debug/release already
+        // include it. Without this the benchmark variant fails with "Unresolved reference
+        // 'locales_config'" the first time it is actually compiled.
+        getByName("benchmark").res.directories += generatedBuildDir.resolve("android/res").path
     }
 
     splits {
@@ -394,14 +398,10 @@ configurations.configureEach {
 }
 
 androidComponents {
-    beforeVariants { variantBuilder ->
-        // Disables standardBenchmark
-        if (variantBuilder.buildType == "benchmark") {
-            variantBuilder.enable = variantBuilder.productFlavors.containsAll(
-                listOf("default" to "dev"),
-            )
-        }
-    }
+    // Upstream guard removed: it enabled the benchmark variant only for a "default/dev" product
+    // flavor combination, but this app declares no flavors at all - the variant was permanently
+    // disabled and :macrobenchmark silently fell back to installing the UNSIGNED release APK
+    // (INSTALL_PARSE_FAILED_NO_CERTIFICATES). The benchmark build type is self-contained.
     onVariants(selector().withFlavor("default" to "standard")) {
         // Only excluding in standard flavor because this breaks
         // Layout Inspector's Compose tree

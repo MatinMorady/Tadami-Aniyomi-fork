@@ -64,9 +64,6 @@ import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
-import eu.kanade.tachiyomi.ui.reader.viewer.Viewer
-import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer
-import eu.kanade.tachiyomi.ui.reader.viewer.pager.R2LPagerViewer
 import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
@@ -101,7 +98,11 @@ fun ReaderAppBars(
     onOpenInBrowser: (() -> Unit)?,
     onShare: (() -> Unit)?,
 
-    viewer: Viewer?,
+    // Stable booleans instead of the raw Viewer instance: keeps the parameter set fully stable
+    // for Compose (Viewer is an unstable View-holder type), so the app-bar tree can be skipped
+    // on reader state emissions that don't change any of its inputs.
+    isRtlViewer: Boolean = false,
+    isPagerViewer: Boolean = false,
     onNextChapter: () -> Unit,
     enabledNext: Boolean,
     onPreviousChapter: () -> Unit,
@@ -145,7 +146,7 @@ fun ReaderAppBars(
     isAutoScrollExpanded: Boolean = false,
     onToggleExpand: () -> Unit = {},
 ) {
-    val isRtl = viewer is R2LPagerViewer
+    val isRtl = isRtlViewer
     val appHaptics = LocalAppHaptics.current
     val isDark = isSystemInDarkTheme()
     // DECISION-12 (minimal): fully opaque bar surfaces on e-ink - the translucent Material
@@ -300,7 +301,7 @@ fun ReaderAppBars(
                                 onSpeedChange = onSpeedChange,
                                 showAutoScrollFloatingButton = showAutoScrollFloatingButton,
                                 onToggleAutoScrollFloatingButton = onToggleAutoScrollFloatingButton,
-                                isPagerViewer = viewer is PagerViewer,
+                                isPagerViewer = isPagerViewer,
                             )
                         }
 

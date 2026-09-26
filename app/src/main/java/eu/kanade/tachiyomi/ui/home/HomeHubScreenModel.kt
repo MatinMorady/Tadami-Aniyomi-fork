@@ -230,37 +230,90 @@ internal class HomeHubScreenModel(
                         eu.kanade.tachiyomi.data.discovery.isBlacklisted(it, expandedBlacklist)
                     }
                     cachedDiscoveryPool = eu.kanade.tachiyomi.data.discovery.dedupeCrossRow(filtered)
-                    val teaser = if (enabled) {
-                        composeTeaserItems(
-                            cachedDiscoveryPool,
-                            count,
-                            offset = discoveryOffset,
-                        )
-                    } else {
-                        emptyList()
+                    // Полный пул для hero-карусели: без тизерного окна, чтобы листать всю подборку.
+                    mutableState.update {
+                        it.copy(discoveryPool = cachedDiscoveryPool.map { item -> item.toHomeHubDiscoveryItem() })
                     }
-                    mutableState.update { it.copy(discovery = teaser, discoveryEnabled = enabled) }
+                    if (enabled) {
+                        updateDiscoveryTeaser(advanceOffset = false)
+                    } else {
+                        mutableState.update {
+                            it.copy(discovery = emptyList(), discoveryEnabled = false, discoveryPool = emptyList())
+                        }
+                    }
                 }
         }
     }
 
     private var cachedDiscoveryPool: List<tachiyomi.domain.discovery.model.DiscoverySuggestion> = emptyList()
     private var discoveryOffset: Int = 0
+    private var lastReentryTime: Long = 0L
 
-    override fun rotateOrRefreshDiscovery() {
-        if (!discoveryPreferences.discoveryEnabled().get()) return
+    private suspend fun updateDiscoveryTeaser(advanceOffset: Boolean = false) {
+        if (!discoveryPreferences.discoveryEnabled().get()) {
+            mutableState.update { it.copy(discovery = emptyList(), discoveryEnabled = false) }
+            return
+        }
         val count = discoveryPreferences.teaserCount().get().coerceIn(3, 20)
         val pool = cachedDiscoveryPool
-        if (pool.size > count) {
-            val nextOffset = discoveryOffset + count
-            if (nextOffset < pool.size) {
-                discoveryOffset = nextOffset
-                val teaser = composeTeaserItems(pool, count, offset = discoveryOffset)
-                mutableState.update { it.copy(discovery = teaser) }
+        if (pool.isEmpty()) {
+            mutableState.update { it.copy(discovery = emptyList(), discoveryEnabled = true) }
+            return
+        }
+
+        if (!advanceOffset && state.value.discovery.isNotEmpty()) {
+            val validCleanTitles = pool.mapTo(HashSet()) { it.cleanTitle }
+            val currentValid = state.value.discovery.filter { it.cleanTitle in validCleanTitles }
+            if (currentValid.size == count) {
                 return
             }
         }
-        discoveryOffset = 0
+
+        if (advanceOffset) {
+            val step = if (pool.size > count) count else 1
+            discoveryOffset = (discoveryOffset + step) % pool.size
+        }
+
+        val shownMap = runCatching {
+            discoveryRepository.getShownTitlesWithTimestamp(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME)
+        }.getOrDefault(emptyMap())
+        val shownTitles = shownMap.keys
+
+        val teaser = selectFreshTeaserItems(
+            pool = pool,
+            shownTitles = shownTitles,
+            count = count,
+            offset = discoveryOffset,
+            shownCutoffMap = shownMap,
+        )
+
+        val cleanTitlesToMark = teaser.map { it.cleanTitle }
+        if (cleanTitlesToMark.isNotEmpty()) {
+            runCatching {
+                discoveryRepository.markShown(
+                    mediaType = tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME,
+                    cleanTitles = cleanTitlesToMark,
+                )
+            }
+        }
+
+        mutableState.update { it.copy(discovery = teaser, discoveryEnabled = true) }
+    }
+
+    override fun onScreenReentry() {
+        val now = System.currentTimeMillis()
+        if (now - lastReentryTime < 500L) return
+        lastReentryTime = now
+        screenModelScope.launchIO {
+            updateDiscoveryTeaser(advanceOffset = true)
+        }
+    }
+
+    override fun rotateOrRefreshDiscovery() {
+        if (!discoveryPreferences.discoveryEnabled().get()) return
+        screenModelScope.launchIO {
+            updateDiscoveryTeaser(advanceOffset = true)
+        }
         if (state.value.isDiscoveryRefreshing) return
         // Ручной рефреш делит общий cooldown с feed-экраном (5 мин от нажатия).
         val now = System.currentTimeMillis()

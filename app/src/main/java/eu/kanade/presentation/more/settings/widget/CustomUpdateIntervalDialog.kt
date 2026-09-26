@@ -22,8 +22,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.MAX_CUSTOM_UPDATE_INTERVAL_HOURS
 import eu.kanade.presentation.more.settings.MIN_CUSTOM_UPDATE_INTERVAL_HOURS
+import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.initialCustomUpdateInterval
 import eu.kanade.presentation.more.settings.showBatteryWarning
 import tachiyomi.i18n.MR
@@ -46,65 +51,85 @@ fun CustomUpdateIntervalDialog(
         )
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(MR.strings.update_custom_interval_title)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val intervalContent: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Slider(
+                    value = hours.toFloat(),
+                    onValueChange = {
+                        hours =
+                            it.roundToInt().coerceIn(
+                                MIN_CUSTOM_UPDATE_INTERVAL_HOURS,
+                                MAX_CUSTOM_UPDATE_INTERVAL_HOURS,
+                            )
+                    },
+                    valueRange =
+                    MIN_CUSTOM_UPDATE_INTERVAL_HOURS.toFloat()..MAX_CUSTOM_UPDATE_INTERVAL_HOURS.toFloat(),
+                    steps = MAX_CUSTOM_UPDATE_INTERVAL_HOURS - MIN_CUSTOM_UPDATE_INTERVAL_HOURS - 1,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = stringResource(MR.strings.hour_short, hours),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AnimatedVisibility(visible = showBatteryWarning(hours)) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Slider(
-                        value = hours.toFloat(),
-                        onValueChange = {
-                            hours =
-                                it.roundToInt().coerceIn(
-                                    MIN_CUSTOM_UPDATE_INTERVAL_HOURS,
-                                    MAX_CUSTOM_UPDATE_INTERVAL_HOURS,
-                                )
-                        },
-                        valueRange =
-                        MIN_CUSTOM_UPDATE_INTERVAL_HOURS.toFloat()..MAX_CUSTOM_UPDATE_INTERVAL_HOURS.toFloat(),
-                        steps = MAX_CUSTOM_UPDATE_INTERVAL_HOURS - MIN_CUSTOM_UPDATE_INTERVAL_HOURS - 1,
-                        modifier = Modifier.weight(1f),
+                    Icon(
+                        imageVector = Icons.Outlined.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp),
                     )
                     Text(
-                        text = stringResource(MR.strings.hour_short, hours),
-                        style = MaterialTheme.typography.labelLarge,
+                        text = stringResource(MR.strings.update_interval_battery_warning),
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                AnimatedVisibility(visible = showBatteryWarning(hours)) {
-                    Row(
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Warning,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = stringResource(MR.strings.update_interval_battery_warning),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+            }
+        }
+    }
+    if (LocalSettingsUiStyle.current == SettingsUiStyle.Aurora) {
+        AuroraFrostDialog(
+            onDismiss = onDismiss,
+            title = stringResource(MR.strings.update_custom_interval_title),
+            footer = {
+                AuroraFrostCancel(
+                    label = stringResource(MR.strings.action_cancel),
+                    onClick = onDismiss,
+                )
+                AuroraFrostConfirm(
+                    label = stringResource(MR.strings.action_ok),
+                    onClick = { onConfirm(hours) },
+                )
+            },
+        ) {
+            intervalContent()
+        }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(text = stringResource(MR.strings.update_custom_interval_title)) },
+            text = { intervalContent() },
+            confirmButton = {
+                TextButton(onClick = { onConfirm(hours) }) {
+                    Text(text = stringResource(MR.strings.action_ok))
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(hours) }) {
-                Text(text = stringResource(MR.strings.action_ok))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(text = stringResource(MR.strings.action_cancel))
-            }
-        },
-    )
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text(text = stringResource(MR.strings.action_cancel))
+                }
+            },
+        )
+    }
 }

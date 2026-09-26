@@ -11,6 +11,8 @@ data class DiscoveryRowItem(
     val seedTitle: String?,
     val provider: String,
     val score: Double,
+    val sourceId: Long? = null,
+    val sourceUrl: String? = null,
 )
 
 data class DiscoveryBuildContext(
@@ -22,10 +24,18 @@ data class DiscoveryBuildContext(
     val tasteProfile: List<Pair<String, Double>> = emptyList(),
     /** B2: теги из tag-blacklist — жанры профиля и айтемов с ними не проходят. */
     val blacklistedTags: Set<String> = emptySet(),
+    /** V1: статус-фильтр трендов (пусто = без фильтра, все статусы). */
+    val releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus> = emptySet(),
+    /** V3: приоритетные жанры — буст скора, не отсекают. */
+    val priorityGenres: Set<String> = emptySet(),
+    /** V3: обязательные жанры — только тайтлы с ними (best-effort, пустой результат → без фильтра). */
+    val requiredGenres: Set<String> = emptySet(),
     val sourceId: Long = -1L,
     /** C1: источники библиотеки, упорядоченные по весу (топ-3) — для ряда SOURCE. */
     val sourceIds: List<Long> = emptyList(),
     val recentCleanTitles: Set<String> = emptySet(),
+    /** cleanTitle → таймстамп последнего показа (48h окно): порядок stale-добора в координаторе. */
+    val shownCutoffMap: Map<String, Long> = emptyMap(),
     val pageOffset: Int = 1,
 )
 

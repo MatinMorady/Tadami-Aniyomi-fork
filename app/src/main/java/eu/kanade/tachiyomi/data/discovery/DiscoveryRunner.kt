@@ -4,9 +4,11 @@ import eu.kanade.domain.discovery.service.DiscoveryPreferences
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.data.suggestions.SuggestionCoordinator
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
+import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.DiscoveryRowType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
@@ -20,6 +22,15 @@ interface DiscoverySeedSources {
 }
 
 /**
+ * Плагин (расширение) как единица участия в подборках: один ключ (pkgName / id novel-плагина)
+ * объединяет все языковые варианты источников расширения — без дублей в пикере и в рядах ленты.
+ */
+data class DiscoveryInstalledPlugin(
+    val key: String,
+    val sourceIds: List<Long>,
+)
+
+/**
  * Оркестратор фонового обновления ленты «Для тебя»:
  * сиды → строители рядов → [DiscoveryCoordinator] → персист успешных рядов.
  * Провалившийся ряд НЕ затирает свой кэш (в [DiscoveryFeed.rows] его нет).
@@ -28,7 +39,9 @@ class DiscoveryRunner(
     private val repository: DiscoveryRepository,
     private val preferences: DiscoveryPreferences,
     private val seedSources: DiscoverySeedSources,
-    private val coordinatorFactory: (List<DiscoveryRowBuilder>) -> DiscoveryCoordinator = { DiscoveryCoordinator(it) },
+    private val coordinatorFactory: (
+        List<DiscoveryRowBuilder>,
+    ) -> DiscoveryCoordinator = { DiscoveryCoordinator(it, rowLimit = 50) },
     private val seedSelector: DiscoverySeedSelector = DiscoverySeedSelector(),
     private val trendingFactory: () -> DiscoveryTrendingSource = { CompositeTrendingSource() },
     private val sourcePreferencesProvider: () -> SourcePreferences = { Injekt.get() },
@@ -51,6 +64,45 @@ class DiscoveryRunner(
                     .getOnlineSources().firstOrNull()?.id ?: -1L
             }
         }.getOrDefault(-1L)
+    },
+    /** Установленные онлайн-источники медиатипа — пул ручного режима участия плагинов. */
+    private val installedPluginsProvider: suspend (
+        DiscoveryMediaType,
+    ) -> List<DiscoveryInstalledPlugin> = { mediaType ->
+        runCatching {
+            when (mediaType) {
+                DiscoveryMediaType.ANIME -> {
+                    val catalogueIds = Injekt.get<tachiyomi.domain.source.anime.service.AnimeSourceManager>()
+                        .getCatalogueSources().mapTo(HashSet()) { it.id }
+                    Injekt.get<eu.kanade.tachiyomi.extension.anime.AnimeExtensionManager>()
+                        .installedExtensionsFlow.first().map { ext ->
+                            DiscoveryInstalledPlugin(
+                                key = ext.pkgName,
+                                sourceIds = ext.sources.map { it.id }.filter { it in catalogueIds },
+                            )
+                        }.filter { it.sourceIds.isNotEmpty() }
+                }
+                DiscoveryMediaType.MANGA -> {
+                    val catalogueIds = Injekt.get<tachiyomi.domain.source.manga.service.MangaSourceManager>()
+                        .getCatalogueSources().mapTo(HashSet()) { it.id }
+                    Injekt.get<eu.kanade.tachiyomi.extension.manga.MangaExtensionManager>()
+                        .installedExtensionsFlow.first().map { ext ->
+                            DiscoveryInstalledPlugin(
+                                key = ext.pkgName,
+                                sourceIds = ext.sources.map { it.id }.filter { it in catalogueIds },
+                            )
+                        }.filter { it.sourceIds.isNotEmpty() }
+                }
+                DiscoveryMediaType.NOVEL -> {
+                    val catalogueIds = Injekt.get<tachiyomi.domain.source.novel.service.NovelSourceManager>()
+                        .getCatalogueSources().mapTo(HashSet()) { it.id }
+                    val manager = Injekt.get<eu.kanade.tachiyomi.extension.novel.NovelExtensionManager>()
+                    // Только источники с плагином: OmniSource (−42), локальный (0) и сироты не участвуют.
+                    groupSourcesByPlugin(catalogueIds) { manager.getPluginId(it) }
+                        .map { (key, ids) -> DiscoveryInstalledPlugin(key, ids) }
+                }
+            }
+        }.getOrDefault(emptyList())
     },
 ) {
 
@@ -104,7 +156,57 @@ class DiscoveryRunner(
             DiscoveryMediaType.MANGA -> sourcePreferences.lastUsedMangaSource().get()
             DiscoveryMediaType.NOVEL -> sourcePreferences.lastUsedNovelSource().get()
         }
-        val sourceId = if (preferredSourceId > 0) preferredSourceId else fallbackSourceIdProvider(mediaType)
+        // Участие плагинов: единица — расширение (все языковые варианты), не источник.
+        // auto = топ-3 плагинов по весу библиотеки, manual = набор пользователя (cap 8).
+        val plugins = installedPluginsProvider(mediaType)
+        val sourceWeights = candidates.filter { it.sourceId > 0 }.groupingBy { it.sourceId }.eachCount()
+        val pluginStats = plugins.mapNotNull { plugin ->
+            val representative = plugin.sourceIds.sortedWith(
+                compareByDescending<Long> { sourceWeights[it] ?: 0 }.thenBy { it },
+            ).firstOrNull() ?: return@mapNotNull null
+            DiscoveryPluginStat(
+                key = plugin.key,
+                representative = representative,
+                memberIds = plugin.sourceIds.toSet(),
+                weight = plugin.sourceIds.sumOf { sourceWeights[it] ?: 0 },
+            )
+        }.sortedWith(compareByDescending<DiscoveryPluginStat> { it.weight }.thenBy { it.representative })
+        val excludedKeys = parseKeyCsv(preferences.discoverySourceExcluded(mediaType).get())
+        val participation = if (pluginStats.isEmpty()) {
+            // Плагины неизвестны (юнит-тесты / расширения ещё не загружены при раннем старте):
+            // легаси-порядок по весу библиотеки без исключений (нет маппинга ключ→источник).
+            resolveSourceParticipation(
+                mode = preferences.discoverySourceMode(mediaType).get(),
+                excludedIds = emptySet(),
+                weightOrder = rankSourceIds(candidates, limit = Int.MAX_VALUE),
+                lastUsedId = preferredSourceId,
+                fallbackId = fallbackSourceIdProvider(mediaType),
+            )
+        } else {
+            val excludedIds = pluginStats.filter { it.key in excludedKeys }.mapTo(HashSet()) { it.representative }
+            // lastUsed/fallback исключённого плагина не должен просочиться в primary.
+            val lastUsedPlugin = pluginStats.firstOrNull { preferredSourceId in it.memberIds }
+            val effectiveLastUsed = if (lastUsedPlugin == null || lastUsedPlugin.key !in excludedKeys) {
+                preferredSourceId
+            } else {
+                -1L
+            }
+            val rawFallback = fallbackSourceIdProvider(mediaType)
+            val fallbackPlugin = pluginStats.firstOrNull { rawFallback in it.memberIds }
+            val effectiveFallback = when {
+                rawFallback <= 0 -> rawFallback
+                fallbackPlugin == null -> rawFallback
+                fallbackPlugin.key in excludedKeys -> -1L
+                else -> fallbackPlugin.representative
+            }
+            resolveSourceParticipation(
+                mode = preferences.discoverySourceMode(mediaType).get(),
+                excludedIds = excludedIds,
+                weightOrder = pluginStats.map { it.representative },
+                lastUsedId = effectiveLastUsed,
+                fallbackId = effectiveFallback,
+            )
+        }
 
         val seedsWithTracks = seeds.map { seed ->
             val trackTitles = runCatching { trackTitles(mediaType, seed.entryId) }.getOrDefault(emptyList())
@@ -112,10 +214,12 @@ class DiscoveryRunner(
         }
 
         val currentSuggestions = runCatching { repository.subscribe(mediaType).firstOrNull() }.getOrNull().orEmpty()
+        val shownCutoffMap = runCatching { repository.getShownTitlesWithTimestamp(mediaType) }.getOrDefault(emptyMap())
+        val shownTitles = shownCutoffMap.keys
         val recentCleanTitles = if (isManualRefresh) {
-            currentSuggestions.mapTo(HashSet()) { it.cleanTitle }
+            currentSuggestions.mapTo(HashSet()) { it.cleanTitle } + shownTitles
         } else {
-            emptySet()
+            shownTitles
         }
         val pageOffset = if (isManualRefresh) 2 else 1
 
@@ -126,13 +230,28 @@ class DiscoveryRunner(
             historyCleanTitles = seedSources.historyCleanTitles(mediaType),
             hiddenCleanTitles = repository.getHiddenTitles(mediaType),
             tasteProfile = buildTasteProfile(candidates),
-            blacklistedTags = repository.getBlacklistedTags(mediaType),
-            sourceId = sourceId,
-            // C1: ряд SOURCE строится из топ-3 источников по весу библиотеки.
-            sourceIds = rankSourceIds(candidates),
+            // V3: глобальный игнор-список жанров (преф) поверх per-media блэклиста тегов.
+            blacklistedTags = repository.getBlacklistedTags(mediaType) +
+                parseGenreFilterCsv(preferences.ignoredGenres().get()).let { (canon, raw) -> canon + raw },
+            // V1: статус-фильтр трендов — CSV из настроек, пусто = без фильтра.
+            releaseStatuses = DiscoveryReleaseStatus.parseCsv(preferences.releaseStatusFilter().get()),
+            // V3: жанровые фильтры — CSV с raw-префиксом; canonical + raw матчатся одинаково.
+            priorityGenres = parseGenreFilterCsv(preferences.priorityGenres().get())
+                .let { (canon, raw) -> canon + raw.toSet() },
+            requiredGenres = parseGenreFilterCsv(preferences.requiredGenres().get())
+                .let { (canon, raw) -> canon + raw.toSet() },
+            sourceId = participation.primarySourceId,
+            // C1 + участие плагинов: состав определяет resolveSourceParticipation
+            // (auto — топ-3 по весу библиотеки, manual — все выбранные, cap 8).
+            sourceIds = participation.sourceIds,
             recentCleanTitles = recentCleanTitles,
+            shownCutoffMap = shownCutoffMap,
             pageOffset = pageOffset,
         )
+        logcat {
+            "[Discovery] refresh media=$mediaType manual=$isManualRefresh " +
+                "statuses=${context.releaseStatuses} sources=${context.sourceIds} primary=${context.sourceId}"
+        }
         // Выключенные в настройках ряды: чистим их записи в БД, чтобы UI не показывал «зомби».
         if (!preferences.rowLikeEnabled().get()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.LIKE, emptyList())
@@ -180,7 +299,7 @@ class DiscoveryRunner(
                 )
             }
             if (preferences.rowSourceEnabled().get()) {
-                add(DiscoverySourceRowBuilder(sourceCatalog))
+                add(DiscoverySourceRowBuilder(sourceCatalog, maxSources = 8, rowCap = 50))
             }
         }
         if (builders.isEmpty()) {
@@ -214,6 +333,8 @@ class DiscoveryRunner(
                         // Перезаписывается индексом списка внутри replaceRows.
                         position = 0L,
                         createdAt = System.currentTimeMillis(),
+                        sourceId = item.sourceId,
+                        sourceUrl = item.sourceUrl,
                     )
                 },
             )
@@ -224,3 +345,11 @@ class DiscoveryRunner(
         failedRowsSink(mediaType, feed.failedRows)
     }
 }
+
+/** Статистика плагина для резолва участия: репрезентативный источник + суммарный вес библиотеки. */
+private data class DiscoveryPluginStat(
+    val key: String,
+    val representative: Long,
+    val memberIds: Set<Long>,
+    val weight: Int,
+)

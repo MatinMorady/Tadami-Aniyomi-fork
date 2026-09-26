@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.download
 
+import eu.kanade.presentation.util.formatChapterNumber
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
 import eu.kanade.tachiyomi.data.download.engine.DownloadSection
 import eu.kanade.tachiyomi.data.download.manga.model.MangaDownload
@@ -137,7 +138,7 @@ object DownloadQueueUiMapper {
         return DownloadQueueUiItem(
             section = DownloadSection.NOVEL,
             itemId = task.taskId.toString(),
-            title = task.chapter.name.ifBlank { task.chapter.chapterNumber.toString().removeSuffix(".0") },
+            title = task.chapter.name.ifBlank { formatChapterNumber(task.chapter.chapterNumber) },
             subtitle = task.novel.title,
             coverData = task.novel.asNovelCover(),
             progressFraction = progressFraction,

@@ -3,11 +3,15 @@ package eu.kanade.tachiyomi.ui.reels
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import eu.kanade.tachiyomi.animesource.AnimeFeedSource
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
+import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -15,6 +19,9 @@ import uy.kohesive.injekt.api.get
 class ReelsFavoritesScreenModel(
     private val repository: ReelsFavoriteRepository = Injekt.get(),
     private val sourceManager: AnimeSourceManager = Injekt.get(),
+    private val offlineStore: ReelsOfflineStore = Injekt.get(),
+    private val hiddenRepository: ReelsHiddenRepository = Injekt.get(),
+    private val albumRepository: ReelsAlbumRepository = Injekt.get(),
 ) : StateScreenModel<ReelsFavoritesScreenModel.State>(State()) {
 
     @Immutable
@@ -48,5 +55,34 @@ class ReelsFavoritesScreenModel(
         screenModelScope.launch {
             repository.insert(favorite)
         }
+    }
+
+    /**
+     * User-initiated cleanup of rows whose source is no longer installed (or is no longer a
+     * feed source): the app never auto-deletes user data on extension uninstall. Returns the
+     * number of removed rows for the confirmation snackbar.
+     */
+    suspend fun cleanupMissingSources(): Int {
+        // Cold-start guard: the source map is EMPTY until the extension subsystem reports
+        // ready — proceeding immediately would classify every source as missing and wipe the
+        // whole favorites list on a confirmed cleanup.
+        sourceManager.isInitialized.first { it }
+        val favorites = repository.getAll()
+        val missingSourceIds = favorites.map { it.sourceId }.toSet().filter { sourceId ->
+            sourceManager.get(sourceId) !is AnimeFeedSource
+        }
+        if (missingSourceIds.isEmpty()) return 0
+        val removedCount = favorites.count { it.sourceId in missingSourceIds }
+        missingSourceIds.forEach { sourceId ->
+            repository.deleteBySource(sourceId)
+            // Audit H8: cascade the offline copies — files of a removed source are unreachable
+            // through the playlist from now on and would eat the quota forever.
+            offlineStore.deleteBySource(sourceId)
+            // Audit H7: hidden entries of a removed source are unreachable too.
+            hiddenRepository.deleteBySource(sourceId)
+            // Albums collection of a removed source is unreachable too (same cascade rule).
+            albumRepository.deleteBySource(sourceId)
+        }
+        return removedCount
     }
 }

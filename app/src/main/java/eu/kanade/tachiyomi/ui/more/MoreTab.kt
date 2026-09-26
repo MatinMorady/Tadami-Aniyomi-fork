@@ -16,6 +16,7 @@ import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import cafe.adriel.voyager.navigator.tab.TabOptions
+import com.tadami.aurora.BuildConfig
 import com.tadami.aurora.R
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.source.service.SourcePreferences
@@ -39,6 +40,7 @@ import eu.kanade.tachiyomi.ui.libraryUpdateError.LibraryUpdateErrorScreen
 import eu.kanade.tachiyomi.ui.more.DebugAppUpdatePreviewScreen
 import eu.kanade.tachiyomi.ui.more.DebugUpdatedChangelogPreviewScreen
 import eu.kanade.tachiyomi.ui.reels.ReelsFeedScreen
+import eu.kanade.tachiyomi.ui.reels.ReelsSessionSource
 import eu.kanade.tachiyomi.ui.setting.PlayerSettingsScreen
 import eu.kanade.tachiyomi.ui.setting.SettingsScreen
 import eu.kanade.tachiyomi.ui.stats.StatsTab
@@ -104,16 +106,44 @@ data object MoreTab : Tab {
         val lastUsedReelsSourceId by sourcePreferences.lastUsedReelsSource().preferenceCollectAsState()
         // Respect the Browse sources toggle: a disabled feed source must not be reachable here.
         val disabledSources by sourcePreferences.disabledAnimeSources().preferenceCollectAsState()
-        val targetReelsSource = remember(animeSources, lastUsedReelsSourceId, disabledSources) {
+        // The session choice wins over the disk preference: under an incognito policy the
+        // disk write is skipped on purpose, and re-entering the feed must still return to
+        // the source the user picked in this process (device report: it opened the first
+        // installed source instead). Read outside remember so the snapshot state registers
+        // as a recomposition dependency and the memo below re-runs on every selection change.
+        val sessionReelsSourceId = ReelsSessionSource.lastSourceId
+        val targetReelsSource = remember(animeSources, lastUsedReelsSourceId, disabledSources, sessionReelsSourceId) {
             val feeds = animeSources.filterIsInstance<AnimeFeedSource>()
                 .filterNot { it.id.toString() in disabledSources }
-            feeds.firstOrNull { it.id == lastUsedReelsSourceId } ?: feeds.firstOrNull()
+            feeds.firstOrNull { it.id == sessionReelsSourceId }
+                ?: feeds.firstOrNull { it.id == lastUsedReelsSourceId }
+                ?: feeds.firstOrNull()
         }
         val showReelsEntry = showReelsVideoFeed && targetReelsSource != null
+
+        // «More» menu customization: which entries exist right now, and how the user ordered them.
+        val moreMenuOrder by uiPreferences.moreMenuOrder().preferenceCollectAsState()
+        val moreMenuHidden by uiPreferences.moreMenuHidden().preferenceCollectAsState()
+        val moreEntryAvailability = remember(showReelsEntry, latticeGridAvailable) {
+            availableMoreEntryIds(
+                showReelsEntry = showReelsEntry,
+                latticeGridAvailable = latticeGridAvailable,
+                isDebugBuild = BuildConfig.DEBUG,
+            )
+        }
+        val moreMenuVisibleIds = remember(moreEntryAvailability, moreMenuOrder, moreMenuHidden) {
+            resolveMoreMenuLayout(
+                available = moreEntryAvailability,
+                savedOrderRaw = moreMenuOrder,
+                hiddenRaw = moreMenuHidden,
+            ).visible
+        }
 
         if (theme.isAuroraStyle) {
             val downloadedOnly by screenModel.downloadedOnlyFlow.collectAsStateWithLifecycle()
             val incognitoMode by screenModel.incognitoModeFlow.collectAsStateWithLifecycle()
+            // Resolved here because `navStyle.moreTab.options` is only readable inside the tab navigator.
+            val movedTabTitle = navStyle.moreTab.options.title
 
             MoreScreenAurora(
                 navStyle = navStyle,
@@ -172,6 +202,15 @@ data object MoreTab : Tab {
                 },
                 showReelsEntry = showReelsEntry,
                 onReelsClick = { targetReelsSource?.let { navigator.push(ReelsFeedScreen(it.id)) } },
+                visibleEntryIds = moreMenuVisibleIds,
+                onCustomizeMenuClick = {
+                    navigator.push(
+                        MoreMenuCustomizeScreen(
+                            availableIds = moreEntryAvailability,
+                            movedTabTitle = movedTabTitle,
+                        ),
+                    )
+                },
             )
         } else {
             MoreScreen(

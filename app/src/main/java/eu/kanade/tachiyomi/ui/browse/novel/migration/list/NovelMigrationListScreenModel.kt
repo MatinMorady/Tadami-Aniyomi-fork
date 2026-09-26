@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.ui.browse.novel.migration.list
 
-import android.content.Context
+import android.app.Application
 import androidx.compose.runtime.Immutable
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
@@ -49,7 +49,7 @@ class NovelMigrationListScreenModel(
     private val migrateNovel: MigrateNovelUseCase = MigrateNovelUseCase(),
     private val preferenceStore: PreferenceStore = Injekt.get(),
     // BMG-12в: the search progress label was a hardcoded English "N sources".
-    private val context: Context = Injekt.get(),
+    private val context: Application = Injekt.get(),
 ) : StateScreenModel<NovelMigrationListScreenModel.State>(State()) {
 
     val items

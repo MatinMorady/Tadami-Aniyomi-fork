@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,6 +50,8 @@ import eu.kanade.presentation.theme.resolveAuroraElevation
 import eu.kanade.presentation.theme.resolveAuroraSelectionBorderColor
 import eu.kanade.presentation.theme.resolveAuroraSurfaceColor
 import tachiyomi.presentation.core.util.LocalAppHaptics
+
+private const val SERIES_META_SEPARATOR = "·"
 
 @Composable
 fun AuroraCard(
@@ -117,7 +120,15 @@ fun AuroraCard(
             null // Light mode: no border, shadow provides depth
         },
         elevation = CardDefaults.cardElevation(
-            defaultElevation = resolveAuroraElevation(colors, AuroraSurfaceLevel.Glass),
+            // Dark/E-Ink: translucent glass container + border. An elevation shadow behind a
+            // transparent surface shows through and halos the text zone - the same defect fixed
+            // elsewhere by the floating-surface migration (auroraFloatingSurface is a no-op in
+            // dark, CoverOnlyCard zeroes elevation); this card was missed there.
+            defaultElevation = if (colors.isDark || colors.isEInk) {
+                0.dp
+            } else {
+                resolveAuroraElevation(colors, AuroraSurfaceLevel.Glass)
+            },
         ),
     ) {
         Column(
@@ -243,19 +254,6 @@ fun AuroraCard(
                         .weight((1f - normalizedCoverHeightFraction).coerceAtLeast(0.01f))
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                 ) {
-                    if (!seriesHeaderText.isNullOrBlank()) {
-                        Text(
-                            text = seriesHeaderText,
-                            color = colors.accent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 12.sp,
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                    }
-
                     Text(
                         text = title,
                         color = colors.textPrimary,
@@ -266,7 +264,40 @@ fun AuroraCard(
                         lineHeight = 16.sp,
                     )
 
-                    if (subtitle != null) {
+                    if (!seriesHeaderText.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = seriesHeaderText,
+                                color = colors.accent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                lineHeight = 14.sp,
+                            )
+                            if (subtitle != null) {
+                                Text(
+                                    text = SERIES_META_SEPARATOR,
+                                    color = colors.textSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp,
+                                )
+                                Text(
+                                    text = subtitle,
+                                    color = colors.textSecondary,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 14.sp,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                            }
+                        }
+                    } else if (subtitle != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = subtitle,

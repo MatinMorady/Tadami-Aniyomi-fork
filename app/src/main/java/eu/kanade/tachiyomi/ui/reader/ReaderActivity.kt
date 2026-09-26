@@ -45,6 +45,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -109,6 +110,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer
+import eu.kanade.tachiyomi.ui.reader.viewer.pager.R2LPagerViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webtoon.WebtoonViewer
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
@@ -175,6 +177,9 @@ class ReaderActivity : BaseActivity() {
     lateinit var binding: ReaderActivityBinding
 
     val viewModel by viewModels<ReaderViewModel>()
+
+    // Written from an IO coroutine (setChapters), read on the main thread (share/open actions).
+    @Volatile
     private var assistUrl: String? = null
     private var seriesId: Long? = null
 
@@ -395,6 +400,7 @@ class ReaderActivity : BaseActivity() {
         (viewModel.state.value.viewer as? WebtoonViewer)?.let(viewModel::saveWebtoonScrollProgressOnExit)
         viewModel.flushReadTimer()
         viewModel.pauseAutoScroll()
+        restoreDisplayMode()
         super.onPause()
     }
 
@@ -406,7 +412,36 @@ class ReaderActivity : BaseActivity() {
         super.onResume()
         viewModel.restartReadTimer()
         setMenuVisibility(viewModel.state.value.menuVisible)
+        requestMaxRefreshRate()
     }
+
+    /**
+     * Reading is motion-sensitive: OEM refresh-rate policies often cap the app below the panel
+     * maximum, which reads as stepping during fling deceleration (measured on device: bimodal
+     * 11.1/16.7 ms frame deltas while capped vs steady 8.3 ms at the maximum rate). While the
+     * reader is in the foreground prefer the fastest mode with the same physical size; the mode is
+     * picked once per resume, so no switch happens mid-gesture.
+     */
+    private fun requestMaxRefreshRate() {
+        if (isEInkMode()) return
+        val currentDisplay = display ?: return
+        val current = currentDisplay.mode
+        val fastest = currentDisplay.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .maxByOrNull { it.refreshRate }
+            ?: return
+        if (fastest.modeId == current.modeId) return
+        savedDisplayModeId = current.modeId
+        window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
+    }
+
+    private fun restoreDisplayMode() {
+        if (savedDisplayModeId == 0) return
+        window.attributes = window.attributes.apply { preferredDisplayModeId = savedDisplayModeId }
+        savedDisplayModeId = 0
+    }
+
+    private var savedDisplayModeId = 0
 
     /**
      * Called when the window focus changes. It sets the menu visibility to the last known state
@@ -554,6 +589,12 @@ class ReaderActivity : BaseActivity() {
                         },
                     )
                 }
+                // The screen model is created outside Voyager's ScreenModelStore, so nothing else
+                // ever disposes it: its owned scope would keep collecting viewModel.state for the
+                // lifetime of the process, leaking this activity's whole graph.
+                DisposableEffect(settingsScreenModel) {
+                    onDispose { settingsScreenModel.onDispose() }
+                }
 
                 if (!ifMangaSourcesLoaded()) {
                     return@AppHapticsProvider
@@ -671,7 +712,8 @@ class ReaderActivity : BaseActivity() {
                         onOpenInBrowser = ::openChapterInBrowser.takeIf { isHttpSource },
                         onShare = ::shareChapter.takeIf { isHttpSource },
 
-                        viewer = state.viewer,
+                        isRtlViewer = state.viewer is R2LPagerViewer,
+                        isPagerViewer = state.viewer is PagerViewer,
 
                         onNextChapter = ::loadNextChapter,
                         enabledNext = state.viewerChapters?.nextChapter != null,
@@ -1013,8 +1055,6 @@ class ReaderActivity : BaseActivity() {
 
         loadingIndicator = ReaderProgressIndicator(this)
         binding.readerContainer.addView(loadingIndicator)
-
-        startPostponedEnterTransition()
     }
 
     private fun openMangaScreen() {
@@ -1443,14 +1483,20 @@ class ReaderActivity : BaseActivity() {
         /**
          * Sets the custom brightness overlay according to [enabled].
          */
+        private var customBrightnessJob: Job? = null
+
         private fun setCustomBrightness(enabled: Boolean) {
-            if (enabled) {
+            // Cancel the previous collector: every enable used to start a NEW sample(100)
+            // collector in lifecycleScope, and they accumulated for the activity's lifetime.
+            customBrightnessJob?.cancel()
+            customBrightnessJob = if (enabled) {
                 readerPreferences.customBrightnessValue().changes()
                     .sample(100)
                     .onEach(::setCustomBrightnessValue)
                     .launchIn(lifecycleScope)
             } else {
                 setCustomBrightnessValue(0)
+                null
             }
         }
 

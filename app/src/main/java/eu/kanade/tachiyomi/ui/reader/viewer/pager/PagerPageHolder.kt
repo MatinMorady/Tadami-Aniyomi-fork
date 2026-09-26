@@ -2,12 +2,15 @@ package eu.kanade.tachiyomi.ui.reader.viewer.pager
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.view.LayoutInflater
 import androidx.core.view.isVisible
 import com.tadami.aurora.databinding.ReaderErrorBinding
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
+import eu.kanade.tachiyomi.ui.reader.viewer.ProcessedPageImage
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
@@ -147,62 +150,90 @@ class PagerPageHolder(
         val streamFn = page.stream ?: return
 
         try {
-            val (source, isAnimated, background, dimensions) = withIOContext {
-                val source = streamFn().use { process(item, Buffer().readFrom(it)) }
-                val isAnimated = ImageUtil.isAnimatedAndSupported(source)
-                val background = if (!isAnimated && viewer.config.automaticBackground) {
-                    ImageUtil.chooseBackground(context, source.peek().inputStream())
-                } else {
-                    null
+            val prepared = withIOContext {
+                when (val processed = streamFn().use { process(item, Buffer().readFrom(it)) }) {
+                    is ProcessedPageImage.Decoded -> PageImageResult.Decoded(processed.bitmap)
+                    is ProcessedPageImage.Encoded -> {
+                        val source = processed.source
+                        val isAnimated = ImageUtil.isAnimatedAndSupported(source)
+                        val background = if (!isAnimated && viewer.config.automaticBackground) {
+                            ImageUtil.chooseBackground(context, source.peek().inputStream())
+                        } else {
+                            null
+                        }
+                        PageImageResult.Encoded(
+                            source = source,
+                            isAnimated = isAnimated,
+                            background = background,
+                            dimensions = ImageUtil.getImageDimensions(source),
+                            // Sniff the header here so the UI thread does not have to instantiate a
+                            // native decoder per page (ReaderPageImageView falls back to parsing the
+                            // source on the main thread when the config value is absent).
+                            canUseHardwareBitmap = !isAnimated && ImageUtil.canUseHardwareBitmap(source),
+                        )
+                    }
                 }
-                PageImageResult(
-                    source = source,
-                    isAnimated = isAnimated,
-                    background = background,
-                    dimensions = ImageUtil.getImageDimensions(source),
-                )
             }
             withUIContext {
-                dimensions?.let {
-                    viewer.activity.viewModel.onReaderPageImageDimensionsAvailable(
-                        page = page,
-                        width = it.width,
-                        height = it.height,
-                    )
-                }
-                setImage(
-                    source,
-                    isAnimated,
-                    Config(
-                        zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = viewer.config.imageScaleType,
-                        cropBorders = viewer.config.imageCropBorders,
-                        zoomStartPosition = viewer.config.imageZoomType,
-                        landscapeZoom = viewer.config.landscapeZoom,
-                        enablePinchToZoom = viewer.config.enablePinchToZoom,
-                    ),
+                val config = Config(
+                    zoomDuration = viewer.config.doubleTapAnimDuration,
+                    minimumScaleType = viewer.config.imageScaleType,
+                    cropBorders = viewer.config.imageCropBorders,
+                    zoomStartPosition = viewer.config.imageZoomType,
+                    landscapeZoom = viewer.config.landscapeZoom,
+                    enablePinchToZoom = viewer.config.enablePinchToZoom,
+                    canUseHardwareBitmap = (prepared as? PageImageResult.Encoded)?.canUseHardwareBitmap,
                 )
-                if (!isAnimated) {
-                    pageBackground = background
+                when (prepared) {
+                    is PageImageResult.Encoded -> {
+                        prepared.dimensions?.let {
+                            viewer.activity.viewModel.onReaderPageImageDimensionsAvailable(
+                                page = page,
+                                width = it.width,
+                                height = it.height,
+                            )
+                        }
+                        setImage(prepared.source, prepared.isAnimated, config)
+                        if (!prepared.isAnimated) {
+                            pageBackground = prepared.background
+                        }
+                    }
+                    is PageImageResult.Decoded -> {
+                        viewer.activity.viewModel.onReaderPageImageDimensionsAvailable(
+                            page = page,
+                            width = prepared.bitmap.width,
+                            height = prepared.bitmap.height,
+                        )
+                        // Split/rotate results arrive pre-decoded: hand the bitmap straight to
+                        // the image view instead of a JPEG q=100 re-encode + second decode.
+                        // automaticBackground is not applicable (it samples the encoded stream).
+                        setImage(BitmapDrawable(resources, prepared.bitmap), config)
+                        pageBackground = null
+                    }
                 }
                 removeErrorLayout()
             }
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
             withUIContext {
-                setError()
+                markDecodeError()
             }
         }
     }
 
-    private data class PageImageResult(
-        val source: BufferedSource,
-        val isAnimated: Boolean,
-        val background: android.graphics.drawable.Drawable?,
-        val dimensions: ImageUtil.ImageDimensions?,
-    )
+    private sealed interface PageImageResult {
+        data class Encoded(
+            val source: BufferedSource,
+            val isAnimated: Boolean,
+            val background: android.graphics.drawable.Drawable?,
+            val dimensions: ImageUtil.ImageDimensions?,
+            val canUseHardwareBitmap: Boolean,
+        ) : PageImageResult
 
-    private fun process(page: ReaderPage, imageSource: BufferedSource): BufferedSource {
+        data class Decoded(val bitmap: Bitmap) : PageImageResult
+    }
+
+    private fun process(page: ReaderPage, imageSource: BufferedSource): ProcessedPageImage {
         val isDoublePage = ImageUtil.isWideImage(imageSource)
         if (isDoublePage && !page.isWide) {
             page.isWide = true
@@ -217,8 +248,11 @@ class PagerPageHolder(
             return rotateDualPage(imageSource)
         }
 
-        if (!viewer.config.dualPageSplit) {
-            return imageSource
+        // joinDoublePages wins over dualPageSplit: the halves of a JoinedReaderPage spread are
+        // raw ReaderPages that are not adapter items, so splitting them produced a duplicate of
+        // the same half (and index -1 lookups in the adapter).
+        if (!viewer.config.dualPageSplit || viewer.config.joinDoublePages) {
+            return ProcessedPageImage.Encoded(imageSource)
         }
 
         if (page is InsertPage) {
@@ -226,7 +260,7 @@ class PagerPageHolder(
         }
 
         if (!isDoublePage) {
-            return imageSource
+            return ProcessedPageImage.Encoded(imageSource)
         }
 
         onPageSplit(page)
@@ -234,17 +268,19 @@ class PagerPageHolder(
         return splitInHalf(imageSource)
     }
 
-    private fun rotateDualPage(imageSource: BufferedSource): BufferedSource {
+    private fun rotateDualPage(imageSource: BufferedSource): ProcessedPageImage {
         val isDoublePage = ImageUtil.isWideImage(imageSource)
-        return if (isDoublePage) {
-            val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
-            ImageUtil.rotateImage(imageSource, rotation)
-        } else {
-            imageSource
+        if (!isDoublePage) {
+            return ProcessedPageImage.Encoded(imageSource)
         }
+        val rotation = if (viewer.config.dualPageRotateToFitInvert) -90f else 90f
+        // peek() keeps the source intact so the stream variant remains a viable fallback.
+        return ImageUtil.rotateImageBitmap(imageSource.peek(), rotation)
+            ?.let { ProcessedPageImage.Decoded(it) }
+            ?: ProcessedPageImage.Encoded(ImageUtil.rotateImage(imageSource, rotation))
     }
 
-    private fun splitInHalf(imageSource: BufferedSource): BufferedSource {
+    private fun splitInHalf(imageSource: BufferedSource): ProcessedPageImage {
         var side = when {
             viewer is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.RIGHT
             viewer !is L2RPagerViewer && page is InsertPage -> ImageUtil.Side.LEFT
@@ -260,7 +296,11 @@ class PagerPageHolder(
             }
         }
 
-        return ImageUtil.splitInHalf(imageSource, side)
+        // Region-decode only the kept half and skip the JPEG q=100 re-encode; fall back to the
+        // stream variant on the rare decoder failure (peek() left the source unconsumed).
+        return ImageUtil.splitInHalfBitmap(imageSource.peek(), side)
+            ?.let { ProcessedPageImage.Decoded(it) }
+            ?: ProcessedPageImage.Encoded(ImageUtil.splitInHalf(imageSource, side))
     }
 
     private fun onPageSplit(page: ReaderPage) {
@@ -276,6 +316,18 @@ class PagerPageHolder(
         showErrorLayout()
     }
 
+    /**
+     * Decode/render failure while the page status is READY: move the status to ERROR so the
+     * Retry button can re-queue it through the page loader. Showing the error layout alone left
+     * the status at READY and retryPage() became a no-op (the loader skips non-QUEUE pages).
+     */
+    private fun markDecodeError() {
+        if (page.status == Page.State.READY) {
+            page.status = Page.State.ERROR
+        }
+        setError()
+    }
+
     override fun onImageLoaded() {
         super.onImageLoaded()
         progressIndicator?.hide()
@@ -286,7 +338,7 @@ class PagerPageHolder(
      */
     override fun onImageLoadError() {
         super.onImageLoadError()
-        setError()
+        markDecodeError()
     }
 
     /**

@@ -7,6 +7,18 @@ import org.junit.jupiter.api.Test
 class HomeHeroModeResolutionTest {
 
     @Test
+    fun `auto resolves to stage when discovery works, otherwise continue`() {
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = true, discoveryCount = 3) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = true, discoveryCount = 8) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = true, discoveryCount = 2) shouldBe
+            HomeHeroMode.Continue
+        resolveHeroPresentation(HomeHeroMode.Auto, discoveryEnabled = false, discoveryCount = 5) shouldBe
+            HomeHeroMode.Continue
+    }
+
+    @Test
     fun `continue always stays continue`() {
         resolveHeroPresentation(HomeHeroMode.Continue, discoveryEnabled = true, discoveryCount = 5) shouldBe
             HomeHeroMode.Continue
@@ -33,6 +45,18 @@ class HomeHeroModeResolutionTest {
         resolveHeroPresentation(HomeHeroMode.Collage, discoveryEnabled = true, discoveryCount = 0) shouldBe
             HomeHeroMode.Continue
         resolveHeroPresentation(HomeHeroMode.Collage, discoveryEnabled = false, discoveryCount = 5) shouldBe
+            HomeHeroMode.Continue
+    }
+
+    @Test
+    fun `stage requires enabled discovery with at least three items`() {
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = true, discoveryCount = 3) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = true, discoveryCount = 8) shouldBe
+            HomeHeroMode.Stage
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = true, discoveryCount = 2) shouldBe
+            HomeHeroMode.Continue
+        resolveHeroPresentation(HomeHeroMode.Stage, discoveryEnabled = false, discoveryCount = 5) shouldBe
             HomeHeroMode.Continue
     }
 }

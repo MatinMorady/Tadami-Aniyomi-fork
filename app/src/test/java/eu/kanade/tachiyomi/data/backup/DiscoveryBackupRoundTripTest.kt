@@ -132,4 +132,17 @@ private class FakeDiscoveryRepository : DiscoveryRepository {
     ) {
         restoredTags[mediaType] = entries
     }
+
+    override suspend fun getShownTitles(mediaType: DiscoveryMediaType, windowMillis: Long): Set<String> = emptySet()
+    override suspend fun getShownTitlesWithTimestamp(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long,
+    ): Map<String, Long> = emptyMap()
+    override suspend fun markShown(
+        mediaType: DiscoveryMediaType,
+        cleanTitles: Collection<String>,
+        timestamp: Long,
+    ) = Unit
+    override suspend fun clearShown(mediaType: DiscoveryMediaType) = Unit
+    override suspend fun hasUnboundSourceRows(): Boolean = false
 }

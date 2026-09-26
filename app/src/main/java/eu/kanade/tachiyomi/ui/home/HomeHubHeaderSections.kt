@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.ui.home
+﻿package eu.kanade.tachiyomi.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,8 +67,13 @@ import coil3.compose.AsyncImage
 import eu.kanade.domain.ui.model.HomeHeaderLayoutElement
 import eu.kanade.domain.ui.model.HomeHeaderLayoutSpec
 import eu.kanade.domain.ui.model.HomeStreakCounterStyle
+import eu.kanade.presentation.components.AuroraFrostCancel
+import eu.kanade.presentation.components.AuroraFrostConfirm
+import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.components.AuroraTabRow
 import eu.kanade.presentation.components.TabContent
+import eu.kanade.presentation.more.settings.SettingsUiStyle
+import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
 import eu.kanade.presentation.theme.AuroraColors
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
@@ -915,39 +920,61 @@ internal fun HomeStreakStyleDialog(
     onConfirm: (HomeStreakCounterStyle) -> Unit,
 ) {
     var selectedStyle by remember(currentStyle) { mutableStateOf(currentStyle) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(stringResource(AYMR.strings.home_header_layout_editor_streak_style_title))
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 320.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                resolveHomeStreakStylePickerOptions().forEach { style ->
-                    NameStyleChip(
-                        title = homeStreakCounterStyleLabel(style),
-                        selected = selectedStyle == style,
-                        onClick = { selectedStyle = style },
-                    )
+    val dialogContent: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 320.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            resolveHomeStreakStylePickerOptions().forEach { style ->
+                NameStyleChip(
+                    title = homeStreakCounterStyleLabel(style),
+                    selected = selectedStyle == style,
+                    onClick = { selectedStyle = style },
+                )
+            }
+        }
+    }
+
+    if (rememberResolvedSettingsUiStyle() == SettingsUiStyle.Aurora) {
+        AuroraFrostDialog(
+            onDismiss = onDismiss,
+            title = stringResource(AYMR.strings.home_header_layout_editor_streak_style_title),
+            innerScroll = false,
+            footer = {
+                AuroraFrostCancel(
+                    label = stringResource(AYMR.strings.aurora_nickname_cancel),
+                    onClick = onDismiss,
+                )
+                AuroraFrostConfirm(
+                    label = stringResource(AYMR.strings.aurora_nickname_apply),
+                    onClick = { onConfirm(selectedStyle) },
+                )
+            },
+        ) {
+            dialogContent()
+        }
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = {
+                Text(stringResource(AYMR.strings.home_header_layout_editor_streak_style_title))
+            },
+            text = { dialogContent() },
+            confirmButton = {
+                TextButton(
+                    onClick = { onConfirm(selectedStyle) },
+                ) {
+                    Text(stringResource(AYMR.strings.aurora_nickname_apply))
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(selectedStyle) },
-            ) {
-                Text(stringResource(AYMR.strings.aurora_nickname_apply))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(AYMR.strings.aurora_nickname_cancel))
-            }
-        },
-    )
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(AYMR.strings.aurora_nickname_cancel))
+                }
+            },
+        )
+    }
 }

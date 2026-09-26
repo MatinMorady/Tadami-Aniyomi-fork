@@ -7,6 +7,7 @@ import eu.kanade.domain.source.service.SourcePreferences.DataSaver.RESMUSH_IT
 import eu.kanade.domain.source.service.SourcePreferences.DataSaver.WSRV_NL
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.ProgressResponseBody
 import eu.kanade.tachiyomi.source.MangaSource
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -14,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import tachiyomi.core.common.preference.Preference
 import uy.kohesive.injekt.injectLazy
+import java.io.IOException
 import java.net.URLEncoder
 
 interface DataSaver {
@@ -29,12 +31,21 @@ interface DataSaver {
 
         suspend fun HttpSource.getImage(page: Page, dataSaver: DataSaver): Response {
             val imageUrl = page.imageUrl ?: return getImage(page)
-            page.imageUrl = dataSaver.compress(imageUrl)
-            return try {
-                getImage(page)
-            } finally {
-                page.imageUrl = imageUrl
-            }
+            val compressedUrl = dataSaver.compress(imageUrl)
+            if (compressedUrl == imageUrl) return getImage(page)
+            // Do not mutate the shared page.imageUrl for the duration of the download:
+            // concurrent readers (cache-eviction checks, the error sheet's "Open in WebView",
+            // source-level prefetch) could observe the transient proxy URL, and a cancelled
+            // download would leave it stuck. A proxy Page carries the compressed URL.
+            val proxyPage = Page(page.index, page.url, compressedUrl)
+            val response = getImage(proxyPage)
+            // Callers consume the body AFTER this function returns (ChapterCache.putImageToCache /
+            // MangaDownloader saveTo), and that is when ProgressResponseBody fires. Re-wrap with
+            // the ORIGINAL page as listener so its progress bar keeps advancing during that read
+            // (the interceptor's inner wrap reports to proxyPage, which nobody observes).
+            return response.newBuilder()
+                .body(ProgressResponseBody(response.body, page))
+                .build()
         }
     }
 }
@@ -163,7 +174,11 @@ private class ReSmushItDataSaver(preferences: SourcePreferences) : DataSaver {
 
     private fun getUrl(imageUrl: String): String {
         // Network Request sent to resmush
-        return client.newCall(GET("http://api.resmush.it/ws.php?img=$imageUrl&qlty=$quality")).execute()
-            .body.string().substringAfter("\"dest\":\"").substringBefore("\",")
+        client.newCall(GET("http://api.resmush.it/ws.php?img=$imageUrl&qlty=$quality")).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IOException("ReSmushIt request failed: HTTP ${response.code}")
+            }
+            return response.body.string().substringAfter("\"dest\":\"").substringBefore("\",")
+        }
     }
 }

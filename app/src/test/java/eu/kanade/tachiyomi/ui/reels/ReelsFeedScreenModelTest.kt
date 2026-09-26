@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.reels
 
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.animesource.AnimeAlbumSearchSource
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.AnimeCategorizedSearchSource
 import eu.kanade.tachiyomi.animesource.AnimeCategorySubscriptionSource
@@ -11,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.AnimeFeedBrowseSource
 import eu.kanade.tachiyomi.animesource.AnimeFeedLoginSource
 import eu.kanade.tachiyomi.animesource.AnimeFeedSource
 import eu.kanade.tachiyomi.animesource.AnimeFeedWebLoginSource
+import eu.kanade.tachiyomi.animesource.AnimeReelsFeedbackSource
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -29,7 +31,9 @@ import eu.kanade.tachiyomi.animesource.model.ShortVideoItem
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.collections.shouldNotContain
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
@@ -49,12 +53,19 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.domain.reels.anime.model.ReelsAlbum
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.domain.reels.anime.model.ReelsFollow
+import tachiyomi.domain.reels.anime.model.ReelsHiddenEntry
+import tachiyomi.domain.reels.anime.model.ReelsWatchEntry
+import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
 import tachiyomi.domain.reels.anime.repository.ReelsFollowRepository
+import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
+import tachiyomi.domain.reels.anime.repository.ReelsWatchRepository
 import tachiyomi.domain.source.anime.model.StubAnimeSource
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.i18n.MR
 import java.util.Date
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -164,6 +175,10 @@ class ReelsFeedScreenModelTest {
         override suspend fun delete(videoId: String, sourceId: Long) {
             favorites.remove(videoId to sourceId)
         }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            favorites.keys.filter { it.second == sourceId }.forEach { favorites.remove(it) }
+        }
     }
 
     @Test
@@ -261,6 +276,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -372,6 +391,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -435,6 +458,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = FakeReelsFavoriteRepository(),
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -481,6 +508,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -539,6 +570,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
         screenModel.state.value.items.shouldHaveSize(1)
@@ -602,6 +637,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = fakeFavorites,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -663,6 +702,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = FakeReelsFavoriteRepository(),
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
         screenModel.state.value.items.shouldHaveSize(1)
@@ -777,9 +820,41 @@ class ReelsFeedScreenModelTest {
         val screenModel = buildModel(sourceId = 999L, manager = sourceManagerOf(notAFeed))
         testDispatcher.scheduler.advanceUntilIdle()
 
-        screenModel.state.value.error shouldBe "Source is not a video feed source"
+        screenModel.state.value.error shouldBe null
+        screenModel.state.value.errorRes shouldBe MR.strings.reels_source_not_feed
         screenModel.state.value.isLoading shouldBe false
         screenModel.state.value.items.shouldHaveSize(0)
+    }
+
+    @Test
+    fun `retryFromError opens the picker for a rejected global source and refuses fixed modes`() = runTest(
+        testDispatcher,
+    ) {
+        val notAFeed = object : AnimeSource {
+            override val id: Long = 999L
+            override val name: String = "Catalogue Source"
+            override val lang: String = "all"
+
+            override suspend fun getAnimeDetails(anime: SAnime): SAnime = anime
+            override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = emptyList()
+            override suspend fun getSeasonList(anime: SAnime): List<SAnime> = emptyList()
+            override suspend fun getVideoList(episode: SEpisode): List<Video> = emptyList()
+        }
+
+        // GLOBAL: a retry with source=null must not be a silent no-op — it opens the picker.
+        val global = buildModel(sourceId = 999L, manager = sourceManagerOf(notAFeed))
+        testDispatcher.scheduler.advanceUntilIdle()
+        global.state.value.errorRes shouldBe MR.strings.reels_source_not_feed
+
+        global.retryFromError() shouldBe true
+        global.state.value.isSourcePickerOpen shouldBe true
+
+        // Fixed mode (creator): nowhere to switch — the screen falls back to a back-navigation.
+        val creator = buildModel(sourceId = 999L, manager = sourceManagerOf(notAFeed), creator = "alice")
+        testDispatcher.scheduler.advanceUntilIdle()
+        creator.state.value.errorRes shouldBe MR.strings.reels_source_not_feed
+
+        creator.retryFromError() shouldBe false
     }
 
     @Test
@@ -810,6 +885,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = FakeReelsFavoriteRepository(),
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -891,6 +970,66 @@ class ReelsFeedScreenModelTest {
         source.requestedPages shouldBe listOf(1, 2)
     }
 
+    @Test
+    fun `a deliberate pause survives swipes until explicitly resumed`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9061L) { page ->
+            FeedPage((0 until 5).map { videoItem("pause-p$page-$it") }, hasNextPage = true)
+        }
+        val screenModel = buildModel(sourceId = 9061L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.togglePlayPause()
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.userPaused shouldBe true
+
+        // Auto-advance must not undo the deliberate pause.
+        screenModel.onPageChanged(2)
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.userPaused shouldBe true
+
+        // Only an explicit resume tap clears the sticky pause.
+        screenModel.togglePlayPause()
+        screenModel.onPageChanged(3)
+        screenModel.state.value.isPlaying shouldBe true
+        screenModel.state.value.userPaused shouldBe false
+    }
+
+    @Test
+    fun `player-reported pauses flip the actual state without touching the play intent`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9062L) { page -> FeedPage(emptyList(), hasNextPage = false) }
+        val screenModel = buildModel(sourceId = 9062L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.isActuallyPlaying shouldBe true
+
+        // Audio-focus loss pauses the player without the user asking for it.
+        screenModel.setPlaybackRunning(false)
+        screenModel.state.value.isActuallyPlaying shouldBe false
+        screenModel.state.value.isPlaying shouldBe true
+
+        // A swipe resumes: no deliberate pause was taken.
+        screenModel.onPageChanged(0)
+        screenModel.state.value.isActuallyPlaying shouldBe true
+        screenModel.state.value.isPlaying shouldBe true
+    }
+
+    @Test
+    fun `search suggestions debounce to the last typed query`() = runTest(testDispatcher) {
+        val source = FakeCategorizedSource(2305)
+        val screenModel = buildModel(sourceId = 2305, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.requestSearchSuggestions("d")
+        testDispatcher.scheduler.advanceTimeBy(150)
+        screenModel.requestSearchSuggestions("da")
+        testDispatcher.scheduler.advanceTimeBy(150)
+        screenModel.requestSearchSuggestions("dan")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        source.queries shouldBe listOf("dan")
+        screenModel.state.value.searchSuggestions?.tags?.size shouldBe 1
+    }
+
     private fun videoItem(id: String) = ShortVideoItem(
         id = id,
         videoUrl = "https://example.com/$id.mp4",
@@ -938,6 +1077,36 @@ class ReelsFeedScreenModelTest {
         }
     }
 
+    private class FakeAlbumRepository : ReelsAlbumRepository {
+        val albums = mutableMapOf<Pair<String, Long>, ReelsAlbum>()
+
+        override fun subscribeBySource(sourceId: Long): Flow<List<ReelsAlbum>> =
+            MutableStateFlow(albums.values.filter { it.sourceId == sourceId })
+
+        override suspend fun getBySource(sourceId: Long): List<ReelsAlbum> =
+            albums.values.filter { it.sourceId == sourceId }
+
+        override suspend fun insert(album: ReelsAlbum) {
+            albums[album.albumId to album.sourceId] = album
+        }
+
+        override suspend fun delete(sourceId: Long, albumId: String) {
+            albums.remove(albumId to sourceId)
+        }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            albums.keys.filter { it.second == sourceId }.forEach { albums.remove(it) }
+        }
+
+        override fun subscribeWatched(sourceId: Long): Flow<Set<String>> = MutableStateFlow(emptySet())
+
+        override suspend fun markWatched(sourceId: Long, videoId: String) = Unit
+
+        override suspend fun unmarkWatched(sourceId: Long, videoId: String) = Unit
+
+        override suspend fun deleteWatchedBySource(sourceId: Long) = Unit
+    }
+
     private fun sourceManagerOf(vararg sources: AnimeSource): AnimeSourceManager = object : AnimeSourceManager {
         override val isInitialized: StateFlow<Boolean> = MutableStateFlow(true).asStateFlow()
         override val sources: Flow<List<AnimeSource>> = MutableStateFlow(sources.toList())
@@ -954,6 +1123,10 @@ class ReelsFeedScreenModelTest {
         manager: AnimeSourceManager,
         repository: ReelsFavoriteRepository = FakeReelsFavoriteRepository(),
         followRepository: ReelsFollowRepository = FakeReelsFollowRepository(),
+        watchRepository: ReelsWatchRepository = FakeReelsWatchRepository(),
+        hiddenRepository: ReelsHiddenRepository = FakeReelsHiddenRepository(),
+        albumRepository: ReelsAlbumRepository = FakeAlbumRepository(),
+        offlineStore: ReelsOfflineStore = FakeReelsOfflineStore(),
         incognito: Boolean = false,
         offlinePlaylist: Boolean = false,
         playlistSort: FavoritesSort = FavoritesSort.DateDesc,
@@ -964,6 +1137,7 @@ class ReelsFeedScreenModelTest {
         customFeedName: String? = null,
         nicheId: String? = null,
         nicheName: String? = null,
+        resumeVideoId: String? = null,
         preferences: SourcePreferences = SourcePreferences(MapPreferenceStore()),
         sessionSound: ReelsSessionSoundState = ReelsSessionSoundState(),
     ) = ReelsFeedScreenModel(
@@ -977,6 +1151,7 @@ class ReelsFeedScreenModelTest {
         customFeedName = customFeedName,
         nicheId = nicheId,
         nicheName = nicheName,
+        resumeVideoId = resumeVideoId,
         sourceManager = manager,
         sourcePreferences = preferences,
         ioDispatcher = testDispatcher,
@@ -984,6 +1159,10 @@ class ReelsFeedScreenModelTest {
         sourceIconProvider = { null },
         reelsFavoriteRepository = repository,
         reelsFollowRepository = followRepository,
+        reelsWatchRepository = watchRepository,
+        reelsHiddenRepository = hiddenRepository,
+        reelsAlbumRepository = albumRepository,
+        offlineStore = offlineStore,
         sessionSound = sessionSound,
     )
 
@@ -1030,6 +1209,485 @@ class ReelsFeedScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         second.state.value.targetPageIndex shouldBe 0
+    }
+
+    @Test
+    fun `a left reel lands in the watch history with its position`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9081L) { FeedPage(listOf(videoItem("h-1")), hasNextPage = false) }
+        val watch = FakeReelsWatchRepository()
+        val screenModel = buildModel(sourceId = 9081L, manager = sourceManagerOf(source), watchRepository = watch)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.recordWatchHistory(screenModel.state.value.items.first(), 0.5f, 10f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val entry = watch.entries["h-1" to 9081L]
+        entry shouldNotBe null
+        entry?.positionMs?.shouldBe(5_000L)
+    }
+
+    @Test
+    fun `watch history is not written in incognito`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9082L) { FeedPage(listOf(videoItem("h-2")), hasNextPage = false) }
+        val watch = FakeReelsWatchRepository()
+        val screenModel = buildModel(
+            sourceId = 9082L,
+            manager = sourceManagerOf(source),
+            watchRepository = watch,
+            incognito = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.recordWatchHistory(screenModel.state.value.items.first(), 0.5f, 10f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        watch.entries.isEmpty() shouldBe true
+    }
+
+    @Test
+    fun `resume lookup arms the stored fraction for the requested clip`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9083L) { FeedPage(listOf(videoItem("h-3")), hasNextPage = false) }
+        val watch = FakeReelsWatchRepository()
+        watch.entries["h-3" to 9083L] = ReelsWatchEntry(
+            videoId = "h-3",
+            sourceId = 9083L,
+            title = null,
+            author = null,
+            posterUrl = null,
+            webUrl = null,
+            videoUrl = "https://example.com/h-3.mp4",
+            durationSec = 10.0,
+            positionMs = 5_000L,
+            watchedAt = Date(0),
+        )
+        val screenModel = buildModel(
+            sourceId = 9083L,
+            manager = sourceManagerOf(source),
+            watchRepository = watch,
+            resumeVideoId = "h-3",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.resumeVideoId shouldBe "h-3"
+        (screenModel.state.value.resumeFraction ?: 0f) shouldBe 0.5f
+    }
+
+    @Test
+    fun `a hidden video stays out of future pages`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9091L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(videoItem("seed-1"), videoItem("seed-2")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(videoItem("hidden-b"), videoItem("keep-b")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9091L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.hideVideo(videoItem("hidden-b"))
+        screenModel.onPageChanged(1)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.map { it.id }.shouldNotContain("hidden-b")
+        screenModel.state.value.items.map { it.id }.shouldContain("keep-b")
+    }
+
+    @Test
+    fun `hiding an author filters their items from future pages`() = runTest(testDispatcher) {
+        fun authored(id: String, author: String) = videoItem(id).copy(author = author)
+        val source = RecordingFeedSource(9092L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(authored("a-1", "alice"), authored("b-1", "bob")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(authored("a-2", "alice"), authored("b-2", "bob")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9092L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.hideAuthor("alice")
+        screenModel.onPageChanged(1)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.map { it.id }.shouldNotContain("a-2")
+        screenModel.state.value.items.map { it.id }.shouldContain("b-2")
+    }
+
+    @Test
+    fun `undo restores the hidden video locally and in the repository`() = runTest(testDispatcher) {
+        val hidden = FakeReelsHiddenRepository()
+        val source = RecordingFeedSource(9093L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(videoItem("undo-seed")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(videoItem("undo-v"), videoItem("undo-other")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9093L, manager = sourceManagerOf(source), hiddenRepository = hidden)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.hideVideo(videoItem("undo-v"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        hidden.entries.keys.shouldContain(Triple(9093L, "video", "undo-v"))
+
+        screenModel.undoHide(screenModel.lastHideToken())
+        testDispatcher.scheduler.advanceUntilIdle()
+        hidden.entries.isEmpty() shouldBe true
+
+        screenModel.onPageChanged(0)
+        testDispatcher.scheduler.advanceUntilIdle()
+        screenModel.state.value.items.map { it.id }.shouldContain("undo-v")
+    }
+
+    @Test
+    fun `persisted hides load on source switch and filter future pages`() = runTest(testDispatcher) {
+        val hidden = FakeReelsHiddenRepository()
+        hidden.entries[Triple(9094L, ReelsHiddenEntry.KIND_VIDEO, "seeded-v")] =
+            ReelsHiddenEntry(9094L, ReelsHiddenEntry.KIND_VIDEO, "seeded-v", Date(0))
+        val source = RecordingFeedSource(9094L) { page ->
+            if (page == 1) {
+                FeedPage(listOf(videoItem("seed-s")), hasNextPage = true)
+            } else {
+                FeedPage(listOf(videoItem("seeded-v")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9094L, manager = sourceManagerOf(source), hiddenRepository = hidden)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.onPageChanged(0)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.map { it.id }.shouldNotContain("seeded-v")
+    }
+
+    @Test
+    fun `offline playlist prefers stored local copies`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["off-1" to 302L] = offlineFavorite("off-1").copy(sourceId = 302L)
+        val store = FakeReelsOfflineStore()
+        store.stored[302L to "off-1"] = "file:///offline/302_off-1.mp4"
+        val screenModel = buildModel(
+            sourceId = 302L,
+            manager = sourceManagerOf(),
+            repository = favorites,
+            offlineStore = store,
+            offlinePlaylist = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.items.first().videoUrl shouldBe "file:///offline/302_off-1.mp4"
+        screenModel.state.value.offlineStored.contains("302:off-1") shouldBe true
+    }
+
+    @Test
+    fun `toggleOfflineCopy downloads and rewrites the item URL`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["off-2" to 303L] = offlineFavorite("off-2").copy(sourceId = 303L)
+        val store = FakeReelsOfflineStore()
+        val screenModel = buildModel(
+            sourceId = 303L,
+            manager = sourceManagerOf(),
+            repository = favorites,
+            offlineStore = store,
+            offlinePlaylist = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val result = screenModel.toggleOfflineCopy(screenModel.state.value.items.first(), 0)
+        result shouldBe ReelsFeedScreenModel.OfflineCopyResult.SAVED
+
+        screenModel.state.value.items.first().videoUrl shouldBe "file:///offline/303_off-2.mp4"
+        screenModel.state.value.offlineStored.contains("303:off-2") shouldBe true
+    }
+
+    @Test
+    fun `toggleOfflineCopy removes a stored copy and restores the network URL`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["off-3" to 304L] = offlineFavorite("off-3").copy(sourceId = 304L)
+        val store = FakeReelsOfflineStore()
+        store.stored[304L to "off-3"] = "file:///offline/304_off-3.mp4"
+        val screenModel = buildModel(
+            sourceId = 304L,
+            manager = sourceManagerOf(),
+            repository = favorites,
+            offlineStore = store,
+            offlinePlaylist = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val result = screenModel.toggleOfflineCopy(screenModel.state.value.items.first(), 0)
+        result shouldBe ReelsFeedScreenModel.OfflineCopyResult.REMOVED
+
+        screenModel.state.value.offlineStored.contains("304:off-3") shouldBe false
+        store.stored.isEmpty() shouldBe true
+        screenModel.state.value.items.first().videoUrl shouldBe "https://example.com/off-3.mp4"
+    }
+
+    @Test
+    fun `a 429 verdict surfaces the wait and auto-retries after it`() = runTest(testDispatcher) {
+        var calls = 0
+        val source = object : AnimeFeedSource {
+            override val id: Long = 9099L
+            override val name: String = "Rate Limited"
+            override val lang: String = "all"
+
+            override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage {
+                calls++
+                if (calls == 1) throw java.io.IOException("HTTP 429 Too Many Requests, Retry-After: 7")
+                return FeedPage(listOf(videoItem("rl-1")), hasNextPage = false)
+            }
+        }
+        val screenModel = buildModel(sourceId = 9099L, manager = sourceManagerOf(source))
+
+        // The initial load fails with 429; the model schedules ONE capped auto-retry after the
+        // Retry-After window, which the virtual clock executes inside advanceUntilIdle.
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        calls shouldBe 2
+        screenModel.state.value.retryAfterSec shouldBe 0
+        screenModel.state.value.items.map { it.id } shouldContain "rl-1"
+    }
+
+    @Test
+    fun `rate-limit auto-retry is capped at three consecutive attempts`() = runTest(testDispatcher) {
+        var calls = 0
+        val source = object : AnimeFeedSource {
+            override val id: Long = 9100L
+            override val name: String = "Always 429"
+            override val lang: String = "all"
+
+            override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage {
+                calls++
+                throw java.io.IOException("HTTP 429 Too Many Requests")
+            }
+        }
+        val screenModel = buildModel(sourceId = 9100L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Initial failure + exactly RATE_LIMIT_MAX_RETRIES auto-retries, then it stops.
+        calls shouldBe 4
+        screenModel.state.value.error.orEmpty().contains("429") shouldBe true
+    }
+
+    @Test
+    fun `sleep timer countdown pauses the feed stickily on expiry`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9101L) {
+            FeedPage(listOf(videoItem("st-1"), videoItem("st-2")), hasNextPage = false)
+        }
+        val screenModel = buildModel(sourceId = 9101L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.setSleepTimer(ReelsFeedScreenModel.SleepTimerOption.M15)
+        screenModel.state.value.sleepTimerRemainingSec shouldBe 900
+
+        testDispatcher.scheduler.advanceTimeBy(901_000)
+        screenModel.state.value.sleepTimerRemainingSec shouldBe 0
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.userPaused shouldBe true
+    }
+
+    @Test
+    fun `end-of-video sleep pauses at the completion boundary once`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9102L) { FeedPage(listOf(videoItem("ev-1")), hasNextPage = false) }
+        val screenModel = buildModel(sourceId = 9102L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.setSleepTimer(ReelsFeedScreenModel.SleepTimerOption.END_OF_VIDEO)
+        screenModel.state.value.sleepAtVideoEnd shouldBe true
+
+        screenModel.consumeSleepAtVideoEnd() shouldBe true
+        screenModel.state.value.isPlaying shouldBe false
+        screenModel.state.value.sleepAtVideoEnd shouldBe false
+        // A second completion must advance normally.
+        screenModel.consumeSleepAtVideoEnd() shouldBe false
+    }
+
+    @Test
+    fun `history seed plays the tapped clip at the head of the offline playlist`() = runTest(testDispatcher) {
+        val favorites = FakeReelsFavoriteRepository()
+        favorites.favorites["fav-1" to 305L] = offlineFavorite("fav-1").copy(sourceId = 305L)
+        val store = FakeReelsOfflineStore()
+        val seeded = offlineFavorite("hist-clip").copy(sourceId = 305L)
+        ReelsPlaybackSeed.pending = seeded
+        try {
+            val screenModel = buildModel(
+                sourceId = 305L,
+                manager = sourceManagerOf(),
+                repository = favorites,
+                offlineStore = store,
+                offlinePlaylist = true,
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // The history clip leads even though it is NOT favorited; favorites follow.
+            screenModel.state.value.items.map { it.id } shouldBe listOf("hist-clip", "fav-1")
+            // The seed is one-shot.
+            ReelsPlaybackSeed.pending shouldBe null
+        } finally {
+            ReelsPlaybackSeed.pending = null
+        }
+    }
+
+    @Test
+    fun `session remembers the source when incognito blocks the disk write`() = runTest(testDispatcher) {
+        ReelsSessionSource.lastSourceId = null
+        try {
+            val source = RecordingFeedSource(9104L) { FeedPage(emptyList(), false) }
+            val preferences = SourcePreferences(MapPreferenceStore())
+            val before = preferences.lastUsedReelsSource().get()
+            buildModel(
+                sourceId = 9104L,
+                manager = sourceManagerOf(source),
+                preferences = preferences,
+                incognito = true,
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // Incognito policy: no disk trace…
+            preferences.lastUsedReelsSource().get() shouldBe before
+            // …but re-entering the feed within the process returns to the picked source
+            // (device report: the entry point fell back to the first installed source).
+            ReelsSessionSource.lastSourceId shouldBe 9104L
+
+            // Without incognito the disk preference keeps working as before.
+            val open = SourcePreferences(MapPreferenceStore())
+            buildModel(sourceId = 9104L, manager = sourceManagerOf(source), preferences = open)
+            testDispatcher.scheduler.advanceUntilIdle()
+            open.lastUsedReelsSource().get() shouldBe 9104L
+        } finally {
+            ReelsSessionSource.lastSourceId = null
+        }
+    }
+
+    @Test
+    fun `reels incognito toggle persists and defaults to off`() = runTest(testDispatcher) {
+        val preferences = SourcePreferences(MapPreferenceStore())
+        preferences.reelsIncognitoMode().get() shouldBe false
+        val source = RecordingFeedSource(9105L) { FeedPage(emptyList(), false) }
+        val model = buildModel(sourceId = 9105L, manager = sourceManagerOf(source), preferences = preferences)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.toggleReelsIncognito()
+        preferences.reelsIncognitoMode().get() shouldBe true
+
+        model.toggleReelsIncognito()
+        preferences.reelsIncognitoMode().get() shouldBe false
+    }
+
+    @Test
+    fun `settings block holds playback and resumes on close unless the user paused`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9106L) { FeedPage(listOf(videoItem("sb-1")), hasNextPage = false) }
+        val model = buildModel(sourceId = 9106L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+        model.state.value.isPlaying shouldBe true
+
+        // Open: temporary pause, sticky pause untouched.
+        model.setSettingsHold(true)
+        model.state.value.isPlaying shouldBe false
+        model.state.value.userPaused shouldBe false
+
+        // Close: playback resumes on its own.
+        model.setSettingsHold(false)
+        model.state.value.isPlaying shouldBe true
+
+        // A deliberate pause before opening survives the open/close cycle.
+        model.togglePlayPause()
+        model.state.value.userPaused shouldBe true
+        model.setSettingsHold(true)
+        model.setSettingsHold(false)
+        model.state.value.isPlaying shouldBe false
+        model.state.value.userPaused shouldBe true
+    }
+
+    @Test
+    fun `pip toggle persists and defaults to off`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9095L) { FeedPage(emptyList(), false) }
+        val preferences = SourcePreferences(MapPreferenceStore())
+        val screenModel = buildModel(sourceId = 9095L, manager = sourceManagerOf(source), preferences = preferences)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        screenModel.state.value.isPipEnabled shouldBe false
+
+        screenModel.togglePip()
+        screenModel.state.value.isPipEnabled shouldBe true
+        preferences.reelsPipEnabled().get() shouldBe true
+
+        screenModel.togglePip()
+        screenModel.state.value.isPipEnabled shouldBe false
+        preferences.reelsPipEnabled().get() shouldBe false
+    }
+
+    @Test
+    fun `cf bootstrap budget exhausts to an unmounted terminal state`() = runTest(testDispatcher) {
+        val failing = object : AnimeFeedSource, AnimeFeedWebLoginSource {
+            override val id: Long = 9096L
+            override val name: String = "Always 403"
+            override val lang: String = "all"
+
+            override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage =
+                throw java.io.IOException("HTTP 403: managed challenge")
+
+            override fun webLoginUrl(): String = "https://example.invalid/"
+            override fun ownAuthorizeUrl(): String = "https://example.invalid/oauth2/auth?state=own"
+            override fun isOwnLoginRedirect(url: String): Boolean = false
+            override suspend fun importWebRedirect(url: String, cookies: Map<String, String>): Boolean = false
+            override suspend fun importWebSession(
+                cookies: Map<String, String>,
+                localStorage: Map<String, String>,
+            ): Boolean = false
+        }
+        val screenModel = buildModel(sourceId = 9096L, manager = sourceManagerOf(failing))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // The initial failed load bumps the first bootstrap attempt.
+        screenModel.state.value.cfBootstrapAttempt shouldBe 1
+
+        // Attempts 2 and 3 mount the WebView; the 4th failure exhausts the budget: the
+        // WebView must UNMOUNT (attempt back to 0) and the terminal flag must stop any
+        // further mounts for this source entry (audit A4/H6 follow-up).
+        repeat(3) {
+            screenModel.loadFeed(reset = true)
+            testDispatcher.scheduler.advanceUntilIdle()
+        }
+        screenModel.state.value.cfBootstrapExhausted shouldBe true
+        screenModel.state.value.cfBootstrapAttempt shouldBe 0
+
+        // A further failure must not re-arm the budget.
+        screenModel.loadFeed(reset = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        screenModel.state.value.cfBootstrapAttempt shouldBe 0
+    }
+
+    @Test
+    fun `history entry navigates the first page to the tapped clip`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(9097L) {
+            FeedPage(
+                listOf(videoItem("nav-a"), videoItem("nav-target"), videoItem("nav-b")),
+                hasNextPage = false,
+            )
+        }
+        val screenModel = buildModel(
+            sourceId = 9097L,
+            manager = sourceManagerOf(source),
+            resumeVideoId = "nav-target",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // The one-shot resume navigation outranks the saved source position when the
+        // tapped clip is on the first page.
+        screenModel.state.value.targetPageIndex shouldBe 1
+
+        // A clip the shuffled first page does not contain falls back to the normal restore.
+        val absent = RecordingFeedSource(9098L) {
+            FeedPage(listOf(videoItem("other-a"), videoItem("other-b")), hasNextPage = false)
+        }
+        val fallbackModel = buildModel(
+            sourceId = 9098L,
+            manager = sourceManagerOf(absent),
+            resumeVideoId = "nav-target",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        fallbackModel.state.value.targetPageIndex shouldBe 0
     }
 
     @Test
@@ -1150,6 +1808,10 @@ class ReelsFeedScreenModelTest {
             sourceIconProvider = { null },
             reelsFavoriteRepository = repository,
             reelsFollowRepository = FakeReelsFollowRepository(),
+            reelsWatchRepository = FakeReelsWatchRepository(),
+            reelsHiddenRepository = FakeReelsHiddenRepository(),
+            reelsAlbumRepository = FakeAlbumRepository(),
+            offlineStore = FakeReelsOfflineStore(),
         )
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -1307,6 +1969,77 @@ class ReelsFeedScreenModelTest {
         }
     }
 
+    private class FakeReelsWatchRepository : ReelsWatchRepository {
+        val entries = mutableMapOf<Pair<String, Long>, ReelsWatchEntry>()
+
+        override fun subscribeAll(): Flow<List<ReelsWatchEntry>> = MutableStateFlow(entries.values.toList())
+
+        override suspend fun getByVideo(videoId: String, sourceId: Long): ReelsWatchEntry? =
+            entries[videoId to sourceId]
+
+        override suspend fun upsert(entry: ReelsWatchEntry) {
+            entries[entry.videoId to entry.sourceId] = entry
+        }
+
+        override suspend fun delete(videoId: String, sourceId: Long) {
+            entries.remove(videoId to sourceId)
+        }
+
+        override suspend fun deleteAll() = entries.clear()
+    }
+
+    private class FakeReelsHiddenRepository : ReelsHiddenRepository {
+        val entries = mutableMapOf<Triple<Long, String, String>, ReelsHiddenEntry>()
+
+        override fun subscribeAll(): Flow<List<ReelsHiddenEntry>> = MutableStateFlow(entries.values.toList())
+
+        override suspend fun getBySource(sourceId: Long): List<ReelsHiddenEntry> =
+            entries.values.filter { it.sourceId == sourceId }
+
+        override suspend fun insert(entry: ReelsHiddenEntry) {
+            entries[Triple(entry.sourceId, entry.kind, entry.value)] = entry
+        }
+
+        override suspend fun delete(sourceId: Long, kind: String, value: String) {
+            entries.remove(Triple(sourceId, kind, value))
+        }
+
+        override suspend fun deleteBySource(sourceId: Long) {
+            entries.keys.filter { it.first == sourceId }.forEach { entries.remove(it) }
+        }
+
+        override suspend fun deleteAll() = entries.clear()
+    }
+
+    private class FakeReelsOfflineStore : ReelsOfflineStore {
+        val stored = mutableMapOf<Pair<Long, String>, String>()
+
+        override fun isStored(sourceId: Long, videoId: String): Boolean = (sourceId to videoId) in stored
+
+        override fun localUrl(sourceId: Long, videoId: String): String? = stored[sourceId to videoId]
+
+        override fun storedPairs(): Set<Pair<Long, String>> = stored.keys
+
+        override fun usedBytes(): Long = stored.size * 1024L
+
+        override suspend fun download(item: ShortVideoItem, sourceId: Long): ReelsOfflineStore.DownloadResult {
+            stored[sourceId to item.id] = "file:///offline/${sourceId}_${item.id}.mp4"
+            return ReelsOfflineStore.DownloadResult.SAVED
+        }
+
+        override suspend fun delete(sourceId: Long, videoId: String): Boolean =
+            stored.remove(sourceId to videoId) != null
+
+        override suspend fun deleteBySource(sourceId: Long): Int =
+            stored.keys.filter { it.first == sourceId }.count { stored.remove(it) != null }
+
+        override suspend fun clearAll(): Long {
+            val freed = usedBytes()
+            stored.clear()
+            return freed
+        }
+    }
+
     private fun timedItem(id: String, createdAtSec: Long) = ShortVideoItem(
         id = id,
         videoUrl = "https://example.com/$id.mp4",
@@ -1331,6 +2064,27 @@ class ReelsFeedScreenModelTest {
         }
     }
 
+    private class FeedbackRecordingSource(
+        override val id: Long,
+        private val provider: (Int) -> FeedPage,
+    ) : AnimeFeedSource, AnimeReelsFeedbackSource {
+        override val name: String = "Feedback $id"
+        override val lang: String = "all"
+        val likedCalls = mutableListOf<Pair<String, Boolean>>()
+        val viewedCalls = mutableListOf<String>()
+
+        override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage =
+            provider(page)
+
+        override suspend fun onVideoLiked(itemId: String, liked: Boolean) {
+            likedCalls += itemId to liked
+        }
+
+        override suspend fun onVideoViewed(itemId: String, secondsWatched: Double, duration: Double) {
+            viewedCalls += itemId
+        }
+    }
+
     @Test
     fun `creator page on a non-capable source surfaces an error without touching getFeed`() = runTest(testDispatcher) {
         var feedCalls = 0
@@ -1347,7 +2101,8 @@ class ReelsFeedScreenModelTest {
         val screenModel = buildModel(sourceId = 1101L, manager = sourceManagerOf(plain), creator = "alice")
         testDispatcher.scheduler.advanceUntilIdle()
 
-        screenModel.state.value.error shouldBe "Source does not support creator feeds"
+        screenModel.state.value.error shouldBe null
+        screenModel.state.value.errorRes shouldBe MR.strings.reels_source_missing_creator_feeds
         screenModel.state.value.isLoading shouldBe false
         screenModel.state.value.items.shouldHaveSize(0)
         screenModel.state.value.isCreatorCapable shouldBe false
@@ -1440,6 +2195,46 @@ class ReelsFeedScreenModelTest {
             screenModel.state.value.followingCreators.contains("over-cap") shouldBe true
             follows.follows.size shouldBe 101
         }
+
+    @Test
+    fun `incognito blocks follow inserts but a removal still reaches the database`() = runTest(testDispatcher) {
+        val source = RecordingCreatorFeedSource(1109L) { _, _, _ -> FeedPage(emptyList(), false) }
+        val follows = FakeReelsFollowRepository()
+        follows.follows[1109L to "alice"] = ReelsFollow(1109L, "alice", Date(0))
+        val screenModel = buildModel(
+            sourceId = 1109L,
+            manager = sourceManagerOf(source),
+            followRepository = follows,
+            incognito = true,
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // New follows are session-only while incognito.
+        screenModel.toggleFollow("bob")
+        testDispatcher.scheduler.advanceUntilIdle()
+        follows.follows.keys shouldBe setOf(1109L to "alice")
+
+        // Removing an existing follow must persist even in incognito (no resurrection later).
+        screenModel.toggleFollow("alice")
+        testDispatcher.scheduler.advanceUntilIdle()
+        follows.follows.isEmpty() shouldBe true
+    }
+
+    @Test
+    fun `incognito suppresses the remote like and view feedback`() = runTest(testDispatcher) {
+        val source =
+            FeedbackRecordingSource(907L) { page -> FeedPage(listOf(videoItem("fb-p$page")), hasNextPage = false) }
+        val screenModel = buildModel(sourceId = 907L, manager = sourceManagerOf(source), incognito = true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val item = screenModel.state.value.items.first()
+        screenModel.toggleLike(item)
+        screenModel.reportVideoView(item.id, 3f, 6f)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        source.likedCalls shouldBe emptyList()
+        source.viewedCalls shouldBe emptyList()
+    }
 
     @Test
     fun `following feed shuffles merged creator streams without same-author runs`() = runTest(testDispatcher) {
@@ -1703,7 +2498,8 @@ class ReelsFeedScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         model.state.value.loggedInAccount shouldBe null
-        model.state.value.loginError shouldBe ReelsFeedScreenModel.LOGIN_FAILED_MESSAGE
+        model.state.value.loginRejected shouldBe true
+        model.state.value.loginError shouldBe null
         model.state.value.isLoggingIn shouldBe false
     }
 
@@ -2119,7 +2915,8 @@ class ReelsFeedScreenModelTest {
         val model = buildModel(sourceId = 2005, manager = sourceManagerOf(source), customFeedId = "f1")
         testDispatcher.scheduler.advanceUntilIdle()
 
-        model.state.value.error shouldBe "Source does not support custom feeds"
+        model.state.value.error shouldBe null
+        model.state.value.errorRes shouldBe MR.strings.reels_source_missing_custom_feeds
         model.state.value.items.shouldHaveSize(0)
     }
 
@@ -2139,5 +2936,130 @@ class ReelsFeedScreenModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         model.state.value.customFeeds.map { it.id } shouldBe listOf("f2")
+    }
+
+    @Test
+    fun `album search routes from niche mode and its pagination flag gates loadMore`() = runTest(testDispatcher) {
+        val source = FakeAlbumSearchSource()
+        val model = buildModel(
+            sourceId = 9201L,
+            manager = sourceManagerOf(source),
+            nicheId = "alb-1",
+            nicheName = "Album One",
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Report fix: album search works from NICHE mode, not only GLOBAL.
+        model.search("summer")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1")
+        source.albumRequests shouldBe listOf(1 to null)
+
+        model.loadFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1", "alb-2")
+        model.state.value.albumSearchCanLoadMore shouldBe false
+
+        // The album-search flag (not the feed flag) gates further pages now.
+        model.loadFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+        source.albumRequests shouldBe listOf(1 to null, 2 to "c1")
+    }
+
+    @Test
+    fun `album-capable live typing renders album cards and keeps the bar open`() = runTest(testDispatcher) {
+        val source = FakeAlbumSearchSource()
+        val model = buildModel(sourceId = 9201L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.toggleSearchBar(true)
+        model.requestSearchSuggestions("sum")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Live album search (device fix): cards replace the 100-chip suggestion panel,
+        // the bar stays open while typing, and no categorized suggestions are requested.
+        model.state.value.searchQuery shouldBe "sum"
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1")
+        model.state.value.isSearchBarOpen shouldBe true
+        model.state.value.searchSuggestions shouldBe null
+        source.albumRequests shouldBe listOf(1 to null)
+    }
+
+    @Test
+    fun `deep-link seek silently appends pages until the tapped clip surfaces`() = runTest(testDispatcher) {
+        val source = RecordingFeedSource(
+            id = 3301L,
+            feedProvider = { page ->
+                FeedPage(
+                    videos = (1..3).map { i -> videoItem("p$page-$i") },
+                    hasNextPage = page < 3,
+                )
+            },
+        )
+        val model = buildModel(sourceId = 3301L, manager = sourceManagerOf(source), resumeVideoId = "p2-2")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val ids = model.state.value.items.map { it.id }
+        ids shouldContain "p2-2"
+        model.state.value.targetPageIndex shouldBe ids.indexOfFirst { it == "p2-2" }
+        source.requestedPages shouldBe listOf(1, 2)
+    }
+
+    @Test
+    fun `album-capable source renders search as paginated album directory`() = runTest(testDispatcher) {
+        val source = FakeAlbumSearchSource()
+        val model = buildModel(sourceId = 9201L, manager = sourceManagerOf(source))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.search("summer")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.state.value.albumSearchCapable shouldBe true
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1")
+        model.state.value.albumSearchCanLoadMore shouldBe true
+
+        model.loadFeed()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        model.state.value.albumSearchResults.map { it.id } shouldBe listOf("alb-1", "alb-2")
+        model.state.value.albumSearchCanLoadMore shouldBe false
+        source.albumRequests shouldBe listOf(1 to null, 2 to "c1")
+    }
+
+    private class FakeAlbumSearchSource : AnimeFeedSource, AnimeAlbumSearchSource, AnimeFeedBrowseSource {
+        override val id: Long = 9201L
+        override val name: String = "Album Search"
+        override val lang: String = "all"
+        val albumRequests = mutableListOf<Pair<Int, String?>>()
+
+        override suspend fun getFeed(page: Int, cursor: String?, filters: AnimeFilterList): FeedPage =
+            FeedPage(emptyList(), false)
+
+        override suspend fun getBrowseCategories(page: Int, cursor: String?): FeedCategoryPage =
+            FeedCategoryPage(emptyList(), hasNextPage = false)
+
+        override suspend fun getCategoryFeed(categoryId: String, page: Int, cursor: String?): FeedPage =
+            FeedPage(emptyList(), hasNextPage = false)
+
+        override suspend fun searchAlbums(query: String, page: Int, cursor: String?): FeedCategoryPage {
+            albumRequests += page to cursor
+            return if (page == 1) {
+                FeedCategoryPage(
+                    categories = listOf(
+                        FeedCategory(id = "alb-1", name = "Album One", imageUrl = null, itemCount = 3),
+                    ),
+                    hasNextPage = true,
+                    nextCursor = "c1",
+                )
+            } else {
+                FeedCategoryPage(
+                    categories = listOf(
+                        FeedCategory(id = "alb-2", name = "Album Two", imageUrl = null, itemCount = 1),
+                    ),
+                    hasNextPage = false,
+                )
+            }
+        }
     }
 }

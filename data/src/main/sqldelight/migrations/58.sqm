@@ -1,0 +1,4 @@
+-- Прямое открытие plugin-bound подборок: привязка к источнику и url записи.
+-- Аддитивные nullable-колонки, данные не трансформируются.
+ALTER TABLE discovery_suggestions ADD COLUMN source_id INTEGER;
+ALTER TABLE discovery_suggestions ADD COLUMN source_url TEXT;

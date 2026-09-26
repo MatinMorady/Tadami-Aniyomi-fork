@@ -20,6 +20,15 @@ class ReelsFollowsMigrationTest {
         val dbFile = File.createTempFile("reels-follows-mig", ".db").apply { delete() }
         val driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}")
 
+        // Migration 150 (animes.completed_at) targets the animes table, which this reels-only
+        // fixture does not create: provide a minimal stub so "upgrade to current" applies the
+        // whole chain instead of failing on a table this test does not care about.
+        driver.execute(
+            identifier = null,
+            sql = "CREATE TABLE animes(id INTEGER NOT NULL PRIMARY KEY)",
+            parameters = 0,
+        )
+
         // Upgrade from 149 to current runs 149.sqm (CREATE TABLE + CREATE INDEX).
         AnimeDatabase.Schema.migrate(driver, oldVersion = 149L, newVersion = AnimeDatabase.Schema.version)
 

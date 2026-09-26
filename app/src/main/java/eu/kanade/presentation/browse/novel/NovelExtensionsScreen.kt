@@ -1,15 +1,21 @@
-package eu.kanade.presentation.browse.novel
+﻿package eu.kanade.presentation.browse.novel
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -39,10 +45,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -53,6 +62,7 @@ import eu.kanade.presentation.browse.BaseBrowseItem
 import eu.kanade.presentation.browse.manga.ExtensionHeader
 import eu.kanade.presentation.browse.manga.ExtensionTrustDialog
 import eu.kanade.presentation.more.settings.screen.browse.NovelExtensionStoreScreen
+import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.util.animateItemFastScroll
 import eu.kanade.tachiyomi.extension.InstallStep
 import eu.kanade.tachiyomi.ui.browse.novel.extension.NovelExtensionItem
@@ -278,11 +288,19 @@ private fun NovelExtensionContent(
                         if (updates.any { it.hasUpdate }) {
                             // Parity with the manga/anime extensions header: a labeled
                             // "Update all" button, not a bare download-looking icon.
-                            Button(onClick = onUpdateAll) {
+                            // Aurora-стиль: чистая accent-пилла вместо M3 Button.
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(AuroraTheme.colors.accent)
+                                    .clickable(onClick = onUpdateAll)
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                            ) {
                                 Text(
                                     text = stringResource(MR.strings.ext_update_all),
-                                    style = LocalTextStyle.current.copy(
+                                    style = MaterialTheme.typography.labelLarge.copy(
                                         color = MaterialTheme.colorScheme.onPrimary,
+                                        fontWeight = FontWeight.Bold,
                                     ),
                                 )
                             }
@@ -291,23 +309,28 @@ private fun NovelExtensionContent(
                 )
             }
             val keyedUpdates = uniqueNovelExtensionItemKeys("update", updates).zip(updates)
-            items(
+            itemsIndexed(
                 items = keyedUpdates,
-                key = { (key, _) -> key },
-            ) { (_, item) ->
-                NovelExtensionItemRow(
-                    modifier = Modifier.animateItemFastScroll(this),
-                    item = item,
-                    onUpdateExtension = onUpdateExtension,
-                    onReinstallExtension = onReinstallExtension,
-                    onOpenExtension = onOpenExtension,
-                    onOpenExtensionSettings = onOpenExtensionSettings,
-                    onUninstallExtension = onUninstallExtension,
-                    onTrustExtension = { trustState = it },
-                    onCopyDiagnostic = onCopyDiagnostic,
-                    onShareApk = onShareApk,
-                    onCancelInstall = onCancelInstall,
-                )
+                key = { _, (key, _) -> key },
+            ) { index, (_, item) ->
+                Column {
+                    if (index > 0) {
+                        ElegantExtensionDivider()
+                    }
+                    NovelExtensionItemRow(
+                        modifier = Modifier.animateItemFastScroll(this@itemsIndexed),
+                        item = item,
+                        onUpdateExtension = onUpdateExtension,
+                        onReinstallExtension = onReinstallExtension,
+                        onOpenExtension = onOpenExtension,
+                        onOpenExtensionSettings = onOpenExtensionSettings,
+                        onUninstallExtension = onUninstallExtension,
+                        onTrustExtension = { trustState = it },
+                        onCopyDiagnostic = onCopyDiagnostic,
+                        onShareApk = onShareApk,
+                        onCancelInstall = onCancelInstall,
+                    )
+                }
             }
         }
 
@@ -318,21 +341,26 @@ private fun NovelExtensionContent(
                 ExtensionHeader(textRes = MR.strings.ext_installed)
             }
             val keyedInstalled = uniqueNovelExtensionItemKeys("installed", installed).zip(installed)
-            items(
+            itemsIndexed(
                 items = keyedInstalled,
-                key = { (key, _) -> key },
-            ) { (_, item) ->
-                NovelExtensionItemRow(
-                    modifier = Modifier.animateItemFastScroll(this),
-                    item = item,
-                    onOpenExtension = onOpenExtension,
-                    onOpenExtensionSettings = onOpenExtensionSettings,
-                    onUninstallExtension = onUninstallExtension,
-                    onTrustExtension = { trustState = it },
-                    onCopyDiagnostic = onCopyDiagnostic,
-                    onShareApk = onShareApk,
-                    onCancelInstall = onCancelInstall,
-                )
+                key = { _, (key, _) -> key },
+            ) { index, (_, item) ->
+                Column {
+                    if (index > 0) {
+                        ElegantExtensionDivider()
+                    }
+                    NovelExtensionItemRow(
+                        modifier = Modifier.animateItemFastScroll(this@itemsIndexed),
+                        item = item,
+                        onOpenExtension = onOpenExtension,
+                        onOpenExtensionSettings = onOpenExtensionSettings,
+                        onUninstallExtension = onUninstallExtension,
+                        onTrustExtension = { trustState = it },
+                        onCopyDiagnostic = onCopyDiagnostic,
+                        onShareApk = onShareApk,
+                        onCancelInstall = onCancelInstall,
+                    )
+                }
             }
         }
 
@@ -370,18 +398,23 @@ private fun NovelExtensionContent(
 
                 val keyedLanguageItems = uniqueNovelExtensionItemKeys("available-$language", languageItems)
                     .zip(languageItems)
-                items(
+                itemsIndexed(
                     items = keyedLanguageItems,
-                    key = { (key, _) -> key },
-                ) { (_, item) ->
-                    NovelExtensionItemRow(
-                        modifier = Modifier.animateItemFastScroll(this),
-                        item = item,
-                        onInstallExtension = onInstallExtension,
-                        onCopyDiagnostic = onCopyDiagnostic,
-                        onShareApk = onShareApk,
-                        onCancelInstall = onCancelInstall,
-                    )
+                    key = { _, (key, _) -> key },
+                ) { index, (_, item) ->
+                    Column {
+                        if (index > 0) {
+                            ElegantExtensionDivider()
+                        }
+                        NovelExtensionItemRow(
+                            modifier = Modifier.animateItemFastScroll(this@itemsIndexed),
+                            item = item,
+                            onInstallExtension = onInstallExtension,
+                            onCopyDiagnostic = onCopyDiagnostic,
+                            onShareApk = onShareApk,
+                            onCancelInstall = onCancelInstall,
+                        )
+                    }
                 }
             }
         }
@@ -701,4 +734,47 @@ private fun SignatureMismatchDialog(
             }
         },
     )
+}
+
+/** Контрастный «хром»-акцент (эталон манги-источников). */
+@Composable
+private fun chromeAccent(): Color {
+    val colors = AuroraTheme.colors
+    return lerp(colors.accent, colors.textPrimary, 0.30f)
+}
+
+/** Светящаяся градиентная линия между расширениями внутри группы. */
+@Composable
+private fun ElegantExtensionDivider() {
+    val chrome = chromeAccent()
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.12f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            chrome.copy(alpha = 0.45f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+    }
 }

@@ -22,12 +22,15 @@ class DiscoveryMapperTest {
             id = 1L, media_type = "novel", row_type = "like", title = "Overlord",
             clean_title = "overlord", cover_url = "http://x/c.jpg", reason = "Похоже на Re:Zero",
             seed_title = "Re:Zero", provider = "anilist", score = 0.9, position = 0, created_at = 42L,
+            source_id = 77L, source_url = "/manga/77",
         )
         val mapped: DiscoverySuggestion = DiscoveryMapper.map(row)
         mapped.mediaType shouldBe DiscoveryMediaType.NOVEL
         mapped.rowType shouldBe DiscoveryRowType.LIKE
         mapped.coverUrl shouldBe "http://x/c.jpg"
         mapped.createdAt shouldBe 42L
+        mapped.sourceId shouldBe 77L
+        mapped.sourceUrl shouldBe "/manga/77"
     }
 
     @org.junit.Test

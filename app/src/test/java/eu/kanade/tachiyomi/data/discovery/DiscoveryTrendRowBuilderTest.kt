@@ -18,6 +18,7 @@ class DiscoveryTrendRowBuilderTest {
             season: TrendSeason,
             sort: TrendSort,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryTrendingItem> {
             if (shouldFail) throw IOException("AniList circuit breaker open (403 backoff)")
             return items
@@ -30,17 +31,20 @@ class DiscoveryTrendRowBuilderTest {
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
         override suspend fun popularWithGenres(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 
         override suspend fun latest(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             page: Int,
+            releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = latestItems
     }
 

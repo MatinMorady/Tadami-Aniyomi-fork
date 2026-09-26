@@ -124,6 +124,16 @@ val novelReaderPresetThemes: List<NovelReaderColorTheme> = listOf(
     NovelReaderColorTheme(backgroundColor = "#000000", textColor = "#FFFFFFB3"),
 )
 
+/** One-tap swatches for the global text color (Auto and the custom picker are added around them). */
+val novelReaderTextColorPresetHexes: List<String> = listOf(
+    "#FFFFFF",
+    "#F1E4C8",
+    "#FFB74D",
+    "#90CAF9",
+    "#AAAAAA",
+    "#111111",
+)
+
 val novelReaderBuiltInFonts: List<NovelReaderFontOption> = listOf(
     NovelReaderFontOption(
         id = "",

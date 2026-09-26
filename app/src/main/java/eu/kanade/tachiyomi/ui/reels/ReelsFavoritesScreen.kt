@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -31,13 +33,16 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +61,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import eu.kanade.presentation.components.AppBar
 import kotlinx.coroutines.launch
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.domain.reels.anime.model.ReelsFavorite
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -73,7 +79,11 @@ class ReelsFavoritesScreen : Screen {
         val snackbarHostState = remember { SnackbarHostState() }
         val removedMessage = stringResource(MR.strings.reels_favorites_removed_snackbar)
         val undoLabel = stringResource(MR.strings.action_undo)
-        var sort by remember { mutableStateOf(FavoritesSort.DateDesc) }
+        // Audit H11: the sort choice survives config changes and re-entry (process scope).
+        var sortOrdinal by rememberSaveable { mutableIntStateOf(FavoritesSort.DateDesc.ordinal) }
+        val sort = FavoritesSort.entries[sortOrdinal]
+        var confirmCleanup by remember { mutableStateOf(false) }
+        val context = LocalContext.current
 
         val sorted = remember(state.favorites, sort) {
             when (sort) {
@@ -83,35 +93,74 @@ class ReelsFavoritesScreen : Screen {
             }
         }
 
+        if (confirmCleanup) {
+            AlertDialog(
+                onDismissRequest = { confirmCleanup = false },
+                title = { Text(stringResource(MR.strings.reels_cleanup_missing)) },
+                text = { Text(stringResource(MR.strings.reels_cleanup_missing_confirm)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmCleanup = false
+                            scope.launch {
+                                val removed = screenModel.cleanupMissingSources()
+                                snackbarHostState.showSnackbar(
+                                    context.stringResource(MR.strings.reels_cleanup_missing_done, removed),
+                                )
+                            }
+                        },
+                    ) {
+                        Text(stringResource(MR.strings.action_remove))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmCleanup = false }) {
+                        Text(stringResource(MR.strings.action_cancel))
+                    }
+                },
+            )
+        }
+
         Scaffold(
             topBar = {
                 AppBar(
                     title = stringResource(MR.strings.reels_favorites_title),
                     navigateUp = navigator::pop,
                     actions = {
+                        // User-initiated cleanup of rows whose source was uninstalled: user
+                        // data is never auto-deleted, so the action is explicit + confirmed.
+                        IconButton(onClick = { confirmCleanup = true }) {
+                            Icon(
+                                Icons.Outlined.DeleteSweep,
+                                contentDescription = stringResource(MR.strings.reels_cleanup_missing),
+                            )
+                        }
                         var menuOpen by remember { mutableStateOf(false) }
                         IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.AutoMirrored.Outlined.Sort, contentDescription = null)
+                            Icon(
+                                Icons.AutoMirrored.Outlined.Sort,
+                                contentDescription = stringResource(MR.strings.action_sort),
+                            )
                         }
                         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(MR.strings.reels_sort_newest)) },
                                 onClick = {
-                                    sort = FavoritesSort.DateDesc
+                                    sortOrdinal = FavoritesSort.DateDesc.ordinal
                                     menuOpen = false
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(MR.strings.reels_sort_oldest)) },
                                 onClick = {
-                                    sort = FavoritesSort.DateAsc
+                                    sortOrdinal = FavoritesSort.DateAsc.ordinal
                                     menuOpen = false
                                 },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(MR.strings.reels_sort_source)) },
                                 onClick = {
-                                    sort = FavoritesSort.Source
+                                    sortOrdinal = FavoritesSort.Source.ordinal
                                     menuOpen = false
                                 },
                             )

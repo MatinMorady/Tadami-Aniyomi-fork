@@ -7,7 +7,7 @@ import tachiyomi.domain.discovery.model.DiscoveryMediaType
 class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
 
     fun discoveryEnabled(): Preference<Boolean> = preferenceStore.getBoolean("discovery_enabled", true)
-    fun homeHeroMode(): Preference<String> = preferenceStore.getString("home_hero_mode", "continue")
+    fun homeHeroMode(): Preference<String> = preferenceStore.getString("home_hero_mode", "auto")
 
     fun rowLikeEnabled(): Preference<Boolean> = preferenceStore.getBoolean("discovery_row_like", true)
     fun rowTasteEnabled(): Preference<Boolean> = preferenceStore.getBoolean("discovery_row_taste", true)
@@ -41,9 +41,60 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
      */
     fun filterNsfw(): Preference<Boolean> = preferenceStore.getBoolean("discovery_filter_nsfw", true)
 
+    /**
+     * V1: CSV ключей статусов выпуска для трендов (DiscoveryReleaseStatus.key),
+     * пусто = все статусы (фильтр выключен). Действует серверно у AniList/Shikimori
+     * при следующем обновлении ленты; ряды «похоже»/источников статусов не знают.
+     */
+    fun releaseStatusFilter(): Preference<String> =
+        preferenceStore.getString("discovery_release_status_filter", "")
+
+    /**
+     * V3: CSV канонических ключей жанров из [GenreOntology] — «приоритетные»:
+     * тайтлы с этими жанрами поднимаются выше в миксе. Не отсекают остальное.
+     * Формат: canonical|canonical|raw:«строка» — raw-жанры с префиксом.
+     */
+    fun priorityGenres(): Preference<String> =
+        preferenceStore.getString("discovery_priority_genres", "")
+
+    /**
+     * V3: CSV канонических ключей жанров из [GenreOntology] — «обязательные»:
+     * только тайтлы с этими жанрами (best-effort: провайдер без жанров → обычная выдача).
+     * Формат: canonical|canonical|raw:«строка» — raw-жанры с префиксом.
+     */
+    fun requiredGenres(): Preference<String> =
+        preferenceStore.getString("discovery_required_genres", "")
+
+    /**
+     * V3: CSV игнорируемых жанров подборки (глобально, поверх per-media блэклиста тегов):
+     * тайтлы с этими жанрами не проходят в ряды. Формат как у priority/required.
+     */
+    fun ignoredGenres(): Preference<String> =
+        preferenceStore.getString("discovery_ignored_genres", "")
+
     /** CSV ключей рядов, упавших при последней генерации (для баннера «показан кэш»). */
     fun lastFailedRows(mediaType: DiscoveryMediaType): Preference<String> =
         preferenceStore.getString("discovery_failed_rows_" + mediaType.key, "")
+
+    /** Режим участия плагинов в подборках: "auto" (топ-3 по весу библиотеки) | "manual" (свой набор). */
+    fun discoverySourceMode(mediaType: DiscoveryMediaType): Preference<String> =
+        preferenceStore.getString("discovery_source_mode_" + mediaType.key, "auto")
+
+    /**
+     * CSV исключённых ключей плагинов (pkgName расширений / id novel-плагинов):
+     * хранятся ВЫКЛЮЧЕННЫЕ — новый плагин участвует автоматически.
+     * Ключ объединяет все языковые варианты расширения. Учитывается в обоих режимах.
+     */
+    fun discoverySourceExcluded(mediaType: DiscoveryMediaType): Preference<String> =
+        preferenceStore.getString("discovery_source_excluded_" + mediaType.key, "")
+
+    /**
+     * Version code, при котором уже выполнен backfill-чек привязок подборок:
+     * после апгрейда Home разово проверяет кэш на SOURCE-строки без source_id
+     * и при наличии запрашивает тихую перегенерацию ленты.
+     */
+    fun bindingBackfillVersion(): Preference<Int> =
+        preferenceStore.getInt("discovery_binding_backfill_version", 0)
 
     fun teaserCount(): Preference<Int> = preferenceStore.getInt("discovery_teaser_count", 16)
     fun showReasons(): Preference<Boolean> = preferenceStore.getBoolean("discovery_show_reasons", true)
@@ -51,4 +102,10 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
     fun collageRotationIntervalHours(): Preference<Int> = preferenceStore.getInt("collage_rotation_interval_hours", 2)
     fun collageAnimationSpeed(): Preference<String> = preferenceStore.getString("collage_animation_speed", "normal")
     fun collageLastRotationTime(): Preference<Long> = preferenceStore.getLong("collage_last_rotation_time", 0L)
+    fun collageOffset(): Preference<Int> = preferenceStore.getInt("collage_offset", 0)
+
+    fun stageRotationIntervalHours(): Preference<Int> = preferenceStore.getInt("stage_rotation_interval_hours", 2)
+    fun stageAnimationSpeed(): Preference<String> = preferenceStore.getString("stage_animation_speed", "normal")
+    fun stageLastRotationTime(): Preference<Long> = preferenceStore.getLong("stage_last_rotation_time", 0L)
+    fun stageOffset(): Preference<Int> = preferenceStore.getInt("stage_offset", 0)
 }
