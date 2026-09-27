@@ -125,6 +125,8 @@ import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.resolveAuroraSurfaceColor
 import eu.kanade.presentation.util.rememberSupportsBlurBehind
 import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
+import eu.kanade.tachiyomi.data.discovery.filterFranchiseClustering
+import eu.kanade.tachiyomi.data.discovery.filterFranchiseClusteringGeneric
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
 import eu.kanade.tachiyomi.data.discovery.rrfScores
 import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
@@ -160,15 +162,26 @@ internal fun composeTeaserItems(
     val rows = items.groupBy { it.rowType }
         .mapValues { (_, row) ->
             row.map { s ->
-                DiscoveryRowItem(s.title, s.cleanTitle, s.coverUrl, s.reason, s.seedTitle, s.provider, s.score)
+                DiscoveryRowItem(
+                    title = s.title,
+                    cleanTitle = s.cleanTitle,
+                    coverUrl = s.coverUrl,
+                    reason = s.reason,
+                    seedTitle = s.seedTitle,
+                    provider = s.provider,
+                    score = s.score,
+                    sourceId = s.sourceId,
+                    sourceUrl = s.sourceUrl,
+                )
             }
         }
     val fullMix = interleaveMix(rows, total = items.size, rrf = rrfScores(rows))
-    val safeOffset = if (fullMix.isNotEmpty()) offset % fullMix.size else 0
+    val clustered = filterFranchiseClustering(fullMix, maxPerSeries = if (capped >= 15) 2 else 1)
+    val safeOffset = if (clustered.isNotEmpty()) offset % clustered.size else 0
     val rotated = if (safeOffset <= 0) {
-        fullMix.take(capped)
+        clustered.take(capped)
     } else {
-        (fullMix.drop(safeOffset) + fullMix.take(safeOffset)).take(capped)
+        (clustered.drop(safeOffset) + clustered.take(safeOffset)).take(capped)
     }
     return rotated.mapNotNull { row ->
         items.firstOrNull { it.cleanTitle == row.cleanTitle }?.toHomeHubDiscoveryItem()
@@ -176,13 +189,14 @@ internal fun composeTeaserItems(
 }
 
 /**
- * Выбирает элементы тизера с соблюдением 48-часовой уникальности:
+ * Выбирает элементы тизера с соблюдением 48-часовой уникальности и минимизацией
+ * пересечения с карточками, видимыми прямо сейчас:
  * 1. Исключает тайтлы из [shownTitles] (показанные за последние 48 ч).
- * 2. Если свежих тайтлов >= count, формирует сбалансированный тизер только из свежих.
- * 3. Если свежих тайтлов < count, добирает недостающие из ранее показанных строго в порядке
- *    [shownCutoffMap] (наименее недавно показанные первыми, без искажения квотами рядов).
- * 4. Если весь пул меньше или равен count, циклически ротирует порядок отображения по [offset],
- *    чтобы кнопка обновления и повторный вход не зависали.
+ * 2. Если задан [currentTitles], в первую очередь отбирает тайтлы, которых нет на экране.
+ * 3. Если свежих тайтлов >= count, формирует сбалансированный тизер из свежих с ротацией по [offset].
+ * 4. Если свежих тайтлов < count, добирает недостающие из ранее показанных в порядке
+ *    [shownCutoffMap] (наименее недавно показанные первыми, с приоритетом не видимых сейчас).
+ * 5. Если весь пул меньше или равен count, циклически ротирует порядок отображения по [offset].
  */
 internal fun selectFreshTeaserItems(
     pool: List<DiscoverySuggestion>,
@@ -190,6 +204,7 @@ internal fun selectFreshTeaserItems(
     count: Int,
     offset: Int = 0,
     shownCutoffMap: Map<String, Long> = emptyMap(),
+    currentTitles: Set<String> = emptySet(),
 ): List<HomeHubDiscoveryItem> {
     val capped = count.coerceIn(3, 20)
     if (pool.isEmpty()) return emptyList()
@@ -197,32 +212,72 @@ internal fun selectFreshTeaserItems(
     val freshPool = pool.filterNot { it.cleanTitle in shownTitles }
     val shownPool = pool.filter { it.cleanTitle in shownTitles }
 
+    // Сначала пробуем кандидатов, которых нет на экране
+    val freshNotCurrent = if (currentTitles.isNotEmpty()) {
+        freshPool.filterNot { it.cleanTitle in currentTitles }
+    } else {
+        freshPool
+    }
+
     val rawSelection: List<HomeHubDiscoveryItem> = when {
+        freshNotCurrent.size >= capped -> {
+            composeTeaserItems(freshNotCurrent, capped, offset = 0)
+        }
         freshPool.size >= capped -> {
-            composeTeaserItems(freshPool, capped, offset = 0)
+            // Свежих тайтлов в сумме достаточно, но часть из них на экране —
+            // минимизируем пересечение: freshNotCurrent первыми, добор из оставшихся fresh
+            val chosen = freshNotCurrent.map { it.toHomeHubDiscoveryItem() }
+            val remainingFresh = freshPool.filter { it.cleanTitle in currentTitles }
+                .map { it.toHomeHubDiscoveryItem() }
+            (chosen + remainingFresh).take(capped)
         }
         freshPool.isNotEmpty() -> {
-            val freshItems = freshPool.map { it.toHomeHubDiscoveryItem() }
-            val needed = capped - freshItems.size
-            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
-            val backfillItems = sortedShown.take(needed).map { it.toHomeHubDiscoveryItem() }
-            (freshItems + backfillItems).take(capped)
+            // Свежих тайтлов меньше capped: берем все свежие (не видимые сейчас в первую очередь)
+            val freshCandidates = (freshNotCurrent + freshPool.filter { it.cleanTitle in currentTitles })
+                .distinctBy { it.cleanTitle }
+                .map { it.toHomeHubDiscoveryItem() }
+            val needed = capped - freshCandidates.size
+
+            // Добираем из показанных: сначала те, которых нет на экране, затем остальные;
+            // внутри каждой группы — от наименее недавно показанных к более свежим
+            val shownNotCurrent = shownPool.filterNot { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            val shownOnScreen = shownPool.filter { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+
+            val backfillPool = (shownNotCurrent + shownOnScreen).take(needed)
+                .map { it.toHomeHubDiscoveryItem() }
+            (freshCandidates + backfillPool).take(capped)
         }
         else -> {
-            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
-            sortedShown.take(capped).map { it.toHomeHubDiscoveryItem() }
+            // Свежий пул пуст: добираем строго по времени последнего показа,
+            // отдавая приоритет карточкам не на экране
+            val shownNotCurrent = shownPool.filterNot { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            val shownOnScreen = shownPool.filter { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+
+            val orderedShown = (shownNotCurrent + shownOnScreen).take(capped)
+            orderedShown.map { it.toHomeHubDiscoveryItem() }
         }
     }
 
-    return if (pool.size <= capped && rawSelection.isNotEmpty()) {
-        val safeOffset = offset % rawSelection.size
+    val clustered = filterFranchiseClusteringGeneric(
+        items = rawSelection,
+        titleExtractor = { it.title },
+        cleanTitleExtractor = { it.cleanTitle },
+        maxPerSeries = if (capped >= 15) 2 else 1,
+    )
+
+    return if (pool.size <= capped && clustered.isNotEmpty()) {
+        val safeOffset = offset % clustered.size
         if (safeOffset <= 0) {
-            rawSelection
+            clustered
         } else {
-            rawSelection.drop(safeOffset) + rawSelection.take(safeOffset)
+            clustered.drop(safeOffset) + clustered.take(safeOffset)
         }
     } else {
-        rawSelection
+        clustered
     }
 }
 

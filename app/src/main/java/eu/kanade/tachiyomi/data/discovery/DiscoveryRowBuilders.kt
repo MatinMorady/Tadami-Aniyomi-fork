@@ -231,6 +231,7 @@ class DiscoveryTasteRowBuilder(
                     context.mediaType,
                     context.sourceId,
                     sourceGenreNames,
+                    page = context.pageOffset,
                     releaseStatuses = context.releaseStatuses,
                 )
             }
@@ -307,7 +308,12 @@ class DiscoverySourceRowBuilder(
             val latestItems = latestResult.getOrDefault(emptyList()).take(latestQuota)
             val latestTitles = latestItems.mapTo(HashSet()) { it.cleanTitle }
             val popularResult = runCatching {
-                catalog.popular(context.mediaType, id, releaseStatuses = context.releaseStatuses)
+                catalog.popular(
+                    context.mediaType,
+                    id,
+                    page = context.pageOffset,
+                    releaseStatuses = context.releaseStatuses,
+                )
             }
             // Источник считается провалившимся, только если popular упал И latest ничего
             // не дал — иначе ряд честно строится из реального контента.

@@ -97,6 +97,7 @@ internal fun providerOptions(state: DiscoveryFeedUiState): List<String> =
     state.rows.values.flatten().map { it.provider }.distinct().sorted()
 
 internal const val DISCOVERY_REFRESH_COOLDOWN_MS = 5 * 60_000L
+internal const val HOME_DISCOVERY_COOLDOWN_MS = 10_000L
 
 internal fun remainingCooldownSeconds(
     lastRefreshAt: Long?,

@@ -137,7 +137,15 @@ class DiscoveryRunner(
 
     private suspend fun runFor(mediaType: DiscoveryMediaType, isManualRefresh: Boolean = false) {
         val candidates = seedSources.candidates(mediaType)
-        val seedOffset = if (isManualRefresh) 2 else 0
+        val refreshCount = if (isManualRefresh) {
+            val current = preferences.manualRefreshCount(mediaType).get()
+            val next = current + 1
+            preferences.manualRefreshCount(mediaType).set(next)
+            next
+        } else {
+            preferences.manualRefreshCount(mediaType).get()
+        }
+        val seedOffset = if (isManualRefresh) (refreshCount * 2) % 20 else 0
         val seeds = seedSelector.select(
             candidates,
             SeedSettings(
@@ -221,7 +229,7 @@ class DiscoveryRunner(
         } else {
             shownTitles
         }
-        val pageOffset = if (isManualRefresh) 2 else 1
+        val pageOffset = if (isManualRefresh) ((refreshCount - 1) % 4) + 2 else 1
 
         val context = DiscoveryBuildContext(
             mediaType = mediaType,

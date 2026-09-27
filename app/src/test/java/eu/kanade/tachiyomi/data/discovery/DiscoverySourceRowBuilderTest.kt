@@ -17,14 +17,17 @@ class DiscoverySourceRowBuilderTest {
         private val failingLatest: Set<Long> = emptySet(),
     ) : DiscoverySourceCatalog {
         val requested = mutableListOf<Long>()
+        val requestedPopular = mutableListOf<Pair<Long, Int>>()
         val requestedLatest = mutableListOf<Pair<Long, Int>>()
 
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            page: Int,
             releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> {
             requested += sourceId
+            requestedPopular += sourceId to page
             if (sourceId in failing) throw IOException("boom $sourceId")
             return itemsBySource[sourceId].orEmpty()
         }
@@ -33,6 +36,7 @@ class DiscoverySourceRowBuilderTest {
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            page: Int,
             releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 
@@ -155,6 +159,13 @@ class DiscoverySourceRowBuilderTest {
         val catalog = FakeCatalog(latestBySource = mapOf(1L to items("L", 30)))
         DiscoverySourceRowBuilder(catalog).build(context(sourceIds = listOf(1L), pageOffset = 2))
         catalog.requestedLatest shouldBe listOf(1L to 2)
+    }
+
+    @Test
+    fun `popular is requested with pageOffset for manual refresh pagination`() = runTest {
+        val catalog = FakeCatalog(itemsBySource = mapOf(1L to items("P", 30)))
+        DiscoverySourceRowBuilder(catalog).build(context(sourceIds = listOf(1L), pageOffset = 3))
+        catalog.requestedPopular shouldBe listOf(1L to 3)
     }
 
     @Test

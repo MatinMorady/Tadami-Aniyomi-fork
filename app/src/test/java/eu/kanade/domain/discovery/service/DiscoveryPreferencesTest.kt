@@ -34,6 +34,8 @@ class DiscoveryPreferencesTest {
         prefs.collageLastRotationTime().get() shouldBe 0L
         prefs.collageOffset().get() shouldBe 0
         prefs.manualRefreshAt().get() shouldBe 0L
+        prefs.homeManualRefreshAt(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME).get() shouldBe 0L
+        prefs.manualRefreshCount(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME).get() shouldBe 0
         prefs.filterNsfw().get() shouldBe true
         prefs.lastFailedRows(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME).get() shouldBe ""
     }

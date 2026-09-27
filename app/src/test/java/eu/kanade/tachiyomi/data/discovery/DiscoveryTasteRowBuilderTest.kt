@@ -43,6 +43,7 @@ class DiscoveryTasteRowBuilderTest {
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            page: Int,
             releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 
@@ -50,6 +51,7 @@ class DiscoveryTasteRowBuilderTest {
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            page: Int,
             releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> {
             if (shouldFail) throw IOException("catalog boom")

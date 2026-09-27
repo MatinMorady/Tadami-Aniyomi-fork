@@ -110,19 +110,21 @@ class DiscoveryCoordinator(
             .filterNot { it.cleanTitle.isBlank() || it.cleanTitle in excluded || it.cleanTitle in seen }
             .distinctBy { it.cleanTitle }
 
+        val clustered = filterFranchiseClustering(valid, maxPerSeries = 2)
+
         return if (recentCleanTitles.isNotEmpty()) {
-            val fresh = valid.filterNot { it.cleanTitle in recentCleanTitles }
+            val fresh = clustered.filterNot { it.cleanTitle in recentCleanTitles }
             if (fresh.size >= rowLimit) {
                 fresh.take(rowLimit)
             } else {
                 // Добираем показанными: дольше всего не показанные первыми;
                 // без таймстампа (напр. текущая лента при ручном рефреше) — в конец.
-                val stale = valid.filter { it.cleanTitle in recentCleanTitles }
+                val stale = clustered.filter { it.cleanTitle in recentCleanTitles }
                     .sortedBy { shownCutoffMap[it.cleanTitle] ?: Long.MAX_VALUE }
                 (fresh + stale).take(rowLimit)
             }
         } else {
-            valid.take(rowLimit)
+            clustered.take(rowLimit)
         }
     }
 }
