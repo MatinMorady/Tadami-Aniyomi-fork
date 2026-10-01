@@ -1223,8 +1223,26 @@ class NovelLibraryScreenModel(
                 mappedCategories
             }
 
+            // DECISION-3 (manga parity): a series is placed by its own category, but when that
+            // category is hidden or dangling the whole series used to vanish while its volumes
+            // stayed suppressed as singles (idsInSeries). Fall back to the first VISIBLE category
+            // any of its volumes belongs to; only a series with no visible category hides.
+            val visibleIds = displayCategories.map { it.id }.toHashSet()
+            val regrouped = libraryNovels.entries
+                .flatMap { (categoryId, items) -> items.map { categoryId to it } }
+                .groupBy({ (categoryId, item) ->
+                    if (item is NovelLibraryItem.Series && categoryId !in visibleIds) {
+                        item.librarySeries.entries
+                            .map { it.category }
+                            .firstOrNull { it in visibleIds }
+                            ?: categoryId
+                    } else {
+                        categoryId
+                    }
+                }) { it.second }
+
             displayCategories
-                .associateWith { libraryNovels[it.id].orEmpty().toPersistentList() }
+                .associateWith { regrouped[it.id].orEmpty().toPersistentList() }
                 .toPersistentMap()
         }
     }

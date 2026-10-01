@@ -16,6 +16,14 @@ interface NovelSeriesRepository {
     suspend fun insertSeries(series: NovelSeries): Long
     suspend fun updateSeries(series: NovelSeries)
     suspend fun deleteSeries(seriesId: Long)
+
+    /**
+     * Moves all series assigned to [categoryId] back to the default category (0). Called when a
+     * category is deleted: novel_series.category_id has no FK, so without this the series keep a
+     * dangling id and become invisible on every library page with no way back.
+     */
+    suspend fun moveSeriesFromCategoryToDefault(categoryId: Long)
+
     suspend fun insertEntry(entry: NovelSeriesEntry)
     suspend fun deleteEntry(novelId: Long)
     suspend fun updateEntryPositions(entries: List<NovelSeriesEntry>)
