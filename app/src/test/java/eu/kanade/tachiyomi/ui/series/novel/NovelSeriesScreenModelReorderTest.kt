@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import tachiyomi.domain.book.novel.interactor.GetNovelBookState
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.domain.category.novel.interactor.SetNovelCategories
 import tachiyomi.domain.entries.novel.model.Novel
@@ -45,6 +46,7 @@ class NovelSeriesScreenModelReorderTest {
     private val removeNovelFromSeries: RemoveNovelFromSeries = mockk(relaxed = true)
     private val reorderSeriesEntries: ReorderSeriesEntries = mockk()
     private val getNovelChapters: GetNovelChapters = mockk()
+    private val getNovelBookState: GetNovelBookState = mockk(relaxed = true)
     private val getNovelCategories: GetNovelCategories = mockk()
     private val setNovelCategories: SetNovelCategories = mockk(relaxed = true)
     private val seriesCoverCache: SeriesCoverCache = mockk(relaxed = true)
@@ -102,6 +104,7 @@ class NovelSeriesScreenModelReorderTest {
             removeNovelFromSeries = removeNovelFromSeries,
             reorderSeriesEntries = reorderSeriesEntries,
             getNovelChapters = getNovelChapters,
+            getNovelBookState = getNovelBookState,
             getNovelCategories = getNovelCategories,
             setNovelCategories = setNovelCategories,
             seriesCoverCache = seriesCoverCache,
