@@ -1,5 +1,6 @@
 package eu.kanade.domain.track.manga
 
+import eu.kanade.tachiyomi.data.track.MangaTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.data.track.anilist.Anilist
 import tachiyomi.domain.library.model.LibraryTrackStatus
@@ -9,7 +10,9 @@ class MapMangaTrackStatusToLibrary(
 ) {
     fun map(trackerId: Long, status: Long): LibraryTrackStatus {
         val tracker = trackerManager.get(trackerId) ?: return LibraryTrackStatus.OTHER
-        val mangaTracker = tracker.mangaService
+        // Mirror of the anime mapper guard: an anime-only service (e.g. Simkl) on a manga row
+        // must not take the caller down with a ClassCastException.
+        val mangaTracker = tracker as? MangaTracker ?: return LibraryTrackStatus.OTHER
         val statusList = mangaTracker.getStatusListManga()
         return when (status) {
             mangaTracker.getReadingStatus() -> LibraryTrackStatus.READING
