@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.data.backup.restore.restorers
 
 import eu.kanade.tachiyomi.data.backup.models.BackupMangaSeries
 import eu.kanade.tachiyomi.data.cache.SeriesCoverCache
+import kotlinx.coroutines.flow.first
 import tachiyomi.domain.category.manga.interactor.GetMangaCategories
 import tachiyomi.domain.entries.manga.interactor.GetMangaByUrlAndSourceId
 import tachiyomi.domain.series.manga.model.MangaSeries
@@ -23,6 +24,10 @@ class MangaSeriesRestorer(
         if (seriesList.isEmpty()) return
 
         val categoryByName = getMangaCategories.await().associateBy { it.name }
+        // Restores run repeatedly (cloud sync merges every cycle). Inserting unconditionally
+        // created a brand new row per run and left the previous one as an empty zombie, so the
+        // series list grew by one duplicate per sync. Reuse the row with the same title instead.
+        val existingByTitle = mangaSeriesRepository.getAllSeries().first().associateBy { it.title }
 
         seriesList.forEach { backupSeries ->
             val resolvedEntries = backupSeries.entries
@@ -42,20 +47,21 @@ class MangaSeriesRestorer(
                 getMangaByUrlAndSourceId.await(coverUrl, coverSource)?.id
             }
 
-            val insertedSeriesId = mangaSeriesRepository.insertSeries(
-                MangaSeries(
-                    id = -1,
-                    title = backupSeries.title,
-                    description = backupSeries.description,
-                    categoryId = categoryId,
-                    sortOrder = backupSeries.sortOrder,
-                    dateAdded = backupSeries.dateAdded,
-                    coverLastModified = backupSeries.coverLastModified,
-                    pinned = backupSeries.pinned,
-                    coverMode = SeriesCoverMode.from(backupSeries.coverMode),
-                    coverEntryId = coverEntryId,
-                ),
-            )
+            val insertedSeriesId = existingByTitle[backupSeries.title]?.id
+                ?: mangaSeriesRepository.insertSeries(
+                    MangaSeries(
+                        id = -1,
+                        title = backupSeries.title,
+                        description = backupSeries.description,
+                        categoryId = categoryId,
+                        sortOrder = backupSeries.sortOrder,
+                        dateAdded = backupSeries.dateAdded,
+                        coverLastModified = backupSeries.coverLastModified,
+                        pinned = backupSeries.pinned,
+                        coverMode = SeriesCoverMode.from(backupSeries.coverMode),
+                        coverEntryId = coverEntryId,
+                    ),
+                )
 
             resolvedEntries.forEach { (position, mangaId) ->
                 mangaSeriesRepository.deleteEntry(mangaId)

@@ -1809,7 +1809,9 @@ class NovelLibraryScreenModel(
     fun openAddToSeries() {
         screenModelScope.launchIO {
             val allSeries = getLibraryNovelSeries.subscribe().first()
-            val series = allSeries.map { it.series }
+            // Empty (zombie) series must not be offered: the grid hides them, so listing them
+            // here made the library look like it holds more series than it actually shows.
+            val series = allSeries.filter { it.entries.isNotEmpty() }.map { it.series }
             mutableState.update { it.copy(dialog = Dialog.AddToSeries(series)) }
         }
     }
