@@ -88,9 +88,10 @@ class BackupCreateJob(private val context: Context, workerParams: WorkerParamete
             logcat(LogPriority.ERROR, e)
             BackupDiagnosticLog.logError(context, "job_failed", e)
             BackupDiagnosticLog.endSession(context, success = false, details = formatBackupError(e))
-            if (!isAutoBackup) {
-                notifier.showBackupError(formatBackupError(e))
-            }
+            // Auto backup failures used to be completely silent, so a broken backup location or
+            // a device too small-heaped to serialize stayed unnoticed for weeks. One overwritable
+            // error notification per failed run keeps manual runs unchanged.
+            notifier.showBackupError(formatBackupError(e))
             Result.failure()
         } finally {
             context.cancelNotification(Notifications.ID_BACKUP_PROGRESS)

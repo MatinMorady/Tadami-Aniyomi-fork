@@ -132,6 +132,7 @@ class BackupCreator(
                 if (isAutoBackup) {
                     // Get dir of file and create
                     val dir = UniFile.fromUri(context, uri)
+                    purgeEmptyAutoBackups(dir)
                     // Older backups are pruned only after the new one is written and verified,
                     // so a failure here can never leave the user with fewer backups than before.
                     dir?.createFile(getFilename())?.also { createdFile = it }
@@ -354,7 +355,10 @@ class BackupCreator(
             BackupDiagnosticLog.log(context, "creator_cancelled")
             createdFile?.delete()
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // OutOfMemoryError is an Error, not an Exception: catching only Exception left the
+            // file this run created behind as a 0-byte husk whenever the process survived an OOM
+            // mid-serialize, and the auto backup folder slowly filled up with those husks.
             logcat(LogPriority.ERROR, e)
             BackupDiagnosticLog.logError(context, "creator_failed", e)
             createdFile?.delete()
@@ -377,6 +381,19 @@ class BackupCreator(
             .filter { it.uri != keep?.uri }
             .sortedByDescending { it.name }
             .drop(limit - 1)
+            .forEach { it.delete() }
+    }
+
+    /**
+     * Remove 0-byte leftovers of auto backup runs that died mid-write (e.g. the process killed
+     * by an OOM): they hold retention slots and read as backups to the user while carrying
+     * nothing. Only our own auto backup filename pattern is touched.
+     */
+    private fun purgeEmptyAutoBackups(dir: UniFile?) {
+        dir ?: return
+        dir.listFiles { _, filename -> FILENAME_REGEX.matches(filename) }
+            .orEmpty()
+            .filter { it.length() == 0L }
             .forEach { it.delete() }
     }
 
