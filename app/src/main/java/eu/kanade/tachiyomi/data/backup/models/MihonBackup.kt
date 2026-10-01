@@ -12,6 +12,13 @@ data class MihonBackup(
     @ProtoNumber(104) var backupPreferences: List<BackupPreference> = emptyList(),
     @ProtoNumber(105) var backupSourcePreferences: List<BackupSourcePreferences> = emptyList(),
     @ProtoNumber(106) var backupExtensionRepo: List<BackupExtensionRepos> = emptyList(),
+    // Aniyomi-shaped anime section. Mihon, TachiyomiSY and Komikku have no anime library and
+    // skip these as unknown fields, while Aniyomi and its forks decode them natively - dropping
+    // them made the compatible export restore into an empty anime library there.
+    @ProtoNumber(500) val isLegacy: Boolean = false,
+    @ProtoNumber(501) val backupAnime: List<BackupAnime> = emptyList(),
+    @ProtoNumber(502) var backupAnimeCategories: List<BackupCategory> = emptyList(),
+    @ProtoNumber(503) var backupAnimeSources: List<BackupAnimeSource> = emptyList(),
     /**
      * Tadami's own compatibility manifest.
      *
@@ -39,6 +46,9 @@ data class MihonBackup(
             backupSourcePreferences = backupSourcePreferences,
             backupMangaExtensionRepo = backupExtensionRepo,
             isLegacy = false,
+            backupAnime = backupAnime,
+            backupAnimeCategories = backupAnimeCategories,
+            backupAnimeSources = backupAnimeSources,
         )
     }
 }
@@ -65,6 +75,9 @@ internal fun Backup.toMihonBackup(): MihonBackup {
         backupPreferences = backupPreferences,
         backupSourcePreferences = backupSourcePreferences,
         backupExtensionRepo = backupMangaExtensionRepo,
+        backupAnime = backupAnime,
+        backupAnimeCategories = backupAnimeCategories,
+        backupAnimeSources = backupAnimeSources,
         tadamiManifest = TadamiSisterManifest(entries = hints),
     )
 }

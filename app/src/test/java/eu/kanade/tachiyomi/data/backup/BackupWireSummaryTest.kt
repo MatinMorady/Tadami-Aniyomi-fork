@@ -82,6 +82,27 @@ class BackupWireSummaryTest {
     }
 
     @Test
+    fun `sister payload carrying anime reports it on the wire and stays sister`() {
+        val backup = Backup(
+            backupManga = listOf(manga(1)),
+            backupAnime = listOf(anime(2), anime(3)),
+            backupNovel = listOf(novel(4)),
+            backupCategories = listOf(category("cat")),
+            backupAnimeCategories = listOf(category("anime-cat")),
+            isLegacy = false,
+        )
+        val payload = ProtoBuf.encodeToByteArray(MihonBackup.serializer(), backup.toMihonBackup())
+
+        BackupDetector.detectOrigin(payload) shouldBe BackupOrigin.TADAMI_SISTER
+        BackupDetector.contentSummary(payload) shouldBe BackupContentSummary(
+            mangaCount = 2,
+            animeCount = 2,
+            novelCount = 0,
+            categoriesCount = 2,
+        )
+    }
+
+    @Test
     fun `legacy payload with anime at field 3 is detected as legacy aniyomi`() {
         val legacy = LegacyBackup(
             backupManga = listOf(manga(1)),

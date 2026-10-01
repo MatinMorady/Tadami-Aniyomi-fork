@@ -255,16 +255,15 @@ class BackupCreator(
                 ),
 
                 isLegacy = false,
-                backupAnime = if (options.sisterAppCompatible) emptyList() else backupAnime,
-                backupAnimeCategories = if (options.sisterAppCompatible) {
-                    emptyList()
-                } else {
-                    backupAnimeCategories(
-                        options,
-                        includeAnimeCategories,
-                    )
-                },
-                backupAnimeSources = if (options.sisterAppCompatible) emptyList() else backupAnimeSources(backupAnime),
+                // Anime keeps its own section in every format: the sister export carries it at
+                // the Aniyomi field numbers inside the Mihon shape, so anime-capable readers
+                // (Aniyomi, Animetail) no longer restore an empty anime library.
+                backupAnime = backupAnime,
+                backupAnimeCategories = backupAnimeCategories(
+                    options,
+                    includeAnimeCategories,
+                ),
+                backupAnimeSources = backupAnimeSources(backupAnime),
                 backupNovel = if (options.sisterAppCompatible) emptyList() else backupNovel,
                 backupNovelCategories = if (options.sisterAppCompatible) {
                     emptyList()
@@ -305,6 +304,12 @@ class BackupCreator(
                 backupDiscoveryBlacklistTags = if (options.sisterAppCompatible) emptyList() else backupDiscovery.second,
             )
 
+            // The object above already mirrors the wire: sister mode flattens novels into the
+            // manga section and carries anime at the native numbers, so its in-memory counts are
+            // exactly the counts the staged file will report. Computed before serialization so
+            // nothing re-reads the source graph after the encode starts.
+            val expectedSummary = backup.contentSummary()
+
             val byteArray = BackupDiagnosticLog.measure(context, "serialize") {
                 if (options.sisterAppCompatible) {
                     parser.encodeToByteArray(MihonBackup.serializer(), backup.toMihonBackup())
@@ -322,12 +327,6 @@ class BackupCreator(
             } else {
                 BackupOrigin.TADAMI
             }
-            // In sister mode novels travel inside the shared manga section, so the expected split
-            // is the one the file itself declares, not the one we started from.
-            val expectedSummary = backup.contentSummary().let {
-                if (options.sisterAppCompatible) it.copy(novelCount = 0, animeCount = 0) else it
-            }
-
             // Writes to a staging file, verifies it decodes back to exactly this content, and only
             // then replaces the destination.
             BackupWriter(context).write(

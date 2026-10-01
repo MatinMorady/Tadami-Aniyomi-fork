@@ -87,9 +87,11 @@ object BackupDetector {
         }
 
         return when {
-            fields.any { it in NATIVE_MARKER_FIELDS } -> BackupOrigin.TADAMI
             // Our own sister-app export: Mihon shaped, but carrying a manifest we can verify.
+            // Checked first because the export also carries the native anime fields (501-503)
+            // for Aniyomi-shaped readers, which would otherwise read as a native marker.
             hasConfirmedSisterManifest(bytes, fields) -> BackupOrigin.TADAMI_SISTER
+            fields.any { it in NATIVE_MARKER_FIELDS } -> BackupOrigin.TADAMI
             KOMIKKU_FEED_FIELD in fields -> BackupOrigin.KOMIKKU
             TACHIYOMI_SY_SAVED_SEARCH_FIELD in fields -> BackupOrigin.TACHIYOMI_SY
             fields.any { it in MIHON_CONTENT_FIELDS } -> BackupOrigin.MIHON
@@ -144,8 +146,9 @@ object BackupDetector {
      *
      * Field numbers mirror the native [eu.kanade.tachiyomi.data.backup.models.Backup] schema:
      * 1 manga, 2 categories, 501 anime, 502 anime categories, 508 novel, 509 novel categories. A
-     * sister export is Mihon shaped, so its flattened manga and novels both land on field 1 while
-     * the anime/novel counters read zero — exactly what the writer expects for that format.
+     * sister export is Mihon shaped: flattened manga and novels both land on field 1 and novels
+     * read zero, while anime travels at the native 501/502 numbers for Aniyomi-shaped readers —
+     * exactly what the writer expects for that format.
      *
      * A repeated message field occurs once per element, so counting top level occurrences is
      * equivalent to the decoded list sizes, at O(1) memory instead of a full object graph.
