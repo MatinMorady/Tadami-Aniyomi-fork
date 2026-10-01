@@ -240,6 +240,10 @@ fun MangaGlassHeroCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
+                        // Reserve the fallback copy icon's space first: an unweighted title
+                        // eats the whole row on overflow and squeezes the icon to zero width,
+                        // leaving long titles with no way to copy them.
+                        modifier = Modifier.weight(1f, fill = false),
                         text = buildAnnotatedString {
                             append(titleText)
                             if (showInlineCopyIcon) {
