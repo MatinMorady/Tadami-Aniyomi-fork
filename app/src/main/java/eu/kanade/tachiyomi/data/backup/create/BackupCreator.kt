@@ -45,8 +45,6 @@ import eu.kanade.tachiyomi.data.backup.models.BackupNovel
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
-import eu.kanade.tachiyomi.data.backup.models.MihonBackup
-import eu.kanade.tachiyomi.data.backup.models.toMihonBackup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -311,31 +309,27 @@ class BackupCreator(
             // nothing re-reads the source graph after the encode starts.
             val expectedSummary = backup.contentSummary()
 
-            val byteArray = BackupDiagnosticLog.measure(context, "serialize") {
-                if (options.sisterAppCompatible) {
-                    parser.encodeToByteArray(MihonBackup.serializer(), backup.toMihonBackup())
-                } else {
-                    parser.encodeToByteArray(Backup.serializer(), backup)
-                }
-            }
-            if (byteArray.isEmpty()) {
-                throw IllegalStateException(context.stringResource(MR.strings.empty_backup_error))
-            }
-            BackupDiagnosticLog.log(context, "serialize_size", "bytes=${byteArray.size}")
-
             val expectedOrigin = if (options.sisterAppCompatible) {
                 BackupOrigin.TADAMI_SISTER
             } else {
                 BackupOrigin.TADAMI
             }
-            // Writes to a staging file, verifies it decodes back to exactly this content, and only
-            // then replaces the destination.
-            BackupWriter(context).write(
-                destination = file,
-                payload = byteArray,
-                expected = expectedSummary,
-                expectedOrigin = expectedOrigin,
-            )
+            // Fields are encoded one entry at a time straight into the staged gzip stream: the
+            // uncompressed payload never exists as a single array in RAM, which is what pushed
+            // small-heap devices into OutOfMemoryError on large libraries.
+            BackupDiagnosticLog.measure(context, "serialize") {
+                BackupWriter(context).writeStreamed(
+                    destination = file,
+                    expected = expectedSummary,
+                    expectedOrigin = expectedOrigin,
+                ) { out ->
+                    if (options.sisterAppCompatible) {
+                        BackupPayloadEmitter.emitSister(backup, parser, out)
+                    } else {
+                        BackupPayloadEmitter.emitNative(backup, parser, out)
+                    }
+                }
+            }
             val fileUri = file.uri
 
             if (isAutoBackup) {
