@@ -115,9 +115,13 @@ private fun <T> WheelPicker(
     itemContent: @Composable LazyItemScope.(item: T) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
-    val lazyListState = rememberLazyListState(startIndex)
+    // Callers pass semantic values (e.g. a read-chapter ordinal against a remote total) that can
+    // exceed the item range; an out-of-range index crashes the manual-input dialog at
+    // items[internalIndex] below. Clamp once here so every wheel stays safe.
+    val clampedStartIndex = startIndex.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+    val lazyListState = rememberLazyListState(clampedStartIndex)
 
-    var internalIndex by remember { mutableIntStateOf(startIndex) }
+    var internalIndex by remember { mutableIntStateOf(clampedStartIndex) }
     val internalOnSelectionChanged: (Int) -> Unit = {
         internalIndex = it
         onSelectionChanged(it)
