@@ -26,6 +26,15 @@ class TrackProgressTextTest {
     }
 
     @Test
+    fun `read ordinal counts each chapter number once when rows duplicate it`() {
+        // Regression: scanlator branches keep several rows per chapter number, and counting rows
+        // inflated the tracking sheet numerator ("463 / 144") way past the real chapter count.
+        val duplicated = listOf(1.0, 1.0, 2.0, 2.0, 2.0, 3.0, -1.0)
+        assertEquals(3, resolveReadOrdinal(duplicated, 3.0))
+        assertEquals(2, resolveReadOrdinal(duplicated, 2.0))
+    }
+
+    @Test
     fun `read ordinal is null without local chapters`() {
         assertNull(resolveReadOrdinal(emptyList(), 3.2f.toDouble()))
     }

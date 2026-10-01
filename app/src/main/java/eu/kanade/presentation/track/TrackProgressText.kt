@@ -2,7 +2,9 @@ package eu.kanade.presentation.track
 
 internal fun resolveReadOrdinal(itemNumbers: List<Double>, lastRead: Double): Int? {
     if (itemNumbers.isEmpty()) return null
-    return itemNumbers.count { it > 0.0 && it <= lastRead }
+    // Distinct numbers: scanlator branches store several rows per chapter number, and counting
+    // rows reported the duplicate-row total as the read chapter count on the tracking sheet.
+    return itemNumbers.distinct().count { it > 0.0 && it <= lastRead }
 }
 
 internal fun trackProgressText(
