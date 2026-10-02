@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.reader.novel.translation
 
+import eu.kanade.presentation.entries.translation.googleTranslationLanguageCodeFor
 import eu.kanade.tachiyomi.extension.novel.normalizeNovelLang
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -114,6 +115,17 @@ class GoogleTranslationService(
         val normalizedSource = normalizeSourceLanguage(params.sourceLang)
         val normalizedTarget = normalizeTargetLanguage(params.targetLang)
         if (normalizedTarget.isBlank()) {
+            onLog?.invoke("No target language set.")
+            return@withContext GoogleTranslationBatchResponse(emptyMap())
+        }
+        if (!LANGUAGE_TAG_PATTERN.matches(normalizedTarget)) {
+            // An unmappable free-text target used to reach Google verbatim: every request 400s,
+            // all chunks fall back and fail, and the reader ends at 100% with the original text
+            // and no explanation. Fail loudly in the translation log instead.
+            onLog?.invoke(
+                "Unknown target language '${params.targetLang}' (normalized '$normalizedTarget'): " +
+                    "pick a language from the suggestions.",
+            )
             return@withContext GoogleTranslationBatchResponse(emptyMap())
         }
 
@@ -318,11 +330,13 @@ class GoogleTranslationService(
     }
 
     private fun normalizeSourceLanguage(sourceLanguage: String): String {
-        return normalizeNovelLang(sourceLanguage).takeIf { it.isNotBlank() } ?: "auto"
+        return googleTranslationLanguageCodeFor(sourceLanguage)
+            ?: normalizeNovelLang(sourceLanguage).takeIf { it.isNotBlank() } ?: "auto"
     }
 
     private fun normalizeTargetLanguage(targetLanguage: String): String {
-        return normalizeNovelLang(targetLanguage)
+        return googleTranslationLanguageCodeFor(targetLanguage)
+            ?: normalizeNovelLang(targetLanguage)
     }
 
     private companion object {
@@ -333,6 +347,7 @@ class GoogleTranslationService(
         const val DEFAULT_MAX_DIRECT_TEXT_CHARS = 13_000
         const val DEFAULT_RETRY_COUNT = 3
         const val DEFAULT_MAX_PARALLEL_CHUNKS = 3
+        val LANGUAGE_TAG_PATTERN = Regex("^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})?$")
         const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/UQ1A.240205.004) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.83 Mobile Safari/537.36"
