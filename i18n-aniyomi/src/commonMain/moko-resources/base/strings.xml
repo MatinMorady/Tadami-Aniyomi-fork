@@ -241,6 +241,8 @@
     <string name="single_action_custom">Custom</string>
     <string name="pref_category_long_press">Long press</string>
     <string name="pref_long_press_action">Long press action</string>
+    <string name="player_speed_gesture_reset_on_release">Reset speed on gesture release</string>
+    <string name="player_speed_gesture_reset_on_release_summary">The long-press speed gesture returns to the previous speed when released. Disable to keep the speed you slid to</string>
     <string name="long_press_action_none">None</string>
     <string name="long_press_action_screenshot">Take screenshot</string>
     <string name="long_press_action_playback_speed">Dynamic playback speed</string>

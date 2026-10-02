@@ -144,6 +144,8 @@
     <string name="single_action_custom">Своё</string>
     <string name="pref_category_long_press">Долгое нажатие</string>
     <string name="pref_long_press_action">Действие при долгом нажатии</string>
+    <string name="player_speed_gesture_reset_on_release">Сбрасывать скорость при отпускании жеста</string>
+    <string name="player_speed_gesture_reset_on_release_summary">Жест скорости по долгому нажатию возвращает прежнюю скорость после отпускания. Отключите, чтобы сохранять выбранную скольжением скорость</string>
     <string name="long_press_action_none">Нет</string>
     <string name="long_press_action_screenshot">Сделать скриншот</string>
     <string name="long_press_action_playback_speed">Динамическое изменение скорости</string>
