@@ -717,6 +717,37 @@ internal fun resolvePageReaderGlyphOverflowPaddingPx(textSizePx: Float): Int {
         .coerceAtLeast(4)
 }
 
+/**
+ * Vertical padding subtracted from the viewport height when paginating a single-column page.
+ *
+ * The rendered page already reserves contentPadding + bookBottomInset below the text column
+ * (NovelPageReaderPageContent), which normally already covers the navigation bar zone. Only the
+ * part of the navigation bar NOT covered by that rendered reservation may claim extra page
+ * height; reserving the full bar on top of the rendered inset double-books the same zone and
+ * leaves every page visibly short at the bottom.
+ */
+internal fun resolveNovelPageReaderVerticalPaddingPx(
+    topPaddingPx: Int,
+    bottomPaddingPx: Int,
+    bookBottomInsetPx: Int,
+    pageFitSafetyPx: Int,
+    navigationBarHeightPx: Int,
+): Int {
+    // The rendered page reserves contentPadding + bookBottomInset below the text, which usually
+    // already covers the navigation bar zone. Only the uncovered part of the bar may claim extra
+    // page height; adding the full bar on top of the rendered inset double-books the same zone.
+    val renderedBottomReservationPx = (bottomPaddingPx + bookBottomInsetPx).coerceAtLeast(0)
+    val uncoveredNavigationBarPx = (navigationBarHeightPx - renderedBottomReservationPx).coerceIn(
+        0,
+        navigationBarHeightPx.coerceAtLeast(0),
+    )
+    return topPaddingPx +
+        bottomPaddingPx +
+        bookBottomInsetPx +
+        pageFitSafetyPx +
+        uncoveredNavigationBarPx
+}
+
 internal fun paginatePlainPageBlocks(
     textBlocks: List<PlainPageReaderTextBlock>,
     paragraphSpacingPx: Int,
