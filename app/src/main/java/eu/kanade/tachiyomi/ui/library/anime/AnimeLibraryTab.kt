@@ -1827,46 +1827,54 @@ data object AnimeLibraryTab : Tab {
         LaunchedEffect(Unit) {
             routeIntent.collect { intent ->
                 intent ?: return@collect
-                // Consume-once: a later composition (after push/pop recreation) must not
-                // re-apply an intent that was already handled.
-                if (!routeIntent.compareAndSet(intent, null)) return@collect
-
-                val targetSection = intent.section
-                if (targetSection != null && currentIsAurora) {
-                    val targetPage = currentSectionTabs.indexOfFirst { it.first == targetSection }
-                    if (targetPage in 0 until currentAuroraPageCount &&
-                        auroraPagerState.currentPage != targetPage
-                    ) {
-                        auroraPagerState.scrollToPage(targetPage)
+                // Stale emission: superseded while an earlier apply was in flight - the newer
+                // value gets its own emission.
+                if (routeIntent.value !== intent) return@collect
+                applyThenConsume(routeIntent, intent) { applied ->
+                    val targetSection = applied.section
+                    if (targetSection != null && currentIsAurora) {
+                        val targetPage = currentSectionTabs.indexOfFirst { it.first == targetSection }
+                        if (targetPage in 0 until currentAuroraPageCount) {
+                            if (auroraPagerState.currentPage != targetPage) {
+                                auroraPagerState.scrollToPage(targetPage)
+                            }
+                            // Persist the routed section immediately: in the SHORTCUT_MANGA flow
+                            // the library is covered by the MangaScreen push right after routing
+                            // and the composition can die before the settled-page effect (H18)
+                            // runs - the restore path reads lastAuroraSection.
+                            lastAuroraSection = targetSection
+                            userProfilePreferences.libraryLastSection()
+                                .set(targetSection.name.lowercase(Locale.ROOT))
+                        }
                     }
-                }
 
-                val query = intent.query
-                if (query != null) {
-                    when (targetSection) {
-                        Section.Anime -> screenModel.search(query)
-                        Section.Manga -> mangaScreenModel.search(query)
-                        Section.Novel -> novelScreenModel?.search(query)
-                        null -> Unit
+                    val query = applied.query
+                    if (query != null) {
+                        when (targetSection) {
+                            Section.Anime -> screenModel.search(query)
+                            Section.Manga -> mangaScreenModel.search(query)
+                            Section.Novel -> novelScreenModel?.search(query)
+                            null -> Unit
+                        }
                     }
-                }
 
-                if (intent.openSettings) {
-                    // C4: reselect used to always open the ANIME settings sheet even while a
-                    // Manga/Novel section was visible; resolve the section actually on screen.
-                    val visibleSection = if (currentIsAurora) {
-                        resolveAuroraLibrarySection(
-                            currentSectionTabs.map { it.first },
-                            auroraPagerState.settledPage,
-                        )
-                    } else {
-                        Section.Anime
-                    }
-                    when (visibleSection) {
-                        Section.Anime -> screenModel.showSettingsDialog()
-                        Section.Manga -> mangaScreenModel.showSettingsDialog()
-                        Section.Novel -> novelScreenModel?.showSettingsDialog()
-                        null -> screenModel.showSettingsDialog()
+                    if (applied.openSettings) {
+                        // C4: reselect used to always open the ANIME settings sheet even while a
+                        // Manga/Novel section was visible; resolve the section actually on screen.
+                        val visibleSection = if (currentIsAurora) {
+                            resolveAuroraLibrarySection(
+                                currentSectionTabs.map { it.first },
+                                auroraPagerState.settledPage,
+                            )
+                        } else {
+                            Section.Anime
+                        }
+                        when (visibleSection) {
+                            Section.Anime -> screenModel.showSettingsDialog()
+                            Section.Manga -> mangaScreenModel.showSettingsDialog()
+                            Section.Novel -> novelScreenModel?.showSettingsDialog()
+                            null -> screenModel.showSettingsDialog()
+                        }
                     }
                 }
             }
@@ -1879,7 +1887,8 @@ data object AnimeLibraryTab : Tab {
      * zoo whose sends were silently lost when the tab was not composed (rendezvous with no
      * receiver), raced each other (section and query traveled separate channels), or applied
      * twice (pendingNovelSearchQuery + direct search). The StateFlow keeps at most one pending
-     * intent (last wins); the collector consumes it exactly once.
+     * intent (last wins); the collector applies it first and only then consumes it
+     * ([applyThenConsume]) so an intent can not be swallowed by a composition killed mid-apply.
      */
     private data class LibraryRouteIntent(
         val section: Section? = null,
@@ -1913,6 +1922,26 @@ data object AnimeLibraryTab : Tab {
     private suspend fun requestOpenSettingsSheet() {
         routeIntent.value = LibraryRouteIntent(openSettings = true)
     }
+}
+
+/**
+ * Apply-then-consume for the one-shot AnimeLibraryTab.LibraryRouteIntent (fix for the lost
+ * "switch to the Manga section" route in the SHORTCUT_MANGA flow: back from the manga page
+ * landed on the stale Anime section because the intent was already consumed). The previous
+ * consume-first CAS let a composition killed mid-apply (the push covers the library in the
+ * same turn) swallow the intent permanently. Cancelling [apply] mid-flight leaves the intent
+ * pending for the next composition; an intent superseded during the apply survives because the
+ * CAS expects exactly the applied instance. Re-applying after a cancelled partial apply is
+ * idempotent (same page scroll, same query, same settings sheet). Contract pinned by
+ * LibraryRouteIntentConsumptionTest.
+ */
+internal suspend fun <T> applyThenConsume(
+    pendingIntents: MutableStateFlow<T?>,
+    intent: T,
+    apply: suspend (T) -> Unit,
+) {
+    apply(intent)
+    pendingIntents.compareAndSet(intent, null)
 }
 
 // H19-S2: holder for the D7 single-flight continue guard - shared by all three section
