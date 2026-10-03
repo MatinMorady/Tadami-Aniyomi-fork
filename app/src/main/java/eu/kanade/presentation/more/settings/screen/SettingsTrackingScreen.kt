@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -35,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +51,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.track.model.AutoTrackState
 import eu.kanade.domain.track.service.TrackPreferences
@@ -62,6 +66,7 @@ import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
 import eu.kanade.tachiyomi.data.discord.ConnectionStatus
 import eu.kanade.tachiyomi.data.discord.DiscordPreferences
 import eu.kanade.tachiyomi.data.discord.DiscordPresenceManager
+import eu.kanade.tachiyomi.data.discord.DiscordTokenVerifier
 import eu.kanade.tachiyomi.data.track.EnhancedAnimeTracker
 import eu.kanade.tachiyomi.data.track.EnhancedMangaTracker
 import eu.kanade.tachiyomi.data.track.Tracker
@@ -75,12 +80,15 @@ import eu.kanade.tachiyomi.data.track.novelupdates.NovelUpdates
 import eu.kanade.tachiyomi.data.track.shikimori.ShikimoriApi
 import eu.kanade.tachiyomi.data.track.simkl.SimklApi
 import eu.kanade.tachiyomi.data.track.trakt.TraktApi
+import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.ui.webview.TrackerWebViewLoginActivity
 import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentMap
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
@@ -130,6 +138,10 @@ object SettingsTrackingScreen : SearchableSettings {
         val animeSourceManager = remember { Injekt.get<AnimeSourceManager>() }
         val discordPreferences = remember { Injekt.get<DiscordPreferences>() }
         val discordPresenceManager = remember { Injekt.get<DiscordPresenceManager>() }
+        val discordTokenStored by discordPreferences.token()
+            .changes()
+            .map { it.isNotEmpty() }
+            .collectAsStateWithLifecycle(initialValue = discordPreferences.token().isSet())
 
         var dialog by remember { mutableStateOf<Any?>(null) }
         dialog?.run {
@@ -196,6 +208,16 @@ object SettingsTrackingScreen : SearchableSettings {
                             },
                         )
                     }
+                }
+                DiscordTokenDialog -> {
+                    DiscordTokenDialog(
+                        currentToken = discordPreferences.token().get(),
+                        onDismiss = { dialog = null },
+                        onSave = { token ->
+                            discordPreferences.token().set(token)
+                            dialog = null
+                        },
+                    )
                 }
             }
         }
@@ -450,12 +472,14 @@ object SettingsTrackingScreen : SearchableSettings {
                             }
                         },
                     ),
-                    Preference.PreferenceItem.EditTextInfoPreference(
-                        preference = discordPreferences.token(),
-                        dialogSubtitle = stringResource(MR.strings.pref_discord_rpc_token_dialog),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    Preference.PreferenceItem.TextPreference(
                         title = stringResource(MR.strings.pref_discord_rpc_token),
-                        subtitle = null,
+                        subtitle = if (discordTokenStored) {
+                            stringResource(MR.strings.pref_discord_rpc_token_stored)
+                        } else {
+                            null
+                        },
+                        onClick = { dialog = DiscordTokenDialog },
                     ),
                     Preference.PreferenceItem.TextPreference(
                         title = stringResource(MR.strings.pref_discord_rpc_status),
@@ -911,3 +935,110 @@ private data class LogoutDialog(
 private data object NovelUpdatesListMappingDialog
 
 private data object DiscordRpcWarningDialog
+
+private data object DiscordTokenDialog
+
+/**
+ * Token entry with pre-save validation: the structure is checked locally and the "Verify" action
+ * asks Discord directly, so a bad token is rejected in the dialog instead of surfacing later as
+ * a disconnected presence. The value is stored encrypted (see DiscordPreferences.token).
+ */
+@Composable
+private fun DiscordTokenDialog(
+    currentToken: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var token by rememberSaveable { mutableStateOf(currentToken) }
+    var verifying by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var messageIsError by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val verifier = remember { DiscordTokenVerifier(Injekt.get<NetworkHelper>().client) }
+
+    AuroraFrostDialog(
+        onDismiss = onDismiss,
+        title = stringResource(MR.strings.pref_discord_rpc_token),
+        footer = {
+            AuroraFrostCancel(
+                label = stringResource(MR.strings.action_cancel),
+                onClick = onDismiss,
+            )
+            AuroraFrostConfirm(
+                label = stringResource(MR.strings.action_save),
+                onClick = {
+                    val trimmed = token.trim()
+                    if (trimmed.isNotEmpty() && !DiscordTokenVerifier.looksLikeToken(trimmed)) {
+                        message = context.stringResource(MR.strings.pref_discord_rpc_token_format_error)
+                        messageIsError = true
+                        return@AuroraFrostConfirm
+                    }
+                    onSave(trimmed)
+                },
+            )
+        },
+    ) {
+        Text(stringResource(MR.strings.pref_discord_rpc_token_dialog))
+        Spacer(Modifier.height(8.dp))
+        Text(stringResource(MR.strings.pref_discord_rpc_token_risk))
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = token,
+            onValueChange = {
+                token = it
+                message = null
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            label = { Text(stringResource(MR.strings.pref_discord_rpc_token)) },
+        )
+        Spacer(Modifier.height(4.dp))
+        TextButton(
+            enabled = !verifying && token.isNotBlank(),
+            onClick = {
+                scope.launch {
+                    verifying = true
+                    message = null
+                    when (val result = verifier.verify(token.trim())) {
+                        is DiscordTokenVerifier.Result.Valid -> {
+                            message = context.stringResource(
+                                MR.strings.pref_discord_rpc_token_verified,
+                                result.username,
+                            )
+                            messageIsError = false
+                        }
+                        DiscordTokenVerifier.Result.Invalid -> {
+                            message = context.stringResource(MR.strings.pref_discord_rpc_status_invalid_token)
+                            messageIsError = true
+                        }
+                        DiscordTokenVerifier.Result.NetworkError -> {
+                            message = context.stringResource(MR.strings.pref_discord_rpc_token_verify_network)
+                            messageIsError = true
+                        }
+                    }
+                    verifying = false
+                }
+            },
+        ) {
+            Text(
+                if (verifying) {
+                    stringResource(MR.strings.pref_discord_rpc_status_connecting)
+                } else {
+                    stringResource(MR.strings.pref_discord_rpc_token_verify)
+                },
+            )
+        }
+        message?.let {
+            Text(
+                text = it,
+                color = if (messageIsError) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+            )
+        }
+    }
+}

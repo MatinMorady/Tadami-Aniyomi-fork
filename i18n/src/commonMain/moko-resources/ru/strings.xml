@@ -798,6 +798,12 @@
     <string name="pref_discord_rpc_enabled">Показывать активность чтения и просмотра в Discord</string>
     <string name="pref_discord_rpc_token">Токен аккаунта Discord</string>
     <string name="pref_discord_rpc_token_dialog">Вставьте токен своего аккаунта Discord. Он хранится только на этом устройстве и никогда не логируется.</string>
+    <string name="pref_discord_rpc_token_stored">Сохранён на этом устройстве (зашифрован)</string>
+    <string name="pref_discord_rpc_token_risk">Токен даёт полный доступ к аккаунту - рекомендуется отдельный аккаунт. На этом устройстве он хранится в зашифрованном виде.</string>
+    <string name="pref_discord_rpc_token_verify">Проверить</string>
+    <string name="pref_discord_rpc_token_verified">Токен действителен: %1$s</string>
+    <string name="pref_discord_rpc_token_verify_network">Сейчас нет связи с Discord. Токен всё равно можно сохранить.</string>
+    <string name="pref_discord_rpc_token_format_error">Это не похоже на токен Discord.</string>
     <string name="pref_discord_rpc_status">Состояние подключения</string>
     <string name="pref_discord_rpc_status_connected">Подключено</string>
     <string name="pref_discord_rpc_status_connecting">Подключение…</string>
