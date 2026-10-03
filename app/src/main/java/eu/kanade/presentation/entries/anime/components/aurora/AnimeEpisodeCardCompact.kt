@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LabelOff
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Delete
@@ -37,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -51,7 +50,12 @@ import eu.kanade.presentation.entries.anime.components.EpisodeDownloadAction
 import eu.kanade.presentation.entries.anime.components.EpisodeDownloadIndicator
 import eu.kanade.presentation.entries.anime.components.isLikelyEpisodeDescription
 import eu.kanade.presentation.entries.components.ItemCover
+import eu.kanade.presentation.entries.components.aurora.AURORA_ENTRY_READ_DIM_ALPHA
 import eu.kanade.presentation.entries.components.aurora.AuroraCompactEntryRowCard
+import eu.kanade.presentation.entries.components.aurora.AuroraEntryStateSlot
+import eu.kanade.presentation.entries.components.aurora.AuroraReadDoneMark
+import eu.kanade.presentation.entries.components.aurora.AuroraUnreadDot
+import eu.kanade.presentation.entries.components.aurora.PassiveDownloadStatus
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
 import eu.kanade.tachiyomi.ui.entries.anime.EpisodeList
@@ -131,7 +135,7 @@ fun AnimeEpisodeCardCompact(
         EpisodeListDensity.Compact -> !showPreviewImage
         EpisodeListDensity.Dense -> false
     }
-    val showThumbnailProgress = isCompact && showPreviewImage && hasWatchProgress
+    val showThumbnailProgress = isCompact && showPreviewImage && hasWatchProgress && !episode.seen
     val showDenseProgressPercent = isDense && !episode.seen && watchProgress > 0f
     val startSwipeAction = auroraAnimeSwipeAction(
         action = episodeSwipeStartAction,
@@ -157,7 +161,6 @@ fun AnimeEpisodeCardCompact(
             modifier = modifier,
             selected = selected,
             highlighted = isNew && !episode.seen,
-            dimmed = episode.seen,
             cornerRadius = cardCornerRadius,
             outerVerticalPadding = cardOuterVerticalPadding,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = cardContentVerticalPadding),
@@ -173,6 +176,15 @@ fun AnimeEpisodeCardCompact(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(rowSpacing),
                 ) {
+                    AuroraEntryStateSlot(
+                        selectionMode = isAnyEpisodeSelected,
+                        selected = selected,
+                        read = episode.seen,
+                        modifier = Modifier.size(18.dp),
+                        unreadContent = { AuroraUnreadDot() },
+                        readContent = { AuroraReadDoneMark() },
+                    )
+
                     if (showPreviewImage) {
                         val targetWidth = if (isCompact) 80.dp else 112.dp
                         val imageData = if (!episode.previewUrl.isNullOrBlank()) {
@@ -216,7 +228,9 @@ fun AnimeEpisodeCardCompact(
 
                     // Episode info
                     Column(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .alpha(if (episode.seen) AURORA_ENTRY_READ_DIM_ALPHA else 1f),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
@@ -253,15 +267,6 @@ fun AnimeEpisodeCardCompact(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            if (!episode.seen) {
-                                Icon(
-                                    imageVector = Icons.Filled.Circle,
-                                    contentDescription = null,
-                                    tint = colors.accent,
-                                    modifier = Modifier.size(6.dp),
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                            }
                             Icon(
                                 Icons.Outlined.Schedule,
                                 contentDescription = null,
@@ -311,13 +316,6 @@ fun AnimeEpisodeCardCompact(
                                     label = stringResource(AYMR.strings.aurora_episode_badge_filler),
                                 )
                             }
-                            if (episode.seen) {
-                                AuroraEpisodeStatusBadge(
-                                    status = AuroraEpisodeStatus.Seen,
-                                    icon = Icons.Outlined.Done,
-                                    label = stringResource(AYMR.strings.aurora_episode_badge_seen),
-                                )
-                            }
                         }
                     }
 
@@ -328,23 +326,19 @@ fun AnimeEpisodeCardCompact(
                         modifier = Modifier.align(Alignment.CenterVertically),
                     ) {
                         // Download indicator
-                        if (onDownloadEpisode != null && !isAnyEpisodeSelected) {
+                        if (isAnyEpisodeSelected) {
+                            PassiveDownloadStatus(
+                                downloaded = item.downloadState == AnimeDownload.State.DOWNLOADED,
+                                downloading = item.downloadState == AnimeDownload.State.QUEUE ||
+                                    item.downloadState == AnimeDownload.State.DOWNLOADING,
+                            )
+                        } else if (onDownloadEpisode != null) {
                             EpisodeDownloadIndicator(
                                 enabled = true,
                                 downloadStateProvider = { item.downloadState },
                                 downloadProgressProvider = { item.downloadProgress },
                                 onClick = { onDownloadEpisode(listOf(item), it) },
                                 modifier = Modifier.size(20.dp),
-                            )
-                        }
-
-                        // Seen checkmark
-                        if (episode.seen) {
-                            Icon(
-                                Icons.Outlined.Done,
-                                contentDescription = null,
-                                tint = colors.accent,
-                                modifier = Modifier.size(18.dp),
                             )
                         }
                     }
@@ -359,19 +353,21 @@ fun AnimeEpisodeCardCompact(
                             .fillMaxWidth()
                             .padding(horizontal = 4.dp),
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(3.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(colors.divider),
-                        ) {
+                        if (!episode.seen) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(watchProgress)
+                                    .weight(1f)
                                     .height(3.dp)
-                                    .background(colors.accent),
-                            )
+                                    .clip(RoundedCornerShape(50))
+                                    .background(colors.divider),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(watchProgress)
+                                        .height(3.dp)
+                                        .background(colors.accent),
+                                )
+                            }
                         }
 
                         if (episode.totalSeconds > 0L && !isCompact) {
@@ -446,7 +442,6 @@ private fun AuroraEpisodeStatusBadge(
 internal enum class AuroraEpisodeStatus {
     Bookmark,
     Fillermark,
-    Seen,
     InProgress,
 }
 

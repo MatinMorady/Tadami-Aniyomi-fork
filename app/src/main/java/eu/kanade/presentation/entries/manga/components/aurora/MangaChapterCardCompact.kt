@@ -28,6 +28,7 @@ import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -39,7 +40,12 @@ import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeState
 import eu.kanade.presentation.components.relativeDateTimeText
 import eu.kanade.presentation.entries.components.DotSeparatorText
+import eu.kanade.presentation.entries.components.aurora.AURORA_ENTRY_READ_DIM_ALPHA
 import eu.kanade.presentation.entries.components.aurora.AuroraCompactEntryRowCard
+import eu.kanade.presentation.entries.components.aurora.AuroraEntryStateSlot
+import eu.kanade.presentation.entries.components.aurora.AuroraReadDoneMark
+import eu.kanade.presentation.entries.components.aurora.AuroraUnreadDot
+import eu.kanade.presentation.entries.components.aurora.PassiveDownloadStatus
 import eu.kanade.presentation.entries.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.entries.manga.components.ChapterDownloadIndicator
 import eu.kanade.presentation.theme.AuroraTheme
@@ -101,7 +107,6 @@ fun MangaChapterCardCompact(
             hazeState = hazeState,
             selected = selected,
             highlighted = isNew && !chapter.read,
-            dimmed = chapter.read,
             cornerRadius = 20.dp,
             outerVerticalPadding = 6.dp,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
@@ -114,30 +119,20 @@ fun MangaChapterCardCompact(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 // Small status marker
-                Box(
+                AuroraEntryStateSlot(
+                    selectionMode = isAnyChapterSelected,
+                    selected = selected,
+                    read = chapter.read,
                     modifier = Modifier.size(18.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (chapter.read) {
-                        Icon(
-                            Icons.Outlined.Done,
-                            contentDescription = null,
-                            tint = colors.accent,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(colors.accent),
-                        )
-                    }
-                }
+                    unreadContent = { AuroraUnreadDot() },
+                    readContent = { AuroraReadDoneMark() },
+                )
 
                 // Chapter info
                 Column(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .alpha(if (chapter.read) AURORA_ENTRY_READ_DIM_ALPHA else 1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
@@ -221,7 +216,13 @@ fun MangaChapterCardCompact(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     // Download indicator
-                    if (onDownloadChapter != null && !isAnyChapterSelected) {
+                    if (isAnyChapterSelected) {
+                        PassiveDownloadStatus(
+                            downloaded = item.downloadState == MangaDownload.State.DOWNLOADED,
+                            downloading = item.downloadState == MangaDownload.State.QUEUE ||
+                                item.downloadState == MangaDownload.State.DOWNLOADING,
+                        )
+                    } else if (onDownloadChapter != null) {
                         ChapterDownloadIndicator(
                             enabled = true,
                             downloadStateProvider = { item.downloadState },
@@ -254,7 +255,7 @@ private fun resolveMangaChapterProgressFraction(
     read: Boolean,
     lastPageRead: Long,
 ): Float? {
-    if (read) return 1f
+    if (read) return null
     decodePagedChapterProgress(lastPageRead)?.let { progress ->
         if (progress.totalPages <= 0) return null
         return ((progress.index + 1).toFloat() / progress.totalPages.toFloat())
