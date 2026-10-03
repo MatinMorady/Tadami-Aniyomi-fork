@@ -145,7 +145,7 @@ class DiscoveryRunner(
         } else {
             preferences.manualRefreshCount(mediaType).get()
         }
-        val seedOffset = if (isManualRefresh) (refreshCount * 2) % 20 else 0
+        val seedOffset = if (isManualRefresh) manualSeedOffset(refreshCount) else 0
         val seeds = seedSelector.select(
             candidates,
             SeedSettings(
@@ -229,7 +229,7 @@ class DiscoveryRunner(
         } else {
             shownTitles
         }
-        val pageOffset = if (isManualRefresh) ((refreshCount - 1) % 4) + 2 else 1
+        val pageOffset = if (isManualRefresh) manualPageOffset(refreshCount) else 1
 
         val context = DiscoveryBuildContext(
             mediaType = mediaType,
@@ -361,3 +361,17 @@ private data class DiscoveryPluginStat(
     val memberIds: Set<Long>,
     val weight: Int,
 )
+
+/**
+ * Оффсет ротации сидов ручного рефреша: шаг 1 (свободный счётчик, без cap).
+ * Шаг 2 с предварительным % 20 посещал только половину позиций окна при чётных
+ * размерах пула и циклился на 20 — селектор сам приводится по distinct.size,
+ * шаг 1 гарантированно обходит все позиции при любом размере.
+ */
+internal fun manualSeedOffset(refreshCount: Int): Int = refreshCount
+
+/**
+ * Страница провайдеров/каталогов ручного рефреша: цикл 10 страниц (2..11).
+ * Цикл 4 полностью повторял выдачу уже к 5-му ручному рефрешу.
+ */
+internal fun manualPageOffset(refreshCount: Int): Int = ((refreshCount - 1) % 10) + 2
