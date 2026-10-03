@@ -748,6 +748,33 @@ internal fun resolveNovelPageReaderVerticalPaddingPx(
         uncoveredNavigationBarPx
 }
 
+/**
+ * Extra spacing (px) added to each paragraph gap so a full page's leftover height is spread
+ * across inter-paragraph breaks instead of collecting at the bottom. [leftoverPx] is exactly
+ * the unclaimed remainder of the page budget at flushPage time.
+ *
+ * Fill goes only to real paragraph gaps (spacingBefore > 0): stretching inside a paragraph or
+ * between continuation slices would look like a rendering bug. Each gap gains at most half a
+ * line, the visual step books use between paragraphs; when the leftover is larger, the excess
+ * still stays at the bottom (books do the same rather than tearing paragraphs apart).
+ */
+internal fun resolveNovelPageReaderJustifyFillPx(
+    sliceSpacingBeforePx: List<Int>,
+    leftoverPx: Int,
+    sliceLineHeightPx: Int,
+): List<Int> {
+    if (sliceSpacingBeforePx.isEmpty() || leftoverPx <= 0) {
+        return List(sliceSpacingBeforePx.size) { 0 }
+    }
+    val gapIndices = sliceSpacingBeforePx.indices.filter { sliceSpacingBeforePx[it] > 0 }
+    if (gapIndices.isEmpty()) return List(sliceSpacingBeforePx.size) { 0 }
+    val perGapCapPx = (sliceLineHeightPx.coerceAtLeast(1) / 2)
+    val fillPerGapPx = (leftoverPx / gapIndices.size).coerceAtMost(perGapCapPx)
+    return List(sliceSpacingBeforePx.size) { index ->
+        if (index in gapIndices) fillPerGapPx else 0
+    }
+}
+
 internal fun paginatePlainPageBlocks(
     textBlocks: List<PlainPageReaderTextBlock>,
     paragraphSpacingPx: Int,
@@ -762,13 +789,28 @@ internal fun paginatePlainPageBlocks(
     chapterTitle: String? = null,
 ): List<List<PlainPageSlice>> {
     val safeHeight = heightPx.coerceAtLeast(1)
-    val pages = mutableListOf<MutableList<PlainPageSlice>>()
+    val pages = mutableListOf<List<PlainPageSlice>>()
     var currentPage = mutableListOf<PlainPageSlice>()
     var remainingHeight = safeHeight
+    // Line height of body text: caps how far one paragraph gap may be stretched.
+    val sliceLineHeightPx = (textSizePx.coerceAtLeast(1f) * lineHeightMultiplier.coerceAtLeast(1f)).toInt()
 
     fun flushPage() {
         if (currentPage.isNotEmpty()) {
-            pages += currentPage
+            val justifyFillPx = resolveNovelPageReaderJustifyFillPx(
+                sliceSpacingBeforePx = currentPage.map { it.spacingBeforePx },
+                leftoverPx = (safeHeight - remainingHeight).coerceAtLeast(0),
+                sliceLineHeightPx = sliceLineHeightPx,
+            )
+            pages += currentPage.mapIndexed { index, slice ->
+                val fillPx = justifyFillPx[index]
+                when {
+                    fillPx <= 0 -> slice
+                    slice is PlainPageSlice.Text -> slice.copy(spacingBeforePx = slice.spacingBeforePx + fillPx)
+                    slice is PlainPageSlice.Image -> slice.copy(spacingBeforePx = slice.spacingBeforePx + fillPx)
+                    else -> slice
+                }
+            }
             currentPage = mutableListOf()
         }
         remainingHeight = safeHeight
@@ -1125,13 +1167,26 @@ internal fun paginateRichPageBlocks(
     allowChapterTitleBlock: Boolean = true,
 ): List<List<RichPageSlice.Text>> {
     val safeHeight = heightPx.coerceAtLeast(1)
-    val pages = mutableListOf<MutableList<RichPageSlice.Text>>()
+    val pages = mutableListOf<List<RichPageSlice.Text>>()
     var currentPage = mutableListOf<RichPageSlice.Text>()
     var remainingHeight = safeHeight
+    // Line height of body text: caps how far one paragraph gap may be stretched.
+    val sliceLineHeightPx = (textSizePx.coerceAtLeast(1f) * lineHeightMultiplier.coerceAtLeast(1f)).toInt()
 
     fun flushPage() {
         if (currentPage.isNotEmpty()) {
-            pages += currentPage
+            val justifyFillPx = resolveNovelPageReaderJustifyFillPx(
+                sliceSpacingBeforePx = currentPage.map { it.spacingBeforePx },
+                leftoverPx = (safeHeight - remainingHeight).coerceAtLeast(0),
+                sliceLineHeightPx = sliceLineHeightPx,
+            )
+            pages += currentPage.mapIndexed { index, slice ->
+                if (justifyFillPx[index] > 0) {
+                    slice.copy(spacingBeforePx = slice.spacingBeforePx + justifyFillPx[index])
+                } else {
+                    slice
+                }
+            }
             currentPage = mutableListOf()
         }
         remainingHeight = safeHeight

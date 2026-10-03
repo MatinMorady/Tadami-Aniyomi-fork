@@ -1583,7 +1583,9 @@ class NovelReaderUiVisibilityTest {
         )
 
         assertEquals(listOf("First paragraph", "Second paragraph"), renderBlocks.map { it.text })
-        assertEquals(listOf(0, 12), renderBlocks.map { it.spacingBeforePx })
+        // Leftover page height (16px here) is justified into the paragraph gap, capped at half
+        // a line (12px): spacing 12 + fill 12 = 24.
+        assertEquals(listOf(0, 24), renderBlocks.map { it.spacingBeforePx })
         assertEquals(listOf(2f, 2f), renderBlocks.map { it.firstLineIndentEm })
     }
 
@@ -1712,7 +1714,9 @@ class NovelReaderUiVisibilityTest {
         )
 
         assertEquals(listOf("Alpha link", "Second paragraph"), renderBlocks.map { it.text.text })
-        assertEquals(listOf(0, 12), renderBlocks.map { it.spacingBeforePx })
+        // Leftover page height (16px here) is justified into the paragraph gap, capped at half
+        // a line (12px): spacing 12 + fill 12 = 24.
+        assertEquals(listOf(0, 24), renderBlocks.map { it.spacingBeforePx })
         assertTrue(
             renderBlocks.first().text.getStringAnnotations(
                 tag = "URL",
