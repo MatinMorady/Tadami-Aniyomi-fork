@@ -43,6 +43,13 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
         preferenceStore.getInt("discovery_manual_refresh_count_" + mediaType.key, 0)
 
     /**
+     * Момент последней попытки bootstrap-генерации ленты медиатипа (анти-шторм:
+     * при стойких неудачах генерации вход на вкладку не должен перезапускать её).
+     */
+    fun bootstrapAttemptAt(mediaType: DiscoveryMediaType): Preference<Long> =
+        preferenceStore.getLong("discovery_bootstrap_attempt_at_" + mediaType.key, 0L)
+
+    /**
      * Независимый фильтр контента 18+ во внешних провайдерах подборок.
      * Игнорирует общесистемную NSFW-настройку приложения: включён — фильтрует всегда.
      * Каталоги плагинов (ряд SOURCE) регулируются общими настройками приложения.

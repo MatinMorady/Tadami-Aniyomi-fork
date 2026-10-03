@@ -958,13 +958,21 @@ object HomeHubTab : Tab {
         }
         // Per-media bootstrap: если лента активной вкладки никогда не генерировалась —
         // one-shot сразу (фикс дыры: после успеха аниме манга/новеллы ждали бы до 24ч).
+        // Анти-шторм: повторная попытка не чаще DISCOVERY_BOOTSTRAP_RETRY_MS — при стойких
+        // неудачах (оффлайн, все ряды failed) свайп вкладок не перезапускает генерацию.
         LaunchedEffect(selectedSection) {
             val mediaType = when (selectedSection) {
                 HomeHubSection.Anime -> tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME
                 HomeHubSection.Manga -> tachiyomi.domain.discovery.model.DiscoveryMediaType.MANGA
                 HomeHubSection.Novel -> tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL
             }
-            if (discoveryRepository.lastUpdatedAt(mediaType) == null) {
+            if (
+                eu.kanade.tachiyomi.data.discovery.shouldBootstrapDiscoveryFeed(
+                    lastUpdatedAt = discoveryRepository.lastUpdatedAt(mediaType),
+                    lastBootstrapAttemptAt = discoveryPreferences.bootstrapAttemptAt(mediaType).get(),
+                )
+            ) {
+                discoveryPreferences.bootstrapAttemptAt(mediaType).set(System.currentTimeMillis())
                 eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob.refreshNow(context, mediaType)
             }
         }

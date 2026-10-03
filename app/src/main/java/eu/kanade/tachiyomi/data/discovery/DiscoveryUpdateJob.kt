@@ -153,3 +153,24 @@ class DiscoveryUpdateJob(context: Context, workerParams: WorkerParameters) :
         }
     }
 }
+
+/** Минимальный интервал между bootstrap-попытками одного медиатипа (анти-шторм). */
+internal const val DISCOVERY_BOOTSTRAP_RETRY_MS = 6L * 3600_000L
+
+/**
+ * Нужна ли bootstrap-генерация ленты: кэша нет вовсе (lastUpdatedAt == null), а
+ * предыдущая попытка была достаточно давно (или её не было). Гасит шторм
+ * «каждый вход на вкладку = перезапуск генерации», когда генерация стабильно
+ * падает (оффлайн, все ряды failed) и [tachiyomi.domain.discovery.repository.DiscoveryRepository.lastUpdatedAt]
+ * так и не появляется.
+ */
+internal fun shouldBootstrapDiscoveryFeed(
+    lastUpdatedAt: Long?,
+    lastBootstrapAttemptAt: Long,
+    now: Long = System.currentTimeMillis(),
+    retryMs: Long = DISCOVERY_BOOTSTRAP_RETRY_MS,
+): Boolean {
+    if (lastUpdatedAt != null) return false
+    val sinceAttempt = now - lastBootstrapAttemptAt
+    return sinceAttempt < 0L || sinceAttempt >= retryMs
+}
