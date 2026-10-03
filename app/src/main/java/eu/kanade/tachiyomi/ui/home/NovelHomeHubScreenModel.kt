@@ -254,9 +254,19 @@ internal class NovelHomeHubScreenModel(
                         eu.kanade.tachiyomi.data.discovery.isBlacklisted(it, expandedBlacklist)
                     }
                     cachedDiscoveryPool = eu.kanade.tachiyomi.data.discovery.dedupeCrossRow(filtered)
+                    // 48h-метки показа: hero-карусель Stage заказывает непоказанное вперёд.
+                    val shownAtByTitle = runCatching {
+                        discoveryRepository.getShownTitlesWithTimestamp(
+                            tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL,
+                        )
+                    }.getOrDefault(emptyMap())
                     // Полный пул для hero-карусели: без тизерного окна, чтобы листать всю подборку.
                     mutableState.update {
-                        it.copy(discoveryPool = cachedDiscoveryPool.map { item -> item.toHomeHubDiscoveryItem() })
+                        it.copy(
+                            discoveryPool = cachedDiscoveryPool.map { item ->
+                                item.toHomeHubDiscoveryItem(shownAtByTitle[item.cleanTitle])
+                            },
+                        )
                     }
                     if (enabled) {
                         updateDiscoveryTeaser(advanceOffset = false)

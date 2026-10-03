@@ -348,7 +348,7 @@ internal fun resolveHeroPresentation(
         if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Stage else HomeHeroMode.Continue
 }
 
-internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem(
+internal fun DiscoverySuggestion.toHomeHubDiscoveryItem(shownAt: Long? = null) = HomeHubDiscoveryItem(
     title = title,
     cleanTitle = cleanTitle,
     coverUrl = coverUrl,
@@ -359,6 +359,7 @@ internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem
     mediaType = mediaType,
     sourceId = sourceId,
     sourceUrl = sourceUrl,
+    shownAt = shownAt,
 )
 
 internal fun HomeHubDiscoveryItem.toSuggestionItem(): SuggestionItem = SuggestionItem(
@@ -1556,6 +1557,21 @@ internal fun resolveStageReanchorCenter(
     return if (newIndex >= 0) newIndex else 0
 }
 
+/**
+ * Порядок hero-карусели Stage: непоказанные за 48h-окно вперёд, показанные —
+ * в хвост. Обе группы шафлятся по одному seed — реролл живой в обеих группах,
+ * детерминизм сохранён. Уникальность здесь — приоритет порядка, не отсечение:
+ * бесконечная каруселя доходит до хвоста только когда свежее кончилось.
+ */
+internal fun stageHeroOrder(items: List<HomeHubDiscoveryItem>, seed: Int): List<HomeHubDiscoveryItem> {
+    if (items.size <= 1) return items
+    val random = kotlin.random.Random(seed)
+    val fresh = items.filter { (it.shownAt ?: 0L) <= 0L }
+    val shown = items.filter { (it.shownAt ?: 0L) > 0L }
+    if (fresh.isEmpty() || shown.isEmpty()) return items.shuffled(random)
+    return fresh.shuffled(random) + shown.shuffled(random)
+}
+
 /** Длительности перехода карусели: e-ink и выключенные системные анимации дают мгновенную смену кадра. */
 internal data class StageMotionSpec(val settleMillis: Int, val fadeMillis: Int)
 
@@ -1645,7 +1661,9 @@ internal fun DiscoveryHeroStage(
     val centerAnim = remember { Animatable(center.toFloat()) }
     val scope = rememberCoroutineScope()
 
-    val ordered = remember(items, offset) { items.shuffled(kotlin.random.Random(offset)) }
+    // 48h-уникальность hero: непоказанное вперёд (см. stageHeroOrder), реролл — seeded
+    // shuffle внутри групп. Фокус и авто-ротация ходят по свежему в первую очередь.
+    val ordered = remember(items, offset) { stageHeroOrder(items, offset) }
     val systemAnimationsEnabled = ValueAnimator.areAnimatorsEnabled()
     val motionSpec = remember(speed, colors.isEInk, systemAnimationsEnabled) {
         resolveStageMotionSpec(speed = speed, isEInk = colors.isEInk, animationsEnabled = systemAnimationsEnabled)

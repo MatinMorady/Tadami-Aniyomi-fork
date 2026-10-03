@@ -728,6 +728,8 @@ internal data class HomeHubDiscoveryItem(
     // Plugin-binding для direct open (Home-тизеры): полная связка открывает экран тайтла.
     val sourceId: Long? = null,
     val sourceUrl: String? = null,
+    // Метка последнего показа (48h-окно): hero-карусель Stage заказывает непоказанное вперёд.
+    val shownAt: Long? = null,
 )
 
 /** Бейдж «откроется напрямую»: только полная привязка (id + непустой url). */
