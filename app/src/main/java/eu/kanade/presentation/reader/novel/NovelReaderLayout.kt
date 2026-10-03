@@ -797,9 +797,11 @@ internal fun paginatePlainPageBlocks(
 
     fun flushPage() {
         if (currentPage.isNotEmpty()) {
+            // remainingHeight IS the unclaimed leftover of the page budget at flush time; the
+            // fill may never exceed it or the rendered page overflows and clips its last line.
             val justifyFillPx = resolveNovelPageReaderJustifyFillPx(
                 sliceSpacingBeforePx = currentPage.map { it.spacingBeforePx },
-                leftoverPx = (safeHeight - remainingHeight).coerceAtLeast(0),
+                leftoverPx = remainingHeight.coerceAtLeast(0),
                 sliceLineHeightPx = sliceLineHeightPx,
             )
             pages += currentPage.mapIndexed { index, slice ->
@@ -1175,9 +1177,11 @@ internal fun paginateRichPageBlocks(
 
     fun flushPage() {
         if (currentPage.isNotEmpty()) {
+            // remainingHeight IS the unclaimed leftover of the page budget at flush time; the
+            // fill may never exceed it or the rendered page overflows and clips its last line.
             val justifyFillPx = resolveNovelPageReaderJustifyFillPx(
                 sliceSpacingBeforePx = currentPage.map { it.spacingBeforePx },
-                leftoverPx = (safeHeight - remainingHeight).coerceAtLeast(0),
+                leftoverPx = remainingHeight.coerceAtLeast(0),
                 sliceLineHeightPx = sliceLineHeightPx,
             )
             pages += currentPage.mapIndexed { index, slice ->
