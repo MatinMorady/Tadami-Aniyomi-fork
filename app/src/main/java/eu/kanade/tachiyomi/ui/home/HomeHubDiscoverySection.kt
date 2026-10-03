@@ -1218,11 +1218,10 @@ internal fun DiscoveryHeroCollage(
         else -> 70
     }
 
-    // Окно до 5 плиток через seeded-shuffle: реролл (offset+1) всегда меняет порядок/состав
-    // при любом размере ленты (фикс «мёртвого реролла» и дублей при <5 айтемов).
-    val tiles = remember(items, offset) {
-        items.shuffled(kotlin.random.Random(offset)).take(5)
-    }
+    // Окно до 5 плиток: свежее (48h-метки показа) вперёд, franchise-кластеризация —
+    // не больше одной плитки серии; реролл (offset+1) меняет состав в обеих группах
+    // (фикс «мёртвого реролла» и дублей при <5 айтемах сохранён).
+    val tiles = remember(items, offset) { collageTiles(items, offset) }
     val rest = tiles.drop(1)
     val col1 = listOfNotNull(rest.getOrNull(0), rest.getOrNull(2))
     val col2 = listOfNotNull(rest.getOrNull(1), rest.getOrNull(3))
@@ -1561,7 +1560,7 @@ internal fun resolveStageReanchorCenter(
  * Порядок hero-карусели Stage: непоказанные за 48h-окно вперёд, показанные —
  * в хвост. Обе группы шафлятся по одному seed — реролл живой в обеих группах,
  * детерминизм сохранён. Уникальность здесь — приоритет порядка, не отсечение:
- * бесконечная каруселя доходит до хвоста только когда свежее кончилось.
+ * бесконечная карусель доходит до хвоста только когда свежее кончилось.
  */
 internal fun stageHeroOrder(items: List<HomeHubDiscoveryItem>, seed: Int): List<HomeHubDiscoveryItem> {
     if (items.size <= 1) return items
@@ -1571,6 +1570,18 @@ internal fun stageHeroOrder(items: List<HomeHubDiscoveryItem>, seed: Int): List<
     if (fresh.isEmpty() || shown.isEmpty()) return items.shuffled(random)
     return fresh.shuffled(random) + shown.shuffled(random)
 }
+
+/**
+ * Плитки Коллажа: до 5, свежее (48h) вперёд, не больше одной плитки франшизы.
+ * Коллаж рендерит полный пул подборки (как Stage), а не тизерное окно.
+ */
+internal fun collageTiles(items: List<HomeHubDiscoveryItem>, seed: Int): List<HomeHubDiscoveryItem> =
+    filterFranchiseClusteringGeneric(
+        items = stageHeroOrder(items, seed),
+        titleExtractor = { it.title },
+        cleanTitleExtractor = { it.cleanTitle },
+        maxPerSeries = 1,
+    ).take(5)
 
 /** Длительности перехода карусели: e-ink и выключенные системные анимации дают мгновенную смену кадра. */
 internal data class StageMotionSpec(val settleMillis: Int, val fadeMillis: Int)

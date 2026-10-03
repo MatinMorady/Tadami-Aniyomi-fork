@@ -643,6 +643,10 @@ private fun HomeHubScreen(
     val history = filteredContent.history
     val recommendations = filteredContent.recommendations
     val discovery = filteredContent.discovery
+    // Hero (Stage/Collage) рендерит пул целиком: решение режима, рендер слота и
+    // scroll-эвристика считаются от пула, а не от тизерного окна — иначе пустой
+    // на миг тизер деградировал hero в Continue и обратно («мигание» режима).
+    val heroFeedItems = resolveStageItems(filteredContent.discoveryPool, discovery)
     val showWelcome = (state.showWelcome || state.showFilteredEmpty) && !isFiltering
     val reserveHeroSlot = shouldReserveHomeHubHeroSlot(
         hasHero = state.hero != null,
@@ -653,7 +657,7 @@ private fun HomeHubScreen(
     val heroPresentation = resolveHeroPresentation(
         prefMode = heroMode,
         discoveryEnabled = state.discoveryEnabled,
-        discoveryCount = state.discovery.size,
+        discoveryCount = heroFeedItems.size,
     )
     // Коллаж и гибрид уже отображают «Для тебя» в слоте героя; для них нижний дублирующий ряд не нужен.
     val forYouItems = resolveForYouItems(
@@ -673,7 +677,7 @@ private fun HomeHubScreen(
         showWelcome = showWelcome,
         historyCount = historyItems.size,
         recommendationCount = recommendations.size,
-        discoveryCount = discovery.size,
+        discoveryCount = heroFeedItems.size,
     )
 
     Box(Modifier.fillMaxSize()) {
@@ -707,7 +711,7 @@ private fun HomeHubScreen(
                         heroPresentation = heroPresentation,
                         hasHero = hero != null,
                         reserveHeroSlot = reserveHeroSlot,
-                        hasDiscovery = discovery.isNotEmpty(),
+                        hasDiscovery = heroFeedItems.isNotEmpty(),
                     )
                 ) {
                     item(key = "hero", contentType = "home_hub_hero") {
@@ -715,14 +719,14 @@ private fun HomeHubScreen(
                             // Ветка stage идёт первой: при наличии hero она обязана перебивать HeroSection,
                             // иначе режим не отрисуется никогда.
                             heroPresentation == HomeHeroMode.Stage -> DiscoveryHeroStage(
-                                items = resolveStageItems(filteredContent.discoveryPool, discovery),
+                                items = heroFeedItems,
                                 coverMediaType = section.toDiscoveryMediaType(),
                                 onMoreClick = onForYouMoreClick,
                                 onItemClick = { openTeaser(it) },
                                 onLongClick = { longPressItem = it },
                             )
                             heroPresentation == HomeHeroMode.Collage -> DiscoveryHeroCollage(
-                                items = discovery,
+                                items = heroFeedItems,
                                 coverMediaType = section.toDiscoveryMediaType(),
                                 onMoreClick = onForYouMoreClick,
                                 onItemClick = { openTeaser(it) },
