@@ -1477,6 +1477,46 @@ private const val STAGE_CAUGHT_EPSILON = 0.01f
 private const val STAGE_KEN_BURNS_MIN_SCALE = 1.04f
 private const val STAGE_KEN_BURNS_MAX_SCALE = 1.14f
 
+/** Ken-burns профиль слота (B3): разбег наезда и направление дрейфа, от постера. */
+internal data class StageKenBurnsProfile(
+    val scaleAmplitude: Float,
+    val driftXFraction: Float,
+    val driftYFraction: Float,
+)
+
+/**
+ * B3: профиль ken-burns по стабильному хешу cleanTitle — у каждого постера свой
+ * разбег наезда и своё направление дрейфа, смена фокуса меняет характер движения.
+ * |дрейф| ≤ амплитуда/2: наезд всегда накрывает сдвиг, пустых краёв не бывает.
+ * Хеш прогоняется через avalanche-миксер: голый String.hashCode даёт
+ * коррелированные младшие биты у похожих тайтлов (одинаковые профили).
+ */
+internal fun stageKenBurnsProfile(cleanTitle: String): StageKenBurnsProfile {
+    val hash = mixStageHash(cleanTitle.hashCode())
+    val amplitude = 0.05f + (hash ushr 8 and 0xF) / 15f * 0.07f
+    val maxDrift = amplitude / 2f
+    val dirX = if (hash and 0x1 == 0) 1f else -1f
+    val dirY = if (hash and 0x2 == 0) 1f else -1f
+    val driftX = dirX * (0.01f + (hash ushr 4 and 0x7) / 7f * 0.02f).coerceAtMost(maxDrift)
+    val driftY = dirY * (0.005f + (hash ushr 12 and 0x3) / 3f * 0.01f).coerceAtMost(maxDrift)
+    return StageKenBurnsProfile(
+        scaleAmplitude = amplitude,
+        driftXFraction = driftX,
+        driftYFraction = driftY,
+    )
+}
+
+/** Avalanche-финализатор хеша (murmur-подобный): равномерное распределение бит. */
+internal fun mixStageHash(hash: Int): Int {
+    var h = hash
+    h = h xor (h ushr 16)
+    h *= 0x7feb352d
+    h = h xor (h ushr 15)
+    h *= 0x846ca68b.toInt()
+    h = h xor (h ushr 16)
+    return h
+}
+
 /** Поза слота карусели: только числа — держим её чистой и тестируемой. */
 @androidx.compose.runtime.Immutable
 internal data class StageSlotPose(
@@ -1911,6 +1951,9 @@ internal fun DiscoveryHeroStage(
                         distanceToFocus = abs(rel),
                         animatedCenter = centerAnim,
                         kenBurnsScale = kenBurnsScale,
+                        kenBurnsProfile = remember(item.cleanTitle) {
+                            stageKenBurnsProfile(item.cleanTitle)
+                        },
                         useKenBurns = !colors.isEInk,
                         coverMediaType = coverMediaType,
                         onClick = {
@@ -2083,6 +2126,7 @@ private fun BoxScope.StageSlot(
     distanceToFocus: Int,
     animatedCenter: Animatable<Float, AnimationVector1D>,
     kenBurnsScale: State<Float>,
+    kenBurnsProfile: StageKenBurnsProfile,
     useKenBurns: Boolean,
     coverMediaType: DiscoveryMediaType,
     onClick: () -> Unit,
@@ -2167,13 +2211,25 @@ private fun BoxScope.StageSlot(
                 contentScale = ContentScale.Crop,
                 colorFilter = rememberAuroraPosterColorFilter(),
                 // Ken-burns живёт только на обложке: раньше он масштабировал весь слот вместе с подписью.
-                // B3: профиль по хешу постера — наезд/отъезд и дрейф различаются между соседями.
+                // B3: профиль по хешу постера — наезд/отъезд и дрейф различаются между соседями;
+                // дрейф в фазе с наездом (|сдвиг| ≤ амплитуда/2), края не оголяются.
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val kenBurns = if (useKenBurns && isVisualFocus) kenBurnsScale.value else 1f
-                        scaleX = kenBurns
-                        scaleY = kenBurns
+                        if (useKenBurns && isVisualFocus) {
+                            val phase = (
+                                (kenBurnsScale.value - STAGE_KEN_BURNS_MIN_SCALE) /
+                                    (STAGE_KEN_BURNS_MAX_SCALE - STAGE_KEN_BURNS_MIN_SCALE)
+                                ).coerceIn(0f, 1f)
+                            val scale = 1f + kenBurnsProfile.scaleAmplitude * phase
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = size.width * kenBurnsProfile.driftXFraction * phase
+                            translationY = size.height * kenBurnsProfile.driftYFraction * phase
+                        } else {
+                            scaleX = 1f
+                            scaleY = 1f
+                        }
                     },
                 error = fallbackPainter,
                 fallback = fallbackPainter,
