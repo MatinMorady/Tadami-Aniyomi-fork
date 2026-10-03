@@ -1538,6 +1538,24 @@ internal fun stageItemIndex(center: Int, slot: Int, size: Int): Int {
     return ((center + slot) % size + size) % size
 }
 
+/**
+ * Ре-анкор центра при смене СОСТАВА ленты (items): центр переносится на новый
+ * индекс тайтла, который был в фокусе; тайтл исчез из подборки (скрыт, заменён
+ * рефрешем) — сцена сбрасывается к началу. Без смены состава позиция сохраняется.
+ * Чистая функция — тестируется без Compose.
+ */
+internal fun resolveStageReanchorCenter(
+    itemsChanged: Boolean,
+    previousFocusedTitle: String?,
+    newOrderedTitles: List<String>,
+    currentCenter: Int,
+): Int {
+    if (!itemsChanged || previousFocusedTitle == null) return currentCenter
+    if (newOrderedTitles.isEmpty()) return currentCenter
+    val newIndex = newOrderedTitles.indexOf(previousFocusedTitle)
+    return if (newIndex >= 0) newIndex else 0
+}
+
 /** Длительности перехода карусели: e-ink и выключенные системные анимации дают мгновенную смену кадра. */
 internal data class StageMotionSpec(val settleMillis: Int, val fadeMillis: Int)
 
@@ -1638,7 +1656,12 @@ internal fun DiscoveryHeroStage(
     // fast-out-slow-in (tween без bounce: недодемпфированная пружина давала «заряженность»
     // на микро-драгах); флик — linear-out-slow-in: импульс продолжается быстро и тормозит к слоту.
     // e-ink и выключенные анимации — мгновенно.
-    fun settleTo(target: Int, isFlick: Boolean) {
+    // Пользовательское движение штампует stageLastRotationTime: авто-ротация не дёргает
+    // ленту сразу после ручного перехода (штамп учитывается при следующем пересчёте ожидания).
+    fun settleTo(target: Int, isFlick: Boolean, userInitiated: Boolean = true) {
+        if (userInitiated) {
+            discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
+        }
         if (target != center) {
             center = target
         }
@@ -1648,6 +1671,37 @@ internal fun DiscoveryHeroStage(
         }
         val easing = if (isFlick) LinearOutSlowInEasing else FastOutSlowInEasing
         scope.launch { centerAnim.animateTo(target.toFloat(), tween(motionSpec.settleMillis, easing = easing)) }
+    }
+
+    // Ре-анкор фокуса при смене СОСТАВА ленты (items) — синхронно, до первого кадра:
+    // центр переносится на новый индекс сфокусированного тайтла (если он остался),
+    // иначе сцена сбрасывается к началу. Реролл (смена offset без смены items) НЕ
+    // ре-анкорит — «смена порядка под позицией» сохранена by design.
+    val focusAnchor = remember {
+        object {
+            var items: List<HomeHubDiscoveryItem>? = null
+            var orderedTitles: List<String> = emptyList()
+            var center: Int = 0
+        }
+    }
+    if (ordered.isNotEmpty()) {
+        val reanchorCenter = resolveStageReanchorCenter(
+            itemsChanged = focusAnchor.items != null && focusAnchor.items !== items,
+            previousFocusedTitle = focusAnchor.orderedTitles.getOrNull(
+                stageItemIndex(focusAnchor.center, 0, focusAnchor.orderedTitles.size),
+            ),
+            newOrderedTitles = ordered.map { it.cleanTitle },
+            currentCenter = center,
+        )
+        if (reanchorCenter != center) {
+            center = reanchorCenter
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                centerAnim.snapTo(reanchorCenter.toFloat())
+            }
+        }
+        focusAnchor.items = items
+        focusAnchor.orderedTitles = ordered.map { it.cleanTitle }
+        focusAnchor.center = center
     }
     // Ken-burns у фокуса: состояние читается внутри graphicsLayer, поэтому кадры не рекомпозируют слоты.
     // B3: профиль (направление/дрейф) выбирается по постеру и применяется в слое слота.
@@ -1685,8 +1739,15 @@ internal fun DiscoveryHeroStage(
                     val last = discoveryPreferences.stageLastRotationTime().get()
                     val elapsed = if (last == 0L) 0L else System.currentTimeMillis() - last
                     delay(if (last == 0L) intervalMillis else (intervalMillis - elapsed).coerceAtLeast(1000L))
+                    // Пользователь взаимодействовал во время ожидания (settleTo обновил штамп):
+                    // пересчитываем остаток вместо немедленного рывка ленты «под рукой».
+                    val lastAfter = discoveryPreferences.stageLastRotationTime().get()
+                    if (lastAfter > last && lastAfter != 0L) {
+                        val elapsedAfter = System.currentTimeMillis() - lastAfter
+                        if (elapsedAfter < intervalMillis) continue
+                    }
                     discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
-                    settleTo(center + 1, isFlick = false)
+                    settleTo(center + 1, isFlick = false, userInitiated = false)
                 }
             }
         }
