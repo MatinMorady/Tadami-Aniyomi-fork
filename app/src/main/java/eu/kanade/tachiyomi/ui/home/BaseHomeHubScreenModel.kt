@@ -97,3 +97,18 @@ internal abstract class BaseHomeHubScreenModel(
         }
     }
 }
+
+/**
+ * Минимальный интервал между ротациями тизера «Для тебя» по возвращению на экран.
+ * Ротация метит окно тизера как показанное (48h-уникальность): дебаунс 500 мс
+ * позволял флипу вкладок отравить всё окно за секунды. 60 с = «вернулся позже»
+ * всё ещё ротирует, а частые возвраты пул не метят.
+ */
+internal const val DISCOVERY_REENTRY_COOLDOWN_MS = 60_000L
+
+/** Нужна ли ротация тизера на reentry: прошла [cooldownMs] с последней ротации. */
+internal fun shouldAdvanceDiscoveryTeaserOnReentry(
+    nowMs: Long,
+    lastReentryTimeMs: Long,
+    cooldownMs: Long = DISCOVERY_REENTRY_COOLDOWN_MS,
+): Boolean = lastReentryTimeMs <= 0L || (nowMs - lastReentryTimeMs) >= cooldownMs

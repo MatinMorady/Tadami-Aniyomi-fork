@@ -342,7 +342,7 @@ internal class NovelHomeHubScreenModel(
 
     override fun onScreenReentry() {
         val now = System.currentTimeMillis()
-        if (now - lastReentryTime < 500L) return
+        if (!shouldAdvanceDiscoveryTeaserOnReentry(now, lastReentryTime)) return
         lastReentryTime = now
         screenModelScope.launchIO {
             updateDiscoveryTeaser(advanceOffset = true)
