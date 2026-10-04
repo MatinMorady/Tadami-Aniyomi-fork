@@ -2,10 +2,13 @@ package eu.kanade.tachiyomi.data.backup
 
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden
+import eu.kanade.tachiyomi.data.backup.models.BackupDiscoverySignal
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag
 import eu.kanade.tachiyomi.data.backup.models.toBackupDiscoveryHidden
+import eu.kanade.tachiyomi.data.backup.models.toBackupDiscoverySignal
 import eu.kanade.tachiyomi.data.backup.models.toBackupDiscoveryTag
 import eu.kanade.tachiyomi.data.backup.models.toDomainEntry
+import eu.kanade.tachiyomi.data.backup.models.toDomainSignal
 import eu.kanade.tachiyomi.data.backup.restore.restorers.DiscoveryRestorer
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.flow.Flow
@@ -93,6 +96,82 @@ class DiscoveryBackupRoundTripTest {
         runBlocking { DiscoveryRestorer(repo).restoreDiscovery(emptyList(), emptyList()) }
         repo.restoredHidden shouldBe emptyMap()
         repo.restoredTags shouldBe emptyMap()
+    }
+
+    @Test
+    fun `taste signals survive proto round trip`() {
+        val backup = Backup(
+            backupDiscoverySignals = listOf(
+                BackupDiscoverySignal(
+                    mediaType = "novel",
+                    cleanTitle = "overlord",
+                    title = "Overlord",
+                    signal = "like",
+                    genres = "fantasy,action",
+                    provider = "anilist_trend",
+                    sourceKey = "org.example.plugin",
+                    createdAt = 1_700_000_000_500L,
+                ),
+            ),
+        )
+        val bytes = ProtoBuf.encodeToByteArray(Backup.serializer(), backup)
+        val decoded = ProtoBuf.decodeFromByteArray(Backup.serializer(), bytes)
+        decoded.backupDiscoverySignals shouldBe backup.backupDiscoverySignals
+    }
+
+    @Test
+    fun `signal mappers preserve fields and drop garbage`() {
+        val signal = DiscoverySignal(
+            mediaType = DiscoveryMediaType.NOVEL,
+            cleanTitle = "overlord",
+            title = "Overlord",
+            signalType = DiscoverySignalType.LIKE,
+            genres = listOf("fantasy", "action"),
+            provider = "anilist_trend",
+            sourceKey = "org.example.plugin",
+            createdAt = 42L,
+        )
+        signal.toBackupDiscoverySignal().toDomainSignal() shouldBe signal
+
+        // Битые ключи (мусорный media/signal) не падают — mаппер возвращает null.
+        BackupDiscoverySignal(mediaType = "bogus", cleanTitle = "x", signal = "like")
+            .toDomainSignal() shouldBe null
+        BackupDiscoverySignal(mediaType = "novel", cleanTitle = "x", signal = "bogus")
+            .toDomainSignal() shouldBe null
+    }
+
+    @Test
+    fun `restorer writes taste signals through repository`() {
+        val repo = FakeDiscoveryRepository()
+        runBlocking {
+            DiscoveryRestorer(repo).restoreDiscovery(
+                hidden = emptyList(),
+                tags = emptyList(),
+                signals = listOf(
+                    BackupDiscoverySignal(
+                        mediaType = "novel",
+                        cleanTitle = "overlord",
+                        title = "Overlord",
+                        signal = "like",
+                        genres = "fantasy",
+                        createdAt = 42L,
+                    ),
+                    BackupDiscoverySignal(mediaType = "bogus", cleanTitle = "x", signal = "like"),
+                ),
+            )
+        }
+        repo.restoredSignals shouldBe listOf(
+            DiscoverySignal(
+                mediaType = DiscoveryMediaType.NOVEL,
+                cleanTitle = "overlord",
+                title = "Overlord",
+                signalType = DiscoverySignalType.LIKE,
+                genres = listOf("fantasy"),
+                provider = null,
+                sourceKey = null,
+                createdAt = 42L,
+            ),
+        )
     }
 }
 

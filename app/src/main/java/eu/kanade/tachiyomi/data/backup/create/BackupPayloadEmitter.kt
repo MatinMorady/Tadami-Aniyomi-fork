@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupCustomButtons
 import eu.kanade.tachiyomi.data.backup.models.BackupDayActivity
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden
+import eu.kanade.tachiyomi.data.backup.models.BackupDiscoverySignal
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag
 import eu.kanade.tachiyomi.data.backup.models.BackupExtension
 import eu.kanade.tachiyomi.data.backup.models.BackupExtensionRepos
@@ -86,6 +87,7 @@ internal object BackupPayloadEmitter {
             messageList(626, backup.backupReelsFollows, BackupReelsFollow.serializer(), proto)
             messageList(624, backup.backupDiscoveryHidden, BackupDiscoveryHidden.serializer(), proto)
             messageList(625, backup.backupDiscoveryBlacklistTags, BackupDiscoveryTag.serializer(), proto)
+            messageList(627, backup.backupDiscoverySignals, BackupDiscoverySignal.serializer(), proto)
         }
     }
 

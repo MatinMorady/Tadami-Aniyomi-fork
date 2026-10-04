@@ -27,8 +27,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
@@ -38,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -114,12 +117,24 @@ object SettingsDiscoveryScreen : SearchableSettings {
         var showBlacklistDialog by remember { mutableStateOf(false) }
         var showStatusDialog by remember { mutableStateOf(false) }
         var showGenreDialog by remember { mutableStateOf(false) }
+        var showResetTasteDialog by remember { mutableStateOf(false) }
         var blacklistTags by remember { mutableStateOf<List<Pair<DiscoveryMediaType, String>>>(emptyList()) }
         val reloadBlacklist: suspend () -> Unit = {
             blacklistTags = DiscoveryMediaType.entries.flatMap { media ->
                 repository.getBlacklistedTags(media).sorted().map { media to it }
             }
         }
+
+        // Taste Learning Engine: сводка выученного профиля для настроек.
+        var tasteSignalCount by remember { mutableStateOf(0) }
+        var tasteTopGenres by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+        val reloadTaste: suspend () -> Unit = {
+            val allSignals = DiscoveryMediaType.entries.flatMap { repository.getSignals(it) }
+            tasteSignalCount = allSignals.size
+            tasteTopGenres = eu.kanade.tachiyomi.data.discovery.foldLearnedTasteProfile(allSignals)
+                .genres.take(5)
+        }
+        LaunchedEffect(Unit) { reloadTaste() }
 
         val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
         val sourcePreferences = remember { Injekt.get<eu.kanade.domain.source.service.SourcePreferences>() }
@@ -163,6 +178,38 @@ object SettingsDiscoveryScreen : SearchableSettings {
             ) {
                 Text(
                     stringResource(AYMR.strings.pref_discovery_clear_hidden_dialog_message),
+                    color = colors.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+        }
+
+        if (showResetTasteDialog) {
+            AuroraFrostDialog(
+                onDismiss = { showResetTasteDialog = false },
+                title = stringResource(AYMR.strings.pref_discovery_taste_reset),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { showResetTasteDialog = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
+                        onClick = {
+                            showResetTasteDialog = false
+                            scope.launchIO {
+                                // Сброс только выученного вкуса: кэш ленты, hidden и
+                                // блэклист не трогаются — «вкусы» и «лента» независимы.
+                                repository.clearAllSignals()
+                                reloadTaste()
+                            }
+                        },
+                    )
+                },
+            ) {
+                Text(
+                    stringResource(AYMR.strings.pref_discovery_taste_reset_confirm),
                     color = colors.textSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -622,6 +669,35 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         enabled = enabled,
                     ),
                     // V0: блэклист тегов переехал в группу «Фильтры контента» выше.
+                ),
+            ),
+            // Taste Learning Engine: выученный профиль вкуса и его сброс.
+            // Профиль строится из лайков/добавлений/скрытий в ленте «Для вас».
+            Preference.PreferenceGroup(
+                title = stringResource(AYMR.strings.pref_discovery_taste_title),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_taste_title),
+                        subtitle = run {
+                            val signals = tasteSignalCount
+                            if (signals == 0) {
+                                stringResource(AYMR.strings.pref_discovery_taste_empty)
+                            } else {
+                                stringResource(AYMR.strings.pref_discovery_taste_signal_count, signals) +
+                                    " · " + tasteTopGenres.joinToString { it.first }
+                            }
+                        },
+                        icon = Icons.Outlined.AutoAwesome,
+                        enabled = enabled,
+                        onClick = {},
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_taste_reset),
+                        subtitle = stringResource(AYMR.strings.pref_discovery_taste_summary),
+                        icon = Icons.Outlined.RestartAlt,
+                        enabled = enabled,
+                        onClick = { showResetTasteDialog = true },
+                    ),
                 ),
             ),
         )

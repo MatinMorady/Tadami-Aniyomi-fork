@@ -219,13 +219,17 @@ class BackupCreator(
                     emptyList()
                 }
             }
-            // Discovery «Для тебя»: скрытые тайтлы + теговый блэклист (Tadami-only, не для sister-экспорта).
+            // Discovery «Для тебя»: скрытые тайтлы + теговый блэклист + сигнал-лог
+            // вкусов (Tadami-only, не для sister-экспорта).
             val backupDiscovery = BackupDiagnosticLog.measure(context, "collect_discovery") {
                 if (options.discoveryData && !options.sisterAppCompatible) {
                     discoveryBackupCreator()
                 } else {
-                    emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden>() to
-                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag>()
+                    Triple(
+                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden>(),
+                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag>(),
+                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoverySignal>(),
+                    )
                 }
             }
 
@@ -301,6 +305,7 @@ class BackupCreator(
                 backupReelsFollows = if (options.sisterAppCompatible) emptyList() else backupReelsFollows,
                 backupDiscoveryHidden = if (options.sisterAppCompatible) emptyList() else backupDiscovery.first,
                 backupDiscoveryBlacklistTags = if (options.sisterAppCompatible) emptyList() else backupDiscovery.second,
+                backupDiscoverySignals = if (options.sisterAppCompatible) emptyList() else backupDiscovery.third,
             )
 
             // The object above already mirrors the wire: sister mode flattens novels into the
