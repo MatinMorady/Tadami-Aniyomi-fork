@@ -5,6 +5,8 @@ import tachiyomi.domain.discovery.model.DiscoveryBlacklistEntry
 import tachiyomi.domain.discovery.model.DiscoveryHiddenEntry
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignal
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 
 interface DiscoveryRepository {
@@ -48,4 +50,31 @@ interface DiscoveryRepository {
      * (source_id NULL — кэш старше миграции 58). Для разовой тихой перегенерации ленты.
      */
     suspend fun hasUnboundSourceRows(): Boolean
+
+    // ==================== Taste Learning Engine ====================
+
+    /** Все сигналы медиатипа (старые первыми) — вход fold-профиля вкуса. */
+    suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal>
+
+    /** Записать сигнал: старшинство [DiscoverySignalType.overrides] + LRU-cap [maxPerMedia]. */
+    suspend fun recordSignal(
+        mediaType: DiscoveryMediaType,
+        cleanTitle: String,
+        title: String,
+        signalType: DiscoverySignalType,
+        genres: List<String>,
+        provider: String?,
+        sourceKey: String?,
+        timestamp: Long = System.currentTimeMillis(),
+    )
+
+    /** Undo сигнала: строка удаляется (профиль возвращается к состоянию «до сигнала»). */
+    suspend fun removeSignal(mediaType: DiscoveryMediaType, cleanTitle: String)
+
+    /** Сброс выученного вкуса по медиатипу (не трогает кэш ленты/hidden/blacklist). */
+    suspend fun clearSignals(mediaType: DiscoveryMediaType)
+
+    /** Backup (Taste Engine): полный сброс + идемпотентный restore. */
+    suspend fun clearAllSignals()
+    suspend fun restoreSignals(signals: List<DiscoverySignal>)
 }

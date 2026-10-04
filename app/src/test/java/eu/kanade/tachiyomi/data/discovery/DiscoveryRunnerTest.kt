@@ -10,6 +10,8 @@ import org.junit.Test
 import tachiyomi.core.common.preference.InMemoryPreferenceStore
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignal
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
 import java.io.IOException
@@ -74,6 +76,25 @@ class DiscoveryRunnerTest {
             markedShown.clear()
         }
         override suspend fun hasUnboundSourceRows(): Boolean = false
+
+        val recordedSignals = mutableListOf<Triple<DiscoveryMediaType, String, DiscoverySignalType>>()
+        override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = emptyList()
+        override suspend fun recordSignal(
+            mediaType: DiscoveryMediaType,
+            cleanTitle: String,
+            title: String,
+            signalType: DiscoverySignalType,
+            genres: List<String>,
+            provider: String?,
+            sourceKey: String?,
+            timestamp: Long,
+        ) {
+            recordedSignals += Triple(mediaType, cleanTitle, signalType)
+        }
+        override suspend fun removeSignal(mediaType: DiscoveryMediaType, cleanTitle: String) {}
+        override suspend fun clearSignals(mediaType: DiscoveryMediaType) {}
+        override suspend fun clearAllSignals() {}
+        override suspend fun restoreSignals(signals: List<DiscoverySignal>) {}
     }
 
     private class FakeSeedSources : DiscoverySeedSources {

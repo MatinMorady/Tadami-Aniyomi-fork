@@ -17,6 +17,8 @@ import tachiyomi.domain.discovery.model.DiscoveryBlacklistEntry
 import tachiyomi.domain.discovery.model.DiscoveryHiddenEntry
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignal
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
 
@@ -145,4 +147,23 @@ private class FakeDiscoveryRepository : DiscoveryRepository {
     ) = Unit
     override suspend fun clearShown(mediaType: DiscoveryMediaType) = Unit
     override suspend fun hasUnboundSourceRows(): Boolean = false
+
+    val restoredSignals = mutableListOf<DiscoverySignal>()
+    override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = emptyList()
+    override suspend fun recordSignal(
+        mediaType: DiscoveryMediaType,
+        cleanTitle: String,
+        title: String,
+        signalType: DiscoverySignalType,
+        genres: List<String>,
+        provider: String?,
+        sourceKey: String?,
+        timestamp: Long,
+    ) = Unit
+    override suspend fun removeSignal(mediaType: DiscoveryMediaType, cleanTitle: String) = Unit
+    override suspend fun clearSignals(mediaType: DiscoveryMediaType) = Unit
+    override suspend fun clearAllSignals() = Unit
+    override suspend fun restoreSignals(signals: List<DiscoverySignal>) {
+        restoredSignals += signals
+    }
 }
