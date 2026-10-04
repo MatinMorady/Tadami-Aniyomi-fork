@@ -1164,8 +1164,10 @@
     <string name="resmush">resmush.it</string>
     <string name="bandwidth_data_saver_server">Прокси-сервер Bandwidth Hero</string>
     <string name="data_saver_server_summary">Укажите URL прокси-сервера Bandwidth Hero здесь</string>
-    <string name="download_slots_info">Одновременная загрузка будет осуществляться только из источников с собственным хостингом или без ограничений</string>
+    <string name="download_slots_info">Сколько глав манги скачивается одновременно из одного источника. Большие значения могут вызвать ограничение запросов на некоторых источниках.</string>
     <string name="pref_parallel_page_downloads">Параллельные загрузки страниц</string>
+    <string name="pref_novel_parallel_chapter_downloads">Параллельная загрузка глав ранобэ</string>
+    <string name="novel_parallel_chapter_downloads_info">Сколько глав ранобэ скачивается одновременно. Большие значения быстрее, но некоторые источники могут временно блокировать частые запросы; используйте настройки защиты от блокировки для компенсации.</string>
     <string name="parallel_page_downloads_info">Больше значение может ускорить загрузку страниц, но некоторые источники лучше работают с меньшими значениями.</string>
     <string name="unseen">Не просмотрено</string>
     <string name="label_manga_extension_repos">Хранилища расширений манги</string>

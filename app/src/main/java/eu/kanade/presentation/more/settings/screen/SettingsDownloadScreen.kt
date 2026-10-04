@@ -26,6 +26,7 @@ import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.components.AuroraFrostCancel
 import eu.kanade.presentation.components.AuroraFrostConfirm
 import eu.kanade.presentation.components.AuroraFrostDialog
+import eu.kanade.presentation.download.NovelDownloadThrottleSettingsDialog
 import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.SettingsUiStyle
@@ -75,8 +76,17 @@ object SettingsDownloadScreen : SearchableSettings {
         val downloadSlots by downloadSlotsPref.collectAsStateWithLifecycle()
         val pageConcurrencyPref = downloadPreferences.pageDownloadConcurrency()
         val pageConcurrency by pageConcurrencyPref.collectAsStateWithLifecycle()
+        val novelConcurrencyPref = downloadPreferences.novelDownloadConcurrency()
+        val novelConcurrency by novelConcurrencyPref.collectAsStateWithLifecycle()
         var currentSpeedLimit by remember { mutableIntStateOf(speedLimit) }
         var showDownloadLimitDialog by rememberSaveable { mutableStateOf(false) }
+        var showNovelThrottleDialog by rememberSaveable { mutableStateOf(false) }
+        if (showNovelThrottleDialog) {
+            NovelDownloadThrottleSettingsDialog(
+                onDismissRequest = { showNovelThrottleDialog = false },
+                preferences = downloadPreferences,
+            )
+        }
         if (showDownloadLimitDialog) {
             DownloadLimitDialog(
                 initialValue = currentSpeedLimit,
@@ -125,6 +135,18 @@ object SettingsDownloadScreen : SearchableSettings {
                 title = stringResource(AYMR.strings.pref_parallel_page_downloads),
                 helperText = stringResource(AYMR.strings.parallel_page_downloads_info),
             ),
+            getDiscreteDownloadSliderPreference(
+                preference = novelConcurrencyPref,
+                value = novelConcurrency,
+                title = stringResource(AYMR.strings.pref_novel_parallel_chapter_downloads),
+                helperText = stringResource(AYMR.strings.novel_parallel_chapter_downloads_info),
+                max = 5,
+            ),
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(AYMR.strings.novel_download_throttle_title),
+                subtitle = stringResource(AYMR.strings.novel_download_throttle_summary),
+                onClick = { showNovelThrottleDialog = true },
+            ),
             getDeleteChaptersGroup(
                 downloadPreferences = downloadPreferences,
                 animeCategories = allAnimeCategories.toImmutableList(),
@@ -151,6 +173,7 @@ object SettingsDownloadScreen : SearchableSettings {
         value: Int,
         title: String,
         helperText: String,
+        max: Int = 10,
     ): Preference.PreferenceItem.CustomPreference {
         return Preference.PreferenceItem.CustomPreference(
             title = title,
@@ -158,9 +181,9 @@ object SettingsDownloadScreen : SearchableSettings {
             DiscreteSliderPreferenceWidget(
                 title = title,
                 value = value,
-                valueRange = 1..10,
+                valueRange = 1..max,
                 helperText = helperText,
-                onValueChange = { preference.set(it.coerceIn(1, 10)) },
+                onValueChange = { preference.set(it.coerceIn(1, max)) },
             )
         }
     }

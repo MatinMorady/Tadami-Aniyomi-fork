@@ -90,8 +90,10 @@ class NovelDownloadQueueRuntimeState {
     private var workerRunning = false
     private var workerGeneration = WORKER_GENERATION_NONE
     private val canceledTaskIds = mutableSetOf<Long>()
-    private var activeDownloadTaskId: Long? = null
-    private var activeDownloadJob: Job? = null
+
+    // Active download jobs keyed by task id. The queue is parallel now (issue #210): several
+    // chapters may be in flight at once, so cancellation must address each task individually.
+    private val activeDownloadJobs = LinkedHashMap<Long, Job>()
 
     @Synchronized
     fun nextTaskId(): Long {
@@ -137,24 +139,25 @@ class NovelDownloadQueueRuntimeState {
 
     @Synchronized
     fun registerActiveDownload(taskId: Long, job: Job) {
-        activeDownloadTaskId = taskId
-        activeDownloadJob = job
+        activeDownloadJobs[taskId] = job
     }
 
     @Synchronized
     fun clearActiveDownload(taskId: Long, job: Job) {
-        if (activeDownloadTaskId == taskId && activeDownloadJob === job) {
-            activeDownloadTaskId = null
-            activeDownloadJob = null
+        if (activeDownloadJobs[taskId] === job) {
+            activeDownloadJobs.remove(taskId)
         }
     }
 
     @Synchronized
     fun cancelActiveDownload(taskId: Long): Boolean {
-        if (activeDownloadTaskId != taskId) return false
-        activeDownloadJob?.cancel()
-        return activeDownloadJob != null
+        val job = activeDownloadJobs[taskId] ?: return false
+        job.cancel()
+        return true
     }
+
+    @Synchronized
+    fun activeDownloadCount(): Int = activeDownloadJobs.size
 }
 
 private data class NovelQueueTaskKey(
@@ -253,6 +256,9 @@ object NovelDownloadQueueManager {
 
     private val queueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Hard ceiling for the novel queue concurrency setting. */
+    private const val MAX_NOVEL_CONCURRENT_DOWNLOADS = 5
+
     // F9: prefer the DI singletons so the SAF scan caches are shared app-wide; fall back to a
     // local instance if touched before the Injekt bootstrap (same pattern as `notifier` below).
     private val downloadManager = runCatching { Injekt.get<NovelDownloadManager>() }
@@ -273,6 +279,12 @@ object NovelDownloadQueueManager {
     private var notifyJob: kotlinx.coroutines.Job? = null
     private var networkMonitorJob: Job? = null
     private var lastNovelRequestStartedAtMs = 0L
+
+    // Anti-blocking back-off after a failed chapter. Only new request STARTS are gated, so
+    // downloads already in flight are not cancelled the way they were when the whole
+    // sequential queue slept for the cooldown.
+    @Volatile
+    private var novelQueueCooldownUntilMs = 0L
 
     init {
         ensureNetworkMonitor()
@@ -439,6 +451,13 @@ object NovelDownloadQueueManager {
 
                 val nextTask = snapshot.tasks.firstOrNull { it.status == NovelQueuedDownloadStatus.QUEUED }
                 if (nextTask == null) {
+                    // With parallel dispatch a chapter can still be in flight while nothing is
+                    // QUEUED. Keep the worker alive so a task that requeues itself after a
+                    // transient failure is picked up without waiting for a new enqueue.
+                    if (runtimeState.activeDownloadCount() > 0) {
+                        delay(150)
+                        continue
+                    }
                     runtimeState.releaseWorker(generation)
                     val hasFreshQueuedTasks = state.value.tasks.any { it.status == NovelQueuedDownloadStatus.QUEUED }
                     if (!hasFreshQueuedTasks) break
@@ -447,8 +466,26 @@ object NovelDownloadQueueManager {
                     generation = retaken
                     continue
                 }
+                // Dispatch in a child coroutine so the loop keeps scheduling while chapters are
+                // in flight (issue #210: one slow chapter must not stall the whole queue).
+                val throttleConfig = NovelDownloadThrottleConfig.from(downloadPreferences)
+                val maxConcurrent = downloadPreferences.novelDownloadConcurrency()
+                    .get()
+                    .coerceIn(1, MAX_NOVEL_CONCURRENT_DOWNLOADS)
+                if (runtimeState.activeDownloadCount() >= maxConcurrent) {
+                    delay(150)
+                    continue
+                }
+                // Global failure back-off: hold NEW request starts, not the in-flight ones.
+                val cooldownRemainingMs = novelQueueCooldownUntilMs - System.currentTimeMillis()
+                if (cooldownRemainingMs > 0L) {
+                    if (!delayWhileQueueAllows(nextTask.taskId, cooldownRemainingMs)) {
+                        removeTask(nextTask.taskId)
+                    }
+                    continue
+                }
+
                 try {
-                    val throttleConfig = NovelDownloadThrottleConfig.from(downloadPreferences)
                     if (!waitForNovelThrottleWindow(throttleConfig, nextTask.taskId)) {
                         removeTask(nextTask.taskId)
                         continue
@@ -463,86 +500,8 @@ object NovelDownloadQueueManager {
                         "Novel queue task starting: taskId=${nextTask.taskId}, novel=${nextTask.novel.id}, chapter=${nextTask.chapter.id}, type=${nextTask.type}, throttle=$throttleConfig"
                     }
 
-                    val result = supervisorScope {
-                        val downloadJob = async {
-                            withTimeout(throttleConfig.timeoutMs) {
-                                when (nextTask.type) {
-                                    NovelQueuedDownloadType.ORIGINAL -> {
-                                        downloadManager.downloadChapter(nextTask.novel, nextTask.chapter)
-                                    }
-                                    NovelQueuedDownloadType.TRANSLATED -> {
-                                        val format = when (nextTask.format) {
-                                            NovelQueuedDownloadFormat.TXT -> NovelTranslatedDownloadFormat.TXT
-                                            NovelQueuedDownloadFormat.DOCX -> NovelTranslatedDownloadFormat.DOCX
-                                            NovelQueuedDownloadFormat.HTML -> NovelTranslatedDownloadFormat.TXT
-                                        }
-                                        translatedDownloadManager
-                                            .exportTranslatedChapter(nextTask.novel, nextTask.chapter, format)
-                                            .isSuccess
-                                    }
-                                }
-                            }
-                        }
-                        runtimeState.registerActiveDownload(nextTask.taskId, downloadJob)
-                        try {
-                            runCatching { downloadJob.await() }
-                        } finally {
-                            runtimeState.clearActiveDownload(nextTask.taskId, downloadJob)
-                        }
-                    }
-
-                    val canceled = runtimeState.consumeCanceled(nextTask.taskId)
-                    if (canceled) {
-                        if (nextTask.type == NovelQueuedDownloadType.ORIGINAL) {
-                            downloadManager.deleteChapter(nextTask.novel, nextTask.chapter.id)
-                        } else {
-                            val format = when (nextTask.format) {
-                                NovelQueuedDownloadFormat.TXT -> NovelTranslatedDownloadFormat.TXT
-                                NovelQueuedDownloadFormat.DOCX -> NovelTranslatedDownloadFormat.DOCX
-                                NovelQueuedDownloadFormat.HTML -> NovelTranslatedDownloadFormat.TXT
-                            }
-                            translatedDownloadManager.deleteTranslatedChapter(
-                                novel = nextTask.novel,
-                                chapter = nextTask.chapter,
-                                format = format,
-                            )
-                        }
-                        removeTask(nextTask.taskId)
-                        continue
-                    }
-
-                    val success = result.getOrElse { false }
-                    if (success) {
-                        removeTask(nextTask.taskId)
-                        completionTracker.recordCompletion(DownloadSection.NOVEL)
-                        achievementHandler.trackFeatureUsed(AchievementEvent.Feature.DOWNLOAD)
-                        logcat(LogPriority.DEBUG) {
-                            "Novel queue task completed: taskId=${nextTask.taskId}, novel=${nextTask.novel.id}, chapter=${nextTask.chapter.id}"
-                        }
-                    } else {
-                        val exception = result.exceptionOrNull()
-                        val queueSnapshot = state.value
-                        val networkAvailable = currentNetworkStatus() == DownloadNetworkStatus.Available
-                        if (
-                            shouldRequeueNovelTaskAfterFailure(
-                                waitingForNetwork = queueSnapshot.waitingForNetwork,
-                                networkAvailable = networkAvailable,
-                                exception = exception,
-                            )
-                        ) {
-                            markTaskStatus(nextTask.taskId, NovelQueuedDownloadStatus.QUEUED)
-                            pauseForNetwork(networkUnavailableReason(currentNetworkStatus()))
-                            logcat(LogPriority.DEBUG) {
-                                "Novel queue task requeued after network issue: taskId=${nextTask.taskId}"
-                            }
-                            continue
-                        }
-                        val message = exception?.message
-                        markTaskFailed(nextTask.taskId, message ?: "Download failed")
-                        logcat(LogPriority.WARN) {
-                            "Novel queue task failed: taskId=${nextTask.taskId}, novel=${nextTask.novel.id}, chapter=${nextTask.chapter.id}, error=${message ?: "Download failed"}"
-                        }
-                        applyFailureCooldown(throttleConfig, nextTask.taskId)
+                    queueScope.launch {
+                        executeNovelTask(nextTask, throttleConfig)
                     }
                 } catch (e: Exception) {
                     if (e is CancellationException) {
@@ -564,6 +523,114 @@ object NovelDownloadQueueManager {
         }
     }
 
+    /**
+     * Downloads a single queued task. Runs in its own [queueScope] child so the queue loop can
+     * keep dispatching; failure/requeue/cooldown/cancel bookkeeping happens here per task.
+     */
+    private suspend fun executeNovelTask(
+        nextTask: NovelQueuedDownload,
+        throttleConfig: NovelDownloadThrottleConfig,
+    ) {
+        try {
+            val result = supervisorScope {
+                val downloadJob = async {
+                    withTimeout(throttleConfig.timeoutMs) {
+                        when (nextTask.type) {
+                            NovelQueuedDownloadType.ORIGINAL -> {
+                                downloadManager.downloadChapter(nextTask.novel, nextTask.chapter)
+                            }
+                            NovelQueuedDownloadType.TRANSLATED -> {
+                                val format = when (nextTask.format) {
+                                    NovelQueuedDownloadFormat.TXT -> NovelTranslatedDownloadFormat.TXT
+                                    NovelQueuedDownloadFormat.DOCX -> NovelTranslatedDownloadFormat.DOCX
+                                    NovelQueuedDownloadFormat.HTML -> NovelTranslatedDownloadFormat.TXT
+                                }
+                                translatedDownloadManager
+                                    .exportTranslatedChapter(nextTask.novel, nextTask.chapter, format)
+                                    .isSuccess
+                            }
+                        }
+                    }
+                }
+                runtimeState.registerActiveDownload(nextTask.taskId, downloadJob)
+                try {
+                    runCatching { downloadJob.await() }
+                } finally {
+                    runtimeState.clearActiveDownload(nextTask.taskId, downloadJob)
+                }
+            }
+
+            val canceled = runtimeState.consumeCanceled(nextTask.taskId)
+            if (canceled) {
+                if (nextTask.type == NovelQueuedDownloadType.ORIGINAL) {
+                    downloadManager.deleteChapter(nextTask.novel, nextTask.chapter.id)
+                } else {
+                    val format = when (nextTask.format) {
+                        NovelQueuedDownloadFormat.TXT -> NovelTranslatedDownloadFormat.TXT
+                        NovelQueuedDownloadFormat.DOCX -> NovelTranslatedDownloadFormat.DOCX
+                        NovelQueuedDownloadFormat.HTML -> NovelTranslatedDownloadFormat.TXT
+                    }
+                    translatedDownloadManager.deleteTranslatedChapter(
+                        novel = nextTask.novel,
+                        chapter = nextTask.chapter,
+                        format = format,
+                    )
+                }
+                removeTask(nextTask.taskId)
+                return
+            }
+
+            val success = result.getOrElse { false }
+            if (success) {
+                removeTask(nextTask.taskId)
+                completionTracker.recordCompletion(DownloadSection.NOVEL)
+                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.DOWNLOAD)
+                logcat(LogPriority.DEBUG) {
+                    "Novel queue task completed: taskId=${nextTask.taskId}, novel=${nextTask.novel.id}, chapter=${nextTask.chapter.id}"
+                }
+            } else {
+                val exception = result.exceptionOrNull()
+                val queueSnapshot = state.value
+                val networkAvailable = currentNetworkStatus() == DownloadNetworkStatus.Available
+                if (
+                    shouldRequeueNovelTaskAfterFailure(
+                        waitingForNetwork = queueSnapshot.waitingForNetwork,
+                        networkAvailable = networkAvailable,
+                        exception = exception,
+                    )
+                ) {
+                    markTaskStatus(nextTask.taskId, NovelQueuedDownloadStatus.QUEUED)
+                    pauseForNetwork(networkUnavailableReason(currentNetworkStatus()))
+                    logcat(LogPriority.DEBUG) {
+                        "Novel queue task requeued after network issue: taskId=${nextTask.taskId}"
+                    }
+                    return
+                }
+                val message = exception?.message
+                markTaskFailed(nextTask.taskId, message ?: "Download failed")
+                logcat(LogPriority.WARN) {
+                    "Novel queue task failed: taskId=${nextTask.taskId}, novel=${nextTask.novel.id}, chapter=${nextTask.chapter.id}, error=${message ?: "Download failed"}"
+                }
+                novelQueueCooldownUntilMs = System.currentTimeMillis() + throttleConfig.failureCooldownMs
+                logcat(LogPriority.DEBUG) {
+                    "Novel queue failure cooldown for ${throttleConfig.failureCooldownMs}ms (taskId=${nextTask.taskId})"
+                }
+            }
+        } catch (e: Exception) {
+            if (e is CancellationException) {
+                if (state.value.waitingForNetwork) {
+                    markTaskStatus(nextTask.taskId, NovelQueuedDownloadStatus.QUEUED)
+                    return
+                }
+                throw e
+            }
+            logcat(LogPriority.ERROR, e) {
+                "Critical failure inside novel queue task execution for taskId=${nextTask.taskId}: ${e.message}"
+            }
+            markTaskFailed(nextTask.taskId, e.message ?: "Critical download failure")
+        }
+    }
+
     private suspend fun waitForNovelThrottleWindow(
         config: NovelDownloadThrottleConfig,
         taskId: Long,
@@ -578,15 +645,6 @@ object NovelDownloadQueueManager {
         }
         lastNovelRequestStartedAtMs = System.currentTimeMillis()
         return true
-    }
-
-    private suspend fun applyFailureCooldown(
-        config: NovelDownloadThrottleConfig,
-        taskId: Long,
-    ) {
-        if (config.failureCooldownMs <= 0L) return
-        logcat(LogPriority.DEBUG) { "Novel queue failure cooldown taskId=$taskId for ${config.failureCooldownMs}ms" }
-        delayWhileQueueAllows(taskId, config.failureCooldownMs)
     }
 
     private suspend fun delayWhileQueueAllows(taskId: Long, delayMs: Long): Boolean {

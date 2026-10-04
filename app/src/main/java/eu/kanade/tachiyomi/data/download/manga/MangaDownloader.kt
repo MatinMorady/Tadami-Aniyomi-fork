@@ -260,13 +260,16 @@ class MangaDownloader(
         downloaderJob = scope.launch {
             val activeDownloadsFlow = queueState.transformLatest { queue ->
                 while (true) {
+                    // "Maximum downloads" preference (download_slots): chapters per source running
+                    // at once. Wired for real here (issue #210) — it used to be UI-only dead.
+                    val chaptersPerSource = downloadPreferences.numberOfDownloads().get().coerceIn(1, 5)
                     val activeDownloads = queue.asSequence()
                         .filter {
                             it.status.value <= MangaDownload.State.DOWNLOADING.value
                         } // Ignore completed downloads, leave them in the queue
                         .groupBy { it.source }
                         .toList().take(5) // Concurrently download from 5 different sources
-                        .map { (_, downloads) -> downloads.first() }
+                        .flatMap { (_, downloads) -> downloads.take(chaptersPerSource) }
                     emit(activeDownloads)
 
                     if (activeDownloads.isEmpty()) break
