@@ -94,6 +94,8 @@ import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
 @Composable
@@ -611,9 +613,20 @@ private fun HomeHubScreen(
     // напрямую (materialize по sourceId/sourceUrl); неполная привязка, неустановленный
     // источник или любая ошибка деградирует в прежнюю шторку предпросмотра.
     // Guard повторного тапа: openingTeaser сбрасывается в finally (в т.ч. при отмене).
+    val tasteRepository = remember {
+        Injekt.get<tachiyomi.domain.discovery.repository.DiscoveryRepository>()
+    }
     val openTeaser: (HomeHubDiscoveryItem) -> Unit = openDirectEntry?.let { openEntry ->
         { item ->
             if (openingTeaser != item) {
+                // Taste Engine: клик по тизеру = слабый позитивный сигнал (guard исключает дубль).
+                scope.launch {
+                    eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                        tasteRepository,
+                        item.toDiscoverySuggestion(),
+                        tachiyomi.domain.discovery.model.DiscoverySignalType.CLICK,
+                    )
+                }
                 scope.launch {
                     openingTeaser = item
                     val entryId = try {

@@ -996,6 +996,12 @@ object HomeHubTab : Tab {
                 // mediaType берём из айтема, а не из текущей вкладки: snackbar переживает
                 // свайп между вкладками, и undo обязан целиться в исходный медиатип.
                 discoveryRepository.hide(item.mediaType, item.cleanTitle)
+                // Taste Engine: скрытие = сильный негативный сигнал (undo удаляет строку лога).
+                eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                    discoveryRepository,
+                    item.toDiscoverySuggestion(),
+                    tachiyomi.domain.discovery.model.DiscoverySignalType.HIDE,
+                )
                 hiddenSnackItem = item
             }
         }
@@ -1018,6 +1024,8 @@ object HomeHubTab : Tab {
                 if (item != null) {
                     discoveryHideScope.launch {
                         discoveryRepository.unhide(item.mediaType, item.cleanTitle)
+                        // Taste Engine: undo отменяет и сигнал скрытия.
+                        discoveryRepository.removeSignal(item.mediaType, item.cleanTitle)
                     }
                 }
             }

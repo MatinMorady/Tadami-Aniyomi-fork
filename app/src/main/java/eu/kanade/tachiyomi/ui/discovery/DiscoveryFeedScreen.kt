@@ -218,6 +218,8 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
                 // на время резолва, fallback в шторку при неполной привязке/ошибке.
                 onItemClick = { item ->
                     if (state.openingItem != item) {
+                        // Taste Engine: клик = слабый позитивный сигнал (guard исключает двойную запись).
+                        screenModel.recordClick(item)
                         scope.launch {
                             screenModel.setOpenPending(item)
                             // finally: pending сбрасывается и при отмене (rotation/back),

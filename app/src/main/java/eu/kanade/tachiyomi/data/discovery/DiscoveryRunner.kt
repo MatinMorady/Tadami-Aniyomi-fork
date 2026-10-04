@@ -168,6 +168,11 @@ class DiscoveryRunner(
         // auto = топ-3 плагинов по весу библиотеки, manual = набор пользователя (cap 8).
         val plugins = installedPluginsProvider(mediaType)
         val sourceWeights = candidates.filter { it.sourceId > 0 }.groupingBy { it.sourceId }.eachCount()
+        // Taste Learning Engine: аффинити источников из сигнал-лога бустит вес участия
+        // плагина (плавный tanh-буст, порядок честен и при негативе — кламп 0.4..2.0x).
+        val learnedSourceAffinity = foldLearnedTasteProfile(
+            signals = runCatching { repository.getSignals(mediaType) }.getOrDefault(emptyList()),
+        ).sourceAffinity
         val pluginStats = plugins.mapNotNull { plugin ->
             val representative = plugin.sourceIds.sortedWith(
                 compareByDescending<Long> { sourceWeights[it] ?: 0 }.thenBy { it },
@@ -177,8 +182,13 @@ class DiscoveryRunner(
                 representative = representative,
                 memberIds = plugin.sourceIds.toSet(),
                 weight = plugin.sourceIds.sumOf { sourceWeights[it] ?: 0 },
+                affinity = learnedSourceAffinity[plugin.key] ?: 0.0,
             )
-        }.sortedWith(compareByDescending<DiscoveryPluginStat> { it.weight }.thenBy { it.representative })
+        }.sortedWith(
+            compareByDescending<DiscoveryPluginStat> {
+                applySourceAffinity(it.weight, it.affinity)
+            }.thenBy { it.representative },
+        )
         val excludedKeys = parseKeyCsv(preferences.discoverySourceExcluded(mediaType).get())
         val participation = if (pluginStats.isEmpty()) {
             // Плагины неизвестны (юнит-тесты / расширения ещё не загружены при раннем старте):
@@ -231,13 +241,23 @@ class DiscoveryRunner(
         }
         val pageOffset = if (isManualRefresh) manualPageOffset(refreshCount) else 1
 
+        // Taste Learning Engine: fold сигнал-лога и слияние с библиотечным профилем.
+        // Плавный старт (blend) — при пустом логе merge возвращает библиотечный профиль как есть.
+        val learnedProfile = foldLearnedTasteProfile(
+            signals = runCatching { repository.getSignals(mediaType) }.getOrDefault(emptyList()),
+        )
+        val mergedTasteProfile = mergeTasteProfiles(
+            libraryProfile = buildTasteProfile(candidates),
+            learned = learnedProfile,
+        )
+
         val context = DiscoveryBuildContext(
             mediaType = mediaType,
             seeds = seedsWithTracks,
             libraryCleanTitles = candidates.mapTo(HashSet()) { normalizeDiscoveryTitle(it.title) },
             historyCleanTitles = seedSources.historyCleanTitles(mediaType),
             hiddenCleanTitles = repository.getHiddenTitles(mediaType),
-            tasteProfile = buildTasteProfile(candidates),
+            tasteProfile = mergedTasteProfile,
             // V3: глобальный игнор-список жанров (преф) поверх per-media блэклиста тегов.
             blacklistedTags = repository.getBlacklistedTags(mediaType) +
                 parseGenreFilterCsv(preferences.ignoredGenres().get()).let { (canon, raw) -> canon + raw },
@@ -354,12 +374,16 @@ class DiscoveryRunner(
     }
 }
 
-/** Статистика плагина для резолва участия: репрезентативный источник + суммарный вес библиотеки. */
+/**
+ * Статистика плагина для резолва участия: репрезентативный источник, суммарный вес
+ * библиотеки и Taste-аффинити из сигнал-лога (см. [applySourceAffinity]).
+ */
 private data class DiscoveryPluginStat(
     val key: String,
     val representative: Long,
     val memberIds: Set<Long>,
     val weight: Int,
+    val affinity: Double = 0.0,
 )
 
 /**

@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
 import eu.kanade.tachiyomi.data.discovery.DiscoveryTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob
 import eu.kanade.tachiyomi.data.discovery.META_PREFETCH_COUNT
+import eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder
 import eu.kanade.tachiyomi.data.discovery.dedupeCrossRow
 import eu.kanade.tachiyomi.data.discovery.expandGenreSet
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
@@ -31,6 +32,7 @@ import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
 import tachiyomi.domain.entries.anime.interactor.NetworkToLocalAnime
@@ -293,6 +295,8 @@ class DiscoveryFeedScreenModel(
         lastHidden = item
         mutableState.update { it.copy(hiddenSnackbarTitle = item.title) }
         screenModelScope.launchIO {
+            // Taste Engine: скрытие = сильный негативный сигнал (undo удаляет строку лога).
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.HIDE)
             repository.hide(state.value.mediaType, item.cleanTitle)
         }
     }
@@ -302,6 +306,8 @@ class DiscoveryFeedScreenModel(
         mutableState.update { it.copy(hiddenSnackbarTitle = null) }
         screenModelScope.launchIO {
             repository.unhide(state.value.mediaType, item.cleanTitle)
+            // Taste Engine: undo отменяет и сигнал (профиль возвращается к «до скрытия»).
+            repository.removeSignal(state.value.mediaType, item.cleanTitle)
         }
     }
 
@@ -336,6 +342,10 @@ class DiscoveryFeedScreenModel(
             } finally {
                 mutableState.update { it.copy(addingTitles = it.addingTitles - item.title) }
             }
+            if (ok) {
+                // Taste Engine: добавление в библиотеку = сильнейший позитивный сигнал.
+                TasteSignalRecorder.record(repository, item, DiscoverySignalType.ADD)
+            }
             mutableState.update {
                 if (ok) {
                     it.copy(addedSnackbarTitle = item.title, searchFallbackItem = null)
@@ -343,6 +353,13 @@ class DiscoveryFeedScreenModel(
                     it.copy(searchFallbackItem = item)
                 }
             }
+        }
+    }
+
+    /** Taste Engine: клик по карточке — слабый позитивный сигнал (guard повторного тапа уже есть). */
+    fun recordClick(item: DiscoverySuggestion) {
+        screenModelScope.launchIO {
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.CLICK)
         }
     }
 

@@ -78,7 +78,8 @@ class DiscoveryRunnerTest {
         override suspend fun hasUnboundSourceRows(): Boolean = false
 
         val recordedSignals = mutableListOf<Triple<DiscoveryMediaType, String, DiscoverySignalType>>()
-        override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = emptyList()
+        var signals: List<DiscoverySignal> = emptyList()
+        override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = signals
         override suspend fun recordSignal(
             mediaType: DiscoveryMediaType,
             cleanTitle: String,
@@ -153,6 +154,52 @@ class DiscoveryRunnerTest {
         row shouldBe DiscoveryRowType.LIKE
         items.map { it.title } shouldBe listOf("Fresh Pick")
         items.single().seedTitle shouldBe "Seed One"
+    }
+
+    @Test
+    fun `learned signals merge into builder taste profile`() = runTest {
+        val repo = FakeRepository()
+        // 30 свежих ADD-сигналов по «romance» — выученный профиль обязан попасть
+        // в контекст строителя поверх библиотечного (FakeSeedSources: Drama).
+        repo.signals = (1..30).map {
+            DiscoverySignal(
+                mediaType = DiscoveryMediaType.NOVEL,
+                cleanTitle = "liked $it",
+                title = "Liked $it",
+                signalType = DiscoverySignalType.ADD,
+                genres = listOf("romance"),
+                provider = null,
+                sourceKey = null,
+                createdAt = System.currentTimeMillis(),
+            )
+        }
+        val seenProfiles = mutableListOf<List<Pair<String, Double>>>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = DiscoveryPreferences(InMemoryPreferenceStore()),
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = {
+                DiscoveryCoordinator(
+                    listOf(
+                        object : DiscoveryRowBuilder {
+                            override val rowType = DiscoveryRowType.LIKE
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+                                seenProfiles += context.tasteProfile
+                                return emptyList()
+                            }
+                        },
+                    ),
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        val profile = seenProfiles.single()
+        // Выученный жанр (romance, 30 ADD-сигналов) обязан попасть в профиль строителя.
+        // Библиотечный вклад FakeSeedSources пуст (lastInteraction=1 вне 90-дневного окна)
+        // — это и есть деградированный кейс, где taste держится только на сигналах.
+        profile.map { it.first }.contains("romance") shouldBe true
+        profile.filter { it.first == "romance" }.single().second shouldBe 3.0
     }
 
     @Test
