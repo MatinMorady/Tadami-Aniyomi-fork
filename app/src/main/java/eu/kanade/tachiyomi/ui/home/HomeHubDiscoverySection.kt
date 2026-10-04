@@ -2458,7 +2458,7 @@ private fun EmptyForYouCard(onMoreClick: () -> Unit) {
     }
 }
 
-/** B2: long-press меню — скрыть тайтл или скрыть все подборки с тегом (TASTE). */
+/** B2: long-press меню — «Больше такого», скрыть тайтл или скрыть все подборки с тегом (TASTE). */
 @Composable
 internal fun DiscoveryHideOptionsSheet(
     itemTitle: String,
@@ -2466,6 +2466,8 @@ internal fun DiscoveryHideOptionsSheet(
     onHide: () -> Unit,
     onBlacklistTag: (String) -> Unit,
     onDismiss: () -> Unit,
+    // Taste Engine: явный лайк — сильный позитивный сигнал (жанры/источник тайтла).
+    onMoreLikeThis: (() -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -2526,6 +2528,33 @@ internal fun DiscoveryHideOptionsSheet(
                 modifier = Modifier.padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                if (onMoreLikeThis != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                appHaptics.tap()
+                                onMoreLikeThis()
+                            }
+                            .padding(vertical = 13.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            tint = colors.accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            stringResource(AYMR.strings.for_you_more_like_this),
+                            color = colors.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
                 Row(
                     Modifier
                         .fillMaxWidth()

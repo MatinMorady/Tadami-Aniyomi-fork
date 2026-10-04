@@ -1844,6 +1844,15 @@
     <string name="pref_discovery_nsfw_filter_summary">Независимый переключатель: фильтрует взрослый контент внешних провайдеров независимо от общих настроек приложения. Каталоги плагинов регулируются общими настройками</string>
     <string name="for_you_failed_banner">Часть подборок не обновилась — показаны прежние результаты</string>
     <string name="for_you_tag_hide_title">Скрыть тайтл</string>
+    <string name="for_you_more_like_this">Больше такого</string>
+    <string name="for_you_more_like_this_toast">Учтём — лента подстроится</string>
+    <string name="for_you_more_like_this_undo">Больше такого: %1$s</string>
+    <string name="pref_discovery_taste_title">Выученный профиль вкуса</string>
+    <string name="pref_discovery_taste_summary">Улучшает подборки по вашим лайкам, добавлениям и скрытиям. Можно сбросить в любой момент</string>
+    <string name="pref_discovery_taste_reset">Сбросить выученный вкус</string>
+    <string name="pref_discovery_taste_reset_confirm">Сбросить выученный вкус для этой вкладки?</string>
+    <string name="pref_discovery_taste_empty">Пока ничего не выучено — лайкните или скройте подборку</string>
+    <string name="pref_discovery_taste_signal_count">Сигналов: %1$d</string>
     <string name="for_you_tag_blacklist_action">Скрыть всё с тегом „%1$s“</string>
     <string name="for_you_tag_blacklist_action_generic">Скрыть всё с тегом</string>
     <string name="for_you_tag_blacklist_disabled">Теги появятся после следующего обновления подборки</string>

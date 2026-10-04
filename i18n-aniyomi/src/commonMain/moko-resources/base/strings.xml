@@ -2210,6 +2210,15 @@
     <string name="pref_discovery_nsfw_filter_summary">Independent switch: filters adult content from external providers regardless of the app-wide NSFW setting. Plugin catalogues follow the app setting</string>
     <string name="for_you_failed_banner">Some picks failed to update — showing previous results</string>
     <string name="for_you_tag_hide_title">Hide title</string>
+    <string name="for_you_more_like_this">More like this</string>
+    <string name="for_you_more_like_this_toast">Got it — we’ll take that into account</string>
+    <string name="for_you_more_like_this_undo">More like this: %1$s</string>
+    <string name="pref_discovery_taste_title">Learned taste profile</string>
+    <string name="pref_discovery_taste_summary">Improves picks from your likes, adds and hidden titles. Reset any time</string>
+    <string name="pref_discovery_taste_reset">Reset learned taste</string>
+    <string name="pref_discovery_taste_reset_confirm">Reset learned taste for this tab?</string>
+    <string name="pref_discovery_taste_empty">Nothing learned yet — like or hide picks to teach the feed</string>
+    <string name="pref_discovery_taste_signal_count">%1$d signals</string>
     <string name="for_you_tag_blacklist_action">Hide all with tag “%1$s”</string>
     <string name="for_you_tag_blacklist_action_generic">Hide all with tag</string>
     <string name="for_you_tag_blacklist_disabled">Tags appear after the next feed update</string>

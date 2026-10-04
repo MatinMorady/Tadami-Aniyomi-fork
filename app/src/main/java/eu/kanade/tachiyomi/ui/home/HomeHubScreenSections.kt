@@ -911,6 +911,20 @@ private fun HomeHubScreen(
                     onDiscoveryBlacklistTag?.invoke(lpItem, tag, countAffectedTeasers(state.discovery, tag))
                 },
                 onDismiss = { longPressItem = null },
+                onMoreLikeThis = {
+                    longPressItem = null
+                    // Taste Engine: явный лайк — сильный позитивный сигнал.
+                    scope.launch {
+                        eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                            tasteRepository,
+                            lpItem.toDiscoverySuggestion(),
+                            tachiyomi.domain.discovery.model.DiscoverySignalType.LIKE,
+                        )
+                    }
+                    context.toast(
+                        context.contextStringResource(AYMR.strings.for_you_more_like_this_toast),
+                    )
+                },
             )
         }
     }

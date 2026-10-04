@@ -380,6 +380,10 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
                         longPressItem = null
                     },
                     onDismiss = { longPressItem = null },
+                    onMoreLikeThis = {
+                        longPressItem = null
+                        screenModel.recordLike(lpItem)
+                    },
                 )
             }
         }

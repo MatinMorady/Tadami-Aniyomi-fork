@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
 import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.util.system.isRunningFlow
+import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.system.workManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -38,8 +39,10 @@ import tachiyomi.domain.discovery.repository.DiscoveryRepository
 import tachiyomi.domain.entries.anime.interactor.NetworkToLocalAnime
 import tachiyomi.domain.entries.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.entries.novel.interactor.NetworkToLocalNovel
+import tachiyomi.i18n.aniyomi.AYMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
 data class DiscoveryFeedUiState(
     val mediaType: DiscoveryMediaType = DiscoveryMediaType.ANIME,
@@ -363,6 +366,15 @@ class DiscoveryFeedScreenModel(
         }
     }
 
+    /** Taste Engine: «Больше такого» — сильный позитивный сигнал + тост-подтверждение. */
+    fun recordLike(item: DiscoverySuggestion) {
+        screenModelScope.launchIO {
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.LIKE)
+        }
+        context.toast(
+            context.contextStringResource(AYMR.strings.for_you_more_like_this_toast),
+        )
+    }
     fun dismissSearchFallback() = mutableState.update { it.copy(searchFallbackItem = null) }
 
     fun dismissAddedSnackbar() = mutableState.update { it.copy(addedSnackbarTitle = null) }
