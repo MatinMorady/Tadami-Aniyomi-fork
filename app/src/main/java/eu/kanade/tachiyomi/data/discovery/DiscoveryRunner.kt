@@ -10,6 +10,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
@@ -159,6 +160,10 @@ class DiscoveryRunner(
             offset = seedOffset,
         )
         val sourcePreferences = sourcePreferencesProvider()
+        // Taste Learning Engine: один запрос сигнал-лога на генерацию — и на
+        // source-аффинити участия плагинов, и на fold/merge вкуса, и на
+        // «просмотрено»-исключение ниже.
+        val allSignals = runCatching { repository.getSignals(mediaType) }.getOrDefault(emptyList())
         val preferredSourceId = when (mediaType) {
             DiscoveryMediaType.ANIME -> sourcePreferences.lastUsedAnimeSource().get()
             DiscoveryMediaType.MANGA -> sourcePreferences.lastUsedMangaSource().get()
@@ -170,9 +175,7 @@ class DiscoveryRunner(
         val sourceWeights = candidates.filter { it.sourceId > 0 }.groupingBy { it.sourceId }.eachCount()
         // Taste Learning Engine: аффинити источников из сигнал-лога бустит вес участия
         // плагина (плавный tanh-буст, порядок честен и при негативе — кламп 0.4..2.0x).
-        val learnedSourceAffinity = foldLearnedTasteProfile(
-            signals = runCatching { repository.getSignals(mediaType) }.getOrDefault(emptyList()),
-        ).sourceAffinity
+        val learnedSourceAffinity = foldLearnedTasteProfile(signals = allSignals).sourceAffinity
         val pluginStats = plugins.mapNotNull { plugin ->
             val representative = plugin.sourceIds.sortedWith(
                 compareByDescending<Long> { sourceWeights[it] ?: 0 }.thenBy { it },
@@ -243,20 +246,23 @@ class DiscoveryRunner(
 
         // Taste Learning Engine: fold сигнал-лога и слияние с библиотечным профилем.
         // Плавный старт (blend) — при пустом логе merge возвращает библиотечный профиль как есть.
-        val learnedProfile = foldLearnedTasteProfile(
-            signals = runCatching { repository.getSignals(mediaType) }.getOrDefault(emptyList()),
-        )
+        val learnedProfile = foldLearnedTasteProfile(signals = allSignals)
         val mergedTasteProfile = mergeTasteProfiles(
             libraryProfile = buildTasteProfile(candidates),
             learned = learnedProfile,
         )
+        // «Просмотрено/прочитано»: нейтральное исключение — consumed-тайтлы не
+        // попадают в новые генерации ленты (вкусовой профиль они не трогают).
+        val consumedCleanTitles = allSignals
+            .filter { it.signalType == DiscoverySignalType.CONSUMED }
+            .mapTo(HashSet()) { it.cleanTitle }
 
         val context = DiscoveryBuildContext(
             mediaType = mediaType,
             seeds = seedsWithTracks,
             libraryCleanTitles = candidates.mapTo(HashSet()) { normalizeDiscoveryTitle(it.title) },
             historyCleanTitles = seedSources.historyCleanTitles(mediaType),
-            hiddenCleanTitles = repository.getHiddenTitles(mediaType),
+            hiddenCleanTitles = repository.getHiddenTitles(mediaType) + consumedCleanTitles,
             tasteProfile = mergedTasteProfile,
             // V3: глобальный игнор-список жанров (преф) поверх per-media блэклиста тегов.
             blacklistedTags = repository.getBlacklistedTags(mediaType) +

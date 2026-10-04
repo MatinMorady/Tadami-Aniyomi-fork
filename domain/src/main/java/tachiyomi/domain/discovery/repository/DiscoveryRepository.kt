@@ -56,6 +56,9 @@ interface DiscoveryRepository {
     /** Все сигналы медиатипа (старые первыми) — вход fold-профиля вкуса. */
     suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal>
 
+    /** Реактивные consumed-тайтлы медиатипа: «просмотрено» исключается из ленты UI. */
+    fun subscribeConsumed(mediaType: DiscoveryMediaType): Flow<Set<String>>
+
     /** Записать сигнал: старшинство [DiscoverySignalType.overrides] + LRU-cap [maxPerMedia]. */
     suspend fun recordSignal(
         mediaType: DiscoveryMediaType,

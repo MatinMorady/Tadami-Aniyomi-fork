@@ -55,6 +55,7 @@ import androidx.compose.material.icons.automirrored.outlined.LabelOff
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -2458,7 +2459,7 @@ private fun EmptyForYouCard(onMoreClick: () -> Unit) {
     }
 }
 
-/** B2: long-press меню — «Больше такого», скрыть тайтл или скрыть все подборки с тегом (TASTE). */
+/** B2: long-press меню — «Больше такого», «Просмотрено», скрыть тайтл или тег (TASTE). */
 @Composable
 internal fun DiscoveryHideOptionsSheet(
     itemTitle: String,
@@ -2468,6 +2469,8 @@ internal fun DiscoveryHideOptionsSheet(
     onDismiss: () -> Unit,
     // Taste Engine: явный лайк — сильный позитивный сигнал (жанры/источник тайтла).
     onMoreLikeThis: (() -> Unit)? = null,
+    // Taste Engine: «просмотрено» — нейтральное исключение тайтла (вкус не трогает).
+    onMarkConsumed: (() -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -2549,6 +2552,33 @@ internal fun DiscoveryHideOptionsSheet(
                         Spacer(Modifier.width(14.dp))
                         Text(
                             stringResource(AYMR.strings.for_you_more_like_this),
+                            color = colors.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+                if (onMarkConsumed != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                appHaptics.tap()
+                                onMarkConsumed()
+                            }
+                            .padding(vertical = 13.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.TaskAlt,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            stringResource(AYMR.strings.for_you_mark_consumed),
                             color = colors.textPrimary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,

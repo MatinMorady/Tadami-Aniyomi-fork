@@ -139,7 +139,24 @@ class ReaderViewModel @JvmOverloads constructor(
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     private val eventBus: AchievementEventBus = Injekt.get(),
     private val activityDataRepository: ActivityDataRepository = Injekt.get(),
+    private val discoveryRepository: tachiyomi.domain.discovery.repository.DiscoveryRepository = Injekt.get(),
 ) : ViewModel() {
+
+    /**
+     * Taste Engine: «просмотрено» — открытие читалки помечает тайтл consumed
+     * (нейтральный вес 0: вкус не трогает, тайтл уходит из ленты «Для вас»).
+     * Хук на открытие, не на запись истории — работает и в инкогнито.
+     */
+    private fun markDiscoveryConsumed(title: String, sourceId: Long) {
+        viewModelScope.launchIO {
+            eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.recordConsumed(
+                repository = discoveryRepository,
+                mediaType = tachiyomi.domain.discovery.model.DiscoveryMediaType.MANGA,
+                title = title,
+                sourceId = sourceId,
+            )
+        }
+    }
 
     private val mutableState = MutableStateFlow(
         State(
@@ -565,6 +582,9 @@ class ReaderViewModel @JvmOverloads constructor(
                     sourceManager.isInitialized.first { it }
                     mutableState.update { it.copy(manga = manga) }
                     observeForegroundIncognito(manga.source)
+                    // Taste Engine: «просмотрено» — нейтральное исключение из ленты
+                    // «Для тебя»; хук на открытие читалки работает и в инкогнито.
+                    markDiscoveryConsumed(manga.title, manga.source)
                     if (chapterId == -1L) chapterId = initialChapterId
 
                     val context = Injekt.get<Application>()

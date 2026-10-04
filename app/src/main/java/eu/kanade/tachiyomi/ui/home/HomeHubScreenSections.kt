@@ -925,6 +925,20 @@ private fun HomeHubScreen(
                         context.contextStringResource(AYMR.strings.for_you_more_like_this_toast),
                     )
                 },
+                onMarkConsumed = {
+                    longPressItem = null
+                    // Taste Engine: «просмотрено» — нейтральное исключение (вкус не трогает).
+                    scope.launch {
+                        eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                            tasteRepository,
+                            lpItem.toDiscoverySuggestion(),
+                            tachiyomi.domain.discovery.model.DiscoverySignalType.CONSUMED,
+                        )
+                    }
+                    context.toast(
+                        context.contextStringResource(AYMR.strings.for_you_mark_consumed_toast),
+                    )
+                },
             )
         }
     }

@@ -2212,6 +2212,8 @@
     <string name="for_you_tag_hide_title">Hide title</string>
     <string name="for_you_more_like_this">More like this</string>
     <string name="for_you_more_like_this_toast">Got it — we’ll take that into account</string>
+    <string name="for_you_mark_consumed">Mark as watched</string>
+    <string name="for_you_mark_consumed_toast">Marked — this pick won’t show up again</string>
     <string name="for_you_more_like_this_undo">More like this: %1$s</string>
     <string name="pref_discovery_taste_title">Learned taste profile</string>
     <string name="pref_discovery_taste_summary">Improves picks from your likes, adds and hidden titles. Reset any time</string>

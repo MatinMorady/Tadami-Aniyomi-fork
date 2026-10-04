@@ -217,10 +217,17 @@ internal class HomeHubScreenModel(
                 discoveryRepository.subscribe(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
                 discoveryPreferences.discoveryEnabled().changes(),
                 discoveryPreferences.teaserCount().changes(),
-                discoveryRepository.subscribeHidden(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                // «Просмотрено/прочитано»: реактивно исчезает из пула/тизера сразу
+                // после открытия читалки (в т.ч. в инкогнито) или ручной отметки.
+                combine(
+                    discoveryRepository.subscribeHidden(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                    discoveryRepository.subscribeConsumed(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                ) { hidden, consumed -> hidden to consumed },
                 discoveryRepository.subscribeBlacklist(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
-            ) { items, enabled, count, hidden, blacklist ->
-                items.filterNot { it.cleanTitle in hidden } to Triple(
+            ) { items, enabled, count, hiddenAndConsumed, blacklist ->
+                val hidden = hiddenAndConsumed.first
+                val consumed = hiddenAndConsumed.second
+                items.filterNot { it.cleanTitle in hidden || it.cleanTitle in consumed } to Triple(
                     enabled,
                     count,
                     eu.kanade.tachiyomi.data.discovery.expandGenreSet(blacklist.toList()),

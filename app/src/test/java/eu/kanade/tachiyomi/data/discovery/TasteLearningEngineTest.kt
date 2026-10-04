@@ -124,6 +124,33 @@ class TasteLearningEngineTest {
     // ==================== merge ====================
 
     @Test
+    fun `consumed signal is taste-neutral`() {
+        val consumedOnly = foldLearnedTasteProfile(
+            listOf(
+                signal("a", DiscoverySignalType.CONSUMED, listOf("romance"), sourceKey = "pkg"),
+                signal("b", DiscoverySignalType.CONSUMED, listOf("romance"), sourceKey = "pkg"),
+            ),
+            nowMs = now,
+        )
+        // Ни жанров, ни source-аффинити, ни вклада в ramp-up — чистое исключение.
+        consumedOnly.genres shouldBe emptyList()
+        consumedOnly.sourceAffinity shouldBe emptyMap()
+        consumedOnly.signalCount shouldBe 0
+
+        // Смешанный лог: consumed не разогревает blend (иначе 10 лайков + 10 consumed
+        // давали бы blend 1.0 вместо честных 0.5).
+        val mixed = foldLearnedTasteProfile(
+            listOf(
+                signal("a", DiscoverySignalType.LIKE, listOf("romance")),
+                signal("b", DiscoverySignalType.CONSUMED, listOf("action")),
+            ),
+            nowMs = now,
+        )
+        mixed.signalCount shouldBe 1
+        mixed.genres.any { it.first == "action" } shouldBe false
+    }
+
+    @Test
     fun `merge keeps library profile when nothing learned`() {
         val library = listOf("action" to 2.0, "drama" to 1.0)
         mergeTasteProfiles(library, LearnedTasteProfile()) shouldBe library

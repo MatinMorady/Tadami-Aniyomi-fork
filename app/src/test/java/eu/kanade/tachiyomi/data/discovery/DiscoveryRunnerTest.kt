@@ -80,6 +80,8 @@ class DiscoveryRunnerTest {
         val recordedSignals = mutableListOf<Triple<DiscoveryMediaType, String, DiscoverySignalType>>()
         var signals: List<DiscoverySignal> = emptyList()
         override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = signals
+        override fun subscribeConsumed(mediaType: DiscoveryMediaType): kotlinx.coroutines.flow.Flow<Set<String>> =
+            kotlinx.coroutines.flow.MutableStateFlow(emptySet())
         override suspend fun recordSignal(
             mediaType: DiscoveryMediaType,
             cleanTitle: String,
@@ -200,6 +202,50 @@ class DiscoveryRunnerTest {
         // — это и есть деградированный кейс, где taste держится только на сигналах.
         profile.map { it.first }.contains("romance") shouldBe true
         profile.filter { it.first == "romance" }.single().second shouldBe 3.0
+    }
+
+    @Test
+    fun `consumed signal excludes title from generation without touching taste`() = runTest {
+        val repo = FakeRepository()
+        repo.signals = listOf(
+            DiscoverySignal(
+                mediaType = DiscoveryMediaType.NOVEL,
+                cleanTitle = "fresh pick",
+                title = "Fresh Pick",
+                signalType = DiscoverySignalType.CONSUMED,
+                genres = listOf("romance"),
+                provider = null,
+                sourceKey = "com.example.plugin",
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        val seenHidden = mutableListOf<Set<String>>()
+        val seenProfiles = mutableListOf<List<Pair<String, Double>>>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = DiscoveryPreferences(InMemoryPreferenceStore()),
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = {
+                DiscoveryCoordinator(
+                    listOf(
+                        object : DiscoveryRowBuilder {
+                            override val rowType = DiscoveryRowType.LIKE
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+                                seenHidden += context.hiddenCleanTitles
+                                seenProfiles += context.tasteProfile
+                                return emptyList()
+                            }
+                        },
+                    ),
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // «Просмотрено»: тайтл попал в excluded-сет (как hidden), но профиль вкуса
+        // остался пустым — consumed не должен влиять на вкус.
+        seenHidden.single().contains("fresh pick") shouldBe true
+        seenProfiles.single() shouldBe emptyList()
     }
 
     @Test

@@ -49,6 +49,35 @@ object TasteSignalRecorder {
     }
 
     /**
+     * «Просмотрено/прочитано» для тайтла из библиотеки/чтения: нейтральное
+     * исключение из ленты (вес 0, вкусовой профиль не трогает). Вызывается
+     * открытием читалки/плеера — работает и в инкогнито (читалка открывается
+     * всегда, история может не писаться). Жанры — из записи тайтла, если
+     * совпадение в сигнал-логе уже есть (best-effort), иначе пусто.
+     */
+    suspend fun recordConsumed(
+        repository: DiscoveryRepository,
+        mediaType: DiscoveryMediaType,
+        title: String,
+        sourceId: Long?,
+    ) {
+        val cleanTitle = tachiyomi.domain.discovery.model.normalizeDiscoveryTitle(title)
+        if (cleanTitle.isBlank()) return
+        val sourceKey = resolveSourceKey(mediaType, sourceId)
+        runCatching {
+            repository.recordSignal(
+                mediaType = mediaType,
+                cleanTitle = cleanTitle,
+                title = title,
+                signalType = DiscoverySignalType.CONSUMED,
+                genres = emptyList(),
+                provider = null,
+                sourceKey = sourceKey,
+            )
+        }
+    }
+
+    /**
      * Ключ плагина для source-аффинити — та же семантика, что у участия плагинов
      * в [DiscoveryRunner.installedPluginsProvider]: pkgName расширения (anime/manga)
      * или pluginId новелл-плагина. Источник без плагина (OmniSource, локальный)

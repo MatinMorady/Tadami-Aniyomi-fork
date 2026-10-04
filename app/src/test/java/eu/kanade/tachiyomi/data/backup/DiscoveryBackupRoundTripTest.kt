@@ -229,6 +229,8 @@ private class FakeDiscoveryRepository : DiscoveryRepository {
 
     val restoredSignals = mutableListOf<DiscoverySignal>()
     override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = emptyList()
+    override fun subscribeConsumed(mediaType: DiscoveryMediaType): kotlinx.coroutines.flow.Flow<Set<String>> =
+        kotlinx.coroutines.flow.MutableStateFlow(emptySet())
     override suspend fun recordSignal(
         mediaType: DiscoveryMediaType,
         cleanTitle: String,

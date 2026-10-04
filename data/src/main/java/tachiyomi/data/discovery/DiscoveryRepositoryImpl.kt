@@ -231,6 +231,11 @@ class DiscoveryRepositoryImpl(
             db.discovery_signalsQueries.selectAllByMedia(mediaType.key, ::signalMapper)
         }
 
+    override fun subscribeConsumed(mediaType: DiscoveryMediaType): Flow<Set<String>> =
+        handler.subscribeToList { db ->
+            db.discovery_signalsQueries.selectConsumedByMedia(mediaType.key, ::signalMapper)
+        }.map { signals -> signals.mapTo(HashSet()) { it.cleanTitle } }
+
     override suspend fun recordSignal(
         mediaType: DiscoveryMediaType,
         cleanTitle: String,

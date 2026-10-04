@@ -384,6 +384,10 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
                         longPressItem = null
                         screenModel.recordLike(lpItem)
                     },
+                    onMarkConsumed = {
+                        longPressItem = null
+                        screenModel.recordConsumed(lpItem)
+                    },
                 )
             }
         }

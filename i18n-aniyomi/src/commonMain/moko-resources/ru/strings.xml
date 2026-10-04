@@ -1846,6 +1846,8 @@
     <string name="for_you_tag_hide_title">Скрыть тайтл</string>
     <string name="for_you_more_like_this">Больше такого</string>
     <string name="for_you_more_like_this_toast">Учтём — лента подстроится</string>
+    <string name="for_you_mark_consumed">Отметить просмотренным</string>
+    <string name="for_you_mark_consumed_toast">Отмечено — больше не покажем</string>
     <string name="for_you_more_like_this_undo">Больше такого: %1$s</string>
     <string name="pref_discovery_taste_title">Выученный профиль вкуса</string>
     <string name="pref_discovery_taste_summary">Улучшает подборки по вашим лайкам, добавлениям и скрытиям. Можно сбросить в любой момент</string>

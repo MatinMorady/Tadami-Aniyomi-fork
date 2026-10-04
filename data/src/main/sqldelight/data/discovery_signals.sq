@@ -43,6 +43,9 @@ DELETE FROM discovery_signals;
 countByMedia:
 SELECT COUNT(*) FROM discovery_signals WHERE media_type = ?;
 
+selectConsumedByMedia:
+SELECT * FROM discovery_signals WHERE media_type = ? AND signal = 'consumed' ORDER BY created_at ASC;
+
 evictOldest:
 DELETE FROM discovery_signals WHERE media_type = ? AND clean_title IN (
     SELECT clean_title FROM discovery_signals WHERE media_type = ?

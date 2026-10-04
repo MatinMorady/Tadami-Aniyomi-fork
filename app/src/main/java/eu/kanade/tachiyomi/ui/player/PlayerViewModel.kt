@@ -203,7 +203,23 @@ class PlayerViewModel @JvmOverloads constructor(
     uiPreferences: UiPreferences = Injekt.get(),
     private val eventBus: AchievementEventBus = Injekt.get(),
     private val activityDataRepository: ActivityDataRepository = Injekt.get(),
+    private val discoveryRepository: tachiyomi.domain.discovery.repository.DiscoveryRepository = Injekt.get(),
 ) : ViewModel() {
+
+    /**
+     * Taste Engine: «просмотрено» — открытие плеера помечает тайтл consumed.
+     * viewModelScope доступен после конструктора — вызов только из init-пути.
+     */
+    private fun markDiscoveryConsumed(title: String, sourceId: Long) {
+        viewModelScope.launchIO {
+            eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.recordConsumed(
+                repository = discoveryRepository,
+                mediaType = tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME,
+                title = title,
+                sourceId = sourceId,
+            )
+        }
+    }
 
     private val _currentPlaylist = MutableStateFlow<List<Episode>>(emptyList())
     val currentPlaylist = _currentPlaylist.asStateFlow()
@@ -1599,6 +1615,10 @@ class PlayerViewModel @JvmOverloads constructor(
             if (anime != null) {
                 _currentAnime.update { _ -> anime }
                 observeForegroundIncognito(anime.source)
+                // Taste Engine: «просмотрено» — открытие плеера помечает тайтл consumed
+                // (нейтральный вес 0: вкус не трогает, тайтл уходит из ленты «Для вас»).
+                // Хук на открытие, не на запись истории — работает и в инкогнито.
+                markDiscoveryConsumed(anime.title, anime.source)
                 animeTitle.update { _ -> anime.title }
                 sourceManager.isInitialized.first { it }
                 episodeId = initialEpisodeId

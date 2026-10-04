@@ -214,18 +214,25 @@ class DiscoveryFeedScreenModel(
             combine(
                 repository.subscribe(mediaType),
                 refreshingFlow(),
-                repository.subscribeHidden(mediaType),
+                // «Просмотрено/прочитано»: мгновенно уходит из ленты (в т.ч. инкогнито).
+                combine(
+                    repository.subscribeHidden(mediaType),
+                    repository.subscribeConsumed(mediaType),
+                ) { hidden, consumed -> hidden to consumed },
                 preferences.lastFailedRows(mediaType).changes(),
                 repository.subscribeBlacklist(mediaType),
-            ) { all, refreshing, hidden, failedCsv, blacklist ->
-                FeedSources(all, refreshing, hidden, failedCsv, blacklist)
+            ) { all, refreshing, hiddenAndConsumed, failedCsv, blacklist ->
+                FeedSources(all, refreshing, hiddenAndConsumed.first, failedCsv, blacklist, hiddenAndConsumed.second)
             }
-                .collectLatest { (all, refreshing, hidden, failedCsv, blacklist) ->
+                .collectLatest { (all, refreshing, hidden, failedCsv, blacklist, consumed) ->
                     // Кросс-рядовой дедуп: упавший ряд живёт старым кэшем и может
                     // содержать тайтлы свежих рядов — приоритет у rowType.ordinal.
                     val expandedBlacklist = expandGenreSet(blacklist.toList())
                     val visible = dedupeCrossRow(
-                        all.filterNot { it.cleanTitle in hidden || isBlacklisted(it, expandedBlacklist) },
+                        all.filterNot {
+                            it.cleanTitle in hidden || it.cleanTitle in consumed ||
+                                isBlacklisted(it, expandedBlacklist)
+                        },
                     )
                     val rows = groupFeedRows(visible)
                     val rowItems = rows.mapValues { (_, items) -> items.map { it.toRowItem() } }
@@ -265,6 +272,7 @@ class DiscoveryFeedScreenModel(
         val hidden: Set<String>,
         val failedCsv: String,
         val blacklist: Set<String>,
+        val consumed: Set<String>,
     )
 
     private fun DiscoverySuggestion.toRowItem() = DiscoveryRowItem(
@@ -375,6 +383,17 @@ class DiscoveryFeedScreenModel(
             context.contextStringResource(AYMR.strings.for_you_more_like_this_toast),
         )
     }
+
+    /** Taste Engine: «Просмотрено» — нейтральное исключение (вкус не трогает) + тост. */
+    fun recordConsumed(item: DiscoverySuggestion) {
+        screenModelScope.launchIO {
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.CONSUMED)
+        }
+        context.toast(
+            context.contextStringResource(AYMR.strings.for_you_mark_consumed_toast),
+        )
+    }
+
     fun dismissSearchFallback() = mutableState.update { it.copy(searchFallbackItem = null) }
 
     fun dismissAddedSnackbar() = mutableState.update { it.copy(addedSnackbarTitle = null) }

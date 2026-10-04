@@ -239,10 +239,17 @@ internal class NovelHomeHubScreenModel(
                 discoveryRepository.subscribe(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL),
                 discoveryPreferences.discoveryEnabled().changes(),
                 discoveryPreferences.teaserCount().changes(),
-                discoveryRepository.subscribeHidden(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL),
+                // «Просмотрено/прочитано»: реактивно исчезает из пула/тизера сразу
+                // после открытия читалки (в т.ч. в инкогнито) или ручной отметки.
+                combine(
+                    discoveryRepository.subscribeHidden(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL),
+                    discoveryRepository.subscribeConsumed(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL),
+                ) { hidden, consumed -> hidden to consumed },
                 discoveryRepository.subscribeBlacklist(tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL),
-            ) { items, enabled, count, hidden, blacklist ->
-                items.filterNot { it.cleanTitle in hidden } to Triple(
+            ) { items, enabled, count, hiddenAndConsumed, blacklist ->
+                val hidden = hiddenAndConsumed.first
+                val consumed = hiddenAndConsumed.second
+                items.filterNot { it.cleanTitle in hidden || it.cleanTitle in consumed } to Triple(
                     enabled,
                     count,
                     eu.kanade.tachiyomi.data.discovery.expandGenreSet(blacklist.toList()),

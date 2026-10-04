@@ -63,7 +63,8 @@ internal fun foldLearnedTasteProfile(
     return LearnedTasteProfile(
         genres = genres,
         sourceAffinity = sourceAffinity.filterValues { it != 0.0 },
-        signalCount = signals.size,
+        // CONSUMED («просмотрено») — механика исключения, не вкус: в ramp-up не считается.
+        signalCount = signals.count { it.signalType.weight != 0.0 },
     )
 }
 
