@@ -38,6 +38,13 @@ interface DiscoveryRepository {
         mediaType: DiscoveryMediaType,
         windowMillis: Long = 48 * 3600_000L,
     ): Map<String, Long>
+
+    /** Счётчик показов (cleanTitle, lastShownAt, count) — для мягкого неявного негатива. */
+    suspend fun getShownWithCount(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long = 48 * 3600_000L,
+    ): List<Triple<String, Long, Int>>
+
     suspend fun markShown(
         mediaType: DiscoveryMediaType,
         cleanTitles: Collection<String>,

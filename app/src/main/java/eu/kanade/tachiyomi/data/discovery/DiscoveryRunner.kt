@@ -260,7 +260,17 @@ class DiscoveryRunner(
 
         // Taste Learning Engine: fold сигнал-лога и слияние с библиотечным профилем.
         // Плавный старт (blend) — при пустом логе merge возвращает библиотечный профиль как есть.
-        val learnedProfile = foldLearnedTasteProfile(signals = allSignals)
+        // Неявный негатив: тайтл показан ≥3 раз за 48ч без явного сигнала → жанры
+        // получают мягкий минус. Синтез на лету (не пишется в БД), явные сигналы важнее.
+        val implicitNegatives = runCatching {
+            synthesizeImplicitNegatives(
+                shownWithCount = repository.getShownWithCount(mediaType),
+                explicitSignals = allSignals,
+                currentSuggestions = currentSuggestions,
+                mediaType = mediaType,
+            )
+        }.getOrDefault(emptyList())
+        val learnedProfile = foldLearnedTasteProfile(signals = allSignals + implicitNegatives)
         val mergedTasteProfile = mergeTasteProfiles(
             libraryProfile = buildTasteProfile(candidates),
             learned = learnedProfile,

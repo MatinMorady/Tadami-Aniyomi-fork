@@ -1,0 +1,3 @@
+-- Taste Learning Engine: счётчик показов для мягкого неявного негатива
+-- («показано ≥3 раз за 48ч и ни разу не кликнуто» → небольшой минус жанрам).
+ALTER TABLE discovery_shown ADD COLUMN shown_count INTEGER NOT NULL DEFAULT 1;

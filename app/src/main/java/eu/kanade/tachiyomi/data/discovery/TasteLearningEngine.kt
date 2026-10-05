@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.data.discovery
 
+import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoverySignal
 import tachiyomi.domain.discovery.model.DiscoverySignalType
 import kotlin.math.abs
@@ -63,8 +64,11 @@ internal fun foldLearnedTasteProfile(
     return LearnedTasteProfile(
         genres = genres,
         sourceAffinity = sourceAffinity.filterValues { it != 0.0 },
-        // CONSUMED («просмотрено») — механика исключения, не вкус: в ramp-up не считается.
-        signalCount = signals.count { it.signalType.weight != 0.0 },
+        // В ramp-up считаются только явные сигналы пользователя: CONSUMED (0.0)
+        // и синтезированный SHOWN_IGNORED не разогревают blend без его участия.
+        signalCount = signals.count {
+            it.signalType.weight != 0.0 && it.signalType != DiscoverySignalType.SHOWN_IGNORED
+        },
     )
 }
 
@@ -127,6 +131,54 @@ internal fun learnedGenreTier(weight: Double): Int = when {
     weight > 0.0 -> 1
     else -> 0
 }
+
+/**
+ * Синтез неявного негатива «показано, но не кликнуто»:
+ * тайтл из тизера Home показан [SHOWN_IGNORED_MIN_SHOWS]+ раз за 48ч
+ * и не имеет ЯВНОГО сигнала → жанры этого тайтла получают мягкий минус
+ * [DiscoverySignalType.SHOWN_IGNORED.weight] (-0.15). Синтезированные сигналы
+ * НЕ пишутся в БД — пересчитываются на каждый прогон из счётчика показов.
+ */
+internal fun synthesizeImplicitNegatives(
+    shownWithCount: List<Triple<String, Long, Int>>,
+    explicitSignals: List<DiscoverySignal>,
+    currentSuggestions: List<tachiyomi.domain.discovery.model.DiscoverySuggestion>,
+    mediaType: DiscoveryMediaType,
+): List<DiscoverySignal> {
+    val explicitTitles = explicitSignals.mapTo(HashSet()) { it.cleanTitle }
+    // cleanTitle → жанры из reason-CSV текущего кэша (TASTE-ряд; прочие — без жанров).
+    val genresByTitle = currentSuggestions
+        .filter { it.rowType == tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE }
+        .associate { item ->
+            item.cleanTitle to (
+                item.reason
+                    ?.splitToSequence(",")
+                    ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                    ?.toList()
+                    .orEmpty()
+                )
+        }
+    return shownWithCount
+        .filter { (cleanTitle, _, count) ->
+            count >= SHOWN_IGNORED_MIN_SHOWS && cleanTitle !in explicitTitles
+        }
+        .mapNotNull { (cleanTitle, _, _) ->
+            val genres = genresByTitle[cleanTitle].orEmpty()
+            if (genres.isEmpty()) return@mapNotNull null
+            DiscoverySignal(
+                mediaType = mediaType,
+                cleanTitle = cleanTitle,
+                title = cleanTitle,
+                signalType = DiscoverySignalType.SHOWN_IGNORED,
+                genres = genres,
+                provider = null,
+                sourceKey = null,
+                createdAt = System.currentTimeMillis(),
+            )
+        }
+}
+
+private const val SHOWN_IGNORED_MIN_SHOWS = 3
 
 private const val DAY_MS = 24L * 60 * 60 * 1000
 private const val OVERLAP_MULTIPLIER = 0.5

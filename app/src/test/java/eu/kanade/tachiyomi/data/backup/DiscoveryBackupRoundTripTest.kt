@@ -219,6 +219,10 @@ private class FakeDiscoveryRepository : DiscoveryRepository {
         mediaType: DiscoveryMediaType,
         windowMillis: Long,
     ): Map<String, Long> = emptyMap()
+    override suspend fun getShownWithCount(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long,
+    ): List<Triple<String, Long, Int>> = emptyList()
     override suspend fun markShown(
         mediaType: DiscoveryMediaType,
         cleanTitles: Collection<String>,

@@ -124,6 +124,22 @@ class TasteLearningEngineTest {
     // ==================== merge ====================
 
     @Test
+    fun `implicit shown-ignored penalty softens genres without ramp-up`() {
+        // Тайтл из тизера показан 3+ раз и не кликнут: жанр получает мягкий минус,
+        // но в ramp-up не считается (signalCount только по явным).
+        val explicit = listOf(signal("liked", DiscoverySignalType.LIKE, listOf("romance")))
+        val implicit = listOf(
+            signal("shownIgnored", DiscoverySignalType.SHOWN_IGNORED, listOf("romance")),
+        )
+        val profile = foldLearnedTasteProfile(explicit + implicit, nowMs = now)
+        // romance: +0.8 (like) - 0.15 (ignored) = 0.65 — минус применён (float-окно).
+        val romance = profile.genres.toMap().getValue("romance")
+        (romance > 0.64 && romance < 0.66) shouldBe true
+        // В ramp-up только явный сигнал (не consumed, не shown-ignored).
+        profile.signalCount shouldBe 1
+    }
+
+    @Test
     fun `consumed signal is taste-neutral`() {
         val consumedOnly = foldLearnedTasteProfile(
             listOf(

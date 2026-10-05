@@ -9,8 +9,13 @@ package tachiyomi.domain.discovery.model
  * (тайтл больше не показывается, инкогнито в т.ч.), вес 0 — вкусовой
  * профиль не трогает. Старшинство между like и add: перекрывает клик/лайк,
  * но не добавление в библиотеку и не скрытие.
+ *
+ * SHOWN_IGNORED — неявный негатив «показано ≥3 раз за 48ч, ни разу не
+ * кликнуто»: самый младший (ordinal 0), любой явный сигнал перекрывает.
+ * Не пишется в БД — синтезируется в Runner из счётчика показов.
  */
 enum class DiscoverySignalType(val key: String, val weight: Double) {
+    SHOWN_IGNORED("shown_ignored", -0.15),
     CLICK("click", 0.4),
     LIKE("like", 0.8),
     CONSUMED("consumed", 0.0),

@@ -65,6 +65,13 @@ class DiscoveryRunnerTest {
             mediaType: DiscoveryMediaType,
             windowMillis: Long,
         ): Map<String, Long> = emptyMap()
+
+        // Подменяемое окно показов со счётчиком (для неявного негатива).
+        var shownWithCount: List<Triple<String, Long, Int>> = emptyList()
+        override suspend fun getShownWithCount(
+            mediaType: DiscoveryMediaType,
+            windowMillis: Long,
+        ): List<Triple<String, Long, Int>> = shownWithCount
         override suspend fun markShown(
             mediaType: DiscoveryMediaType,
             cleanTitles: Collection<String>,

@@ -178,6 +178,22 @@ class DiscoveryRepositoryImpl(
         }.toMap()
     }
 
+    override suspend fun getShownWithCount(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long,
+    ): List<Triple<String, Long, Int>> {
+        val since = System.currentTimeMillis() - windowMillis
+        return handler.awaitList { db ->
+            db.discovery_shownQueries.selectShownWithCountSince(mediaType.key, since) {
+                    clean_title,
+                    shown_at,
+                    shown_count,
+                ->
+                Triple(clean_title, shown_at, shown_count.toInt())
+            }
+        }
+    }
+
     override suspend fun markShown(
         mediaType: DiscoveryMediaType,
         cleanTitles: Collection<String>,
@@ -189,7 +205,7 @@ class DiscoveryRepositoryImpl(
             db.discovery_shownQueries.cleanupOld(cutoff)
             for (cleanTitle in cleanTitles) {
                 if (cleanTitle.isNotBlank()) {
-                    db.discovery_shownQueries.insertOrReplace(mediaType.key, cleanTitle, timestamp)
+                    db.discovery_shownQueries.upsert(mediaType.key, cleanTitle, timestamp)
                 }
             }
         }
