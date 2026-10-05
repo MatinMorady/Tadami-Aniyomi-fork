@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.data.suggestions
 
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.data.suggestions.sources.AniListMalStatusResolver
 import eu.kanade.tachiyomi.data.suggestions.sources.AniListRecommendationSource
 import eu.kanade.tachiyomi.data.suggestions.sources.MangaUpdatesSimilarSource
 import eu.kanade.tachiyomi.data.suggestions.sources.MyAnimeListRecommendationSource
@@ -134,13 +135,39 @@ class SuggestionCoordinator(
         val results = jobs.map { it.await() }
         val attemptedSources = sources.size
         val failedSources = results.count { it.second }
-        val items = results.flatMap { it.first }
-            .let { aggregated ->
+        val aggregated = results.flatMap { it.first }
+        val items = aggregated
+            .let { list ->
+                if (releaseStatuses.isEmpty()) return@let list
+                // MAL-рекомендации (Jikan) статуса не несут: резолвим их статус одним
+                // пакетным запросом AniList idMal_in, иначе строгий фильтр выпиливал
+                // бы весь MAL-вклад. Прочие провайдеры без статуса (MU/NU) не резолвим.
+                val statuslessMal = list.filter {
+                    it.releaseStatus == null && it.reason == SuggestionReason.EXTERNAL_MAL
+                }
+                if (statuslessMal.isEmpty()) return@let list
+                val idToStatus = runCatching {
+                    AniListMalStatusResolver.resolveByMalIds(
+                        statuslessMal.mapNotNull { it.providerId?.toLongOrNull() },
+                        type = "ANIME",
+                    )
+                }.getOrDefault(emptyMap())
+                if (idToStatus.isEmpty()) return@let list
+                list.map { item ->
+                    if (item.releaseStatus == null && item.reason == SuggestionReason.EXTERNAL_MAL) {
+                        val status = item.providerId?.toLongOrNull()?.let(idToStatus::get)
+                        if (status != null) item.copy(releaseStatus = status) else item
+                    } else {
+                        item
+                    }
+                }
+            }
+            .let { aggregatedWithStatus ->
                 if (releaseStatuses.isEmpty()) {
-                    aggregated
+                    aggregatedWithStatus
                 } else {
                     eu.kanade.tachiyomi.data.discovery.SourceStatusFilterMatcher
-                        .filterByRawStatus(aggregated, releaseStatuses) { it.releaseStatus }
+                        .filterByRawStatus(aggregatedWithStatus, releaseStatuses) { it.releaseStatus }
                 }
             }
             .dedupeByCleanTitle(enrichedSeed)
