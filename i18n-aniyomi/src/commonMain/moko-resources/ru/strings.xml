@@ -1801,7 +1801,7 @@
     <string name="pref_home_hero_cta_mode_summary">Стиль кнопки действия на главном экране: %s</string>
     <string name="pref_home_hero_cta_mode_aurora">Аврора</string>
     <string name="pref_home_hero_cta_mode_classic">Классический</string>
-    <string name="pref_home_hero_mode_auto">Автоматически (кинематографичный, если «Для тебя» включено)</string>
+    <string name="pref_home_hero_mode_auto">Автоматически (кинематографичный, если «Для тебя» включён и есть подборки)</string>
     <string name="pref_home_hero_mode_continue">Продолжить</string>
     <string name="pref_home_hero_mode_collage">Коллаж «Для тебя»</string>
     <string name="pref_home_hero_mode_hybrid">Гибрид (продолжить + подборка)</string>
@@ -1852,7 +1852,7 @@
     <string name="pref_discovery_taste_title">Выученный профиль вкуса</string>
     <string name="pref_discovery_taste_summary">Улучшает подборки по вашим лайкам, добавлениям и скрытиям. Можно сбросить в любой момент</string>
     <string name="pref_discovery_taste_reset">Сбросить выученный вкус</string>
-    <string name="pref_discovery_taste_reset_confirm">Сбросить выученный вкус для этой вкладки?</string>
+    <string name="pref_discovery_taste_reset_confirm">Сбросить выученный вкус по всем вкладкам (аниме, манга, ранобэ)? Скрытые тайтлы и лента не затрагиваются</string>
     <string name="pref_discovery_taste_empty">Пока ничего не выучено — лайкните или скройте подборку</string>
     <string name="pref_discovery_taste_signal_count">Сигналов: %1$d</string>
     <string name="for_you_tag_blacklist_action">Скрыть всё с тегом „%1$s“</string>
@@ -1863,7 +1863,7 @@
     <string name="pref_discovery_blacklist_tags_summary">Теговый уровень «не интересно»: подборки с этими жанрами исключаются</string>
     <string name="pref_discovery_blacklist_empty">Пока нет скрытых тегов</string>
     <string name="pref_discovery_blacklist_reset">Сбросить все теги</string>
-    <string name="backup_discovery_data">Скрытые тайтлы и теги «Для тебя»</string>
+    <string name="backup_discovery_data">Скрытые тайтлы, теги и сигналы вкуса «Для тебя»</string>
     <string name="pref_home_hero_mode">Вид главного баннера</string>
     <string name="pref_collage_rotation_interval">Интервал смены плиток</string>
     <string name="pref_stage_rotation_interval">Интервал смены фокуса</string>
@@ -1948,7 +1948,7 @@
     <string name="pref_discovery_genre_add_custom">Добавить «%1$s»</string>
     <string name="pref_discovery_genre_popular">Популярные</string>
     <string name="pref_discovery_row_taste">Ряд «Твой вкус»</string>
-    <string name="pref_discovery_row_taste_summary">Персональные жанровые рекомендации на основе библиотеки</string>
+    <string name="pref_discovery_row_taste_summary">Персональные жанровые рекомендации на основе библиотеки и ваших лайков/скрытий</string>
     <string name="pref_discovery_row_source">Ряд источника</string>
     <string name="pref_discovery_row_source_summary">Популярные произведения из предпочитаемого источника</string>
     <string name="pref_discovery_seed_completed_days">Период для завершённых</string>
@@ -1956,7 +1956,7 @@
     <string name="pref_discovery_clear_hidden_title">Сбросить скрытые рекомендации</string>
     <string name="pref_discovery_clear_hidden_summary">Показывать ранее скрытые произведения в ленте</string>
     <string name="pref_discovery_clear_hidden_dialog_title">Сбросить скрытые произведения?</string>
-    <string name="pref_discovery_clear_hidden_dialog_message">Все ранее скрытые произведения снова смогут появляться в ленте рекомендаций.</string>
+    <string name="pref_discovery_clear_hidden_dialog_message">Все ранее скрытые произведения снова смогут появляться в ленте рекомендаций. Отмеченные просмотренными не затрагиваются.</string>
     <string name="pref_discovery_clear_hidden_success">Скрытые рекомендации сброшены</string>
     <string name="pref_discovery_days_7">7 дней</string>
     <string name="pref_discovery_days_14">14 дней</string>

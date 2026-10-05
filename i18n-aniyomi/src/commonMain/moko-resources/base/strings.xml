@@ -2167,7 +2167,7 @@
     <string name="pref_home_hero_cta_mode_summary">Style for the action button on the Home screen: %s</string>
     <string name="pref_home_hero_cta_mode_aurora">Aurora</string>
     <string name="pref_home_hero_cta_mode_classic">Classic</string>
-    <string name="pref_home_hero_mode_auto">Automatic (cinematic when For You is on)</string>
+    <string name="pref_home_hero_mode_auto">Automatic (cinematic when For You is on and has picks)</string>
     <string name="pref_home_hero_mode_continue">Continue</string>
     <string name="pref_home_hero_mode_collage">For You collage</string>
     <string name="pref_home_hero_mode_hybrid">Hybrid (continue + picks)</string>
@@ -2218,7 +2218,7 @@
     <string name="pref_discovery_taste_title">Learned taste profile</string>
     <string name="pref_discovery_taste_summary">Improves picks from your likes, adds and hidden titles. Reset any time</string>
     <string name="pref_discovery_taste_reset">Reset learned taste</string>
-    <string name="pref_discovery_taste_reset_confirm">Reset learned taste for this tab?</string>
+    <string name="pref_discovery_taste_reset_confirm">Reset learned taste for all tabs (anime, manga, novels)? Hidden titles and the feed itself are not affected</string>
     <string name="pref_discovery_taste_empty">Nothing learned yet — like or hide picks to teach the feed</string>
     <string name="pref_discovery_taste_signal_count">%1$d signals</string>
     <string name="for_you_tag_blacklist_action">Hide all with tag “%1$s”</string>
@@ -2229,7 +2229,7 @@
     <string name="pref_discovery_blacklist_tags_summary">Tag-level “not interested”: picks with these genres are filtered out</string>
     <string name="pref_discovery_blacklist_empty">No hidden tags yet</string>
     <string name="pref_discovery_blacklist_reset">Reset all tags</string>
-    <string name="backup_discovery_data">For You hidden titles and tags</string>
+    <string name="backup_discovery_data">For You hidden titles, tags and taste signals</string>
     <string name="pref_home_hero_mode">Main banner style</string>
     <string name="pref_collage_rotation_interval">Tile rotation interval</string>
     <string name="pref_stage_rotation_interval">Focus rotation interval</string>
@@ -2314,7 +2314,7 @@
     <string name="pref_discovery_genre_add_custom">Add \"%1$s\"</string>
     <string name="pref_discovery_genre_popular">Popular</string>
     <string name="pref_discovery_row_taste">“Your taste” row</string>
-    <string name="pref_discovery_row_taste_summary">Personalized genre recommendations based on your library</string>
+    <string name="pref_discovery_row_taste_summary">Personalized genre recommendations based on your library and likes/hides</string>
     <string name="pref_discovery_row_source">Source catalogue row</string>
     <string name="pref_discovery_row_source_summary">Popular titles from your preferred source</string>
     <string name="pref_discovery_seed_completed_days">Completed recency window</string>
@@ -2322,7 +2322,7 @@
     <string name="pref_discovery_clear_hidden_title">Reset hidden recommendations</string>
     <string name="pref_discovery_clear_hidden_summary">Restore all previously hidden titles to the feed</string>
     <string name="pref_discovery_clear_hidden_dialog_title">Reset hidden titles?</string>
-    <string name="pref_discovery_clear_hidden_dialog_message">All titles you previously hid will be eligible to appear in the recommendations feed again.</string>
+    <string name="pref_discovery_clear_hidden_dialog_message">All titles you previously hid will be eligible to appear in the recommendations feed again. Titles marked as watched are not affected.</string>
     <string name="pref_discovery_clear_hidden_success">Hidden recommendations reset</string>
     <string name="pref_discovery_days_7">7 days</string>
     <string name="pref_discovery_days_14">14 days</string>
