@@ -1857,6 +1857,10 @@
     <string name="pref_discovery_taste_reset_confirm">Сбросить выученный вкус по всем вкладкам (аниме, манга, ранобэ)? Скрытые тайтлы и лента не затрагиваются</string>
     <string name="pref_discovery_taste_empty">Пока ничего не выучено — лайкните или скройте подборку</string>
     <string name="pref_discovery_taste_signal_count">Сигналов: %1$d</string>
+    <string name="pref_discovery_consumed_title">Отмеченные просмотренными</string>
+    <string name="pref_discovery_consumed_summary">Скрыты из ленты без влияния на вкус. Нажмите на тайтл, чтобы вернуть его</string>
+    <string name="pref_discovery_consumed_empty">Пока ничего не отмечено</string>
+    <string name="pref_discovery_consumed_reset">Вернуть все</string>
     <string name="for_you_tag_blacklist_action">Скрыть всё с тегом „%1$s“</string>
     <string name="for_you_tag_blacklist_action_generic">Скрыть всё с тегом</string>
     <string name="for_you_tag_blacklist_disabled">Теги появятся после следующего обновления подборки</string>

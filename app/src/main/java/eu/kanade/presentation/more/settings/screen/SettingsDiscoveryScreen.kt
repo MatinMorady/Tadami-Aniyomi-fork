@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -135,6 +136,18 @@ object SettingsDiscoveryScreen : SearchableSettings {
                 .genres.take(5)
         }
         LaunchedEffect(Unit) { reloadTaste() }
+
+        // «Просмотренные» (consumed): список с per-title undo — вернуть тайтл в ленту.
+        var showConsumedDialog by remember { mutableStateOf(false) }
+        var consumedSignals by remember {
+            mutableStateOf<List<tachiyomi.domain.discovery.model.DiscoverySignal>>(emptyList())
+        }
+        val reloadConsumed: suspend () -> Unit = {
+            consumedSignals = DiscoveryMediaType.entries
+                .flatMap { repository.getSignals(it) }
+                .filter { it.signalType == tachiyomi.domain.discovery.model.DiscoverySignalType.CONSUMED }
+                .sortedByDescending { it.createdAt }
+        }
 
         val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
         val sourcePreferences = remember { Injekt.get<eu.kanade.domain.source.service.SourcePreferences>() }
@@ -264,6 +277,75 @@ object SettingsDiscoveryScreen : SearchableSettings {
                                     "$tag · ${media.key}",
                                     color = colors.textPrimary,
                                     fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // «Просмотренные»: список consumed-тайтлов с per-title undo и общим возвратом.
+        if (showConsumedDialog) {
+            AuroraFrostDialog(
+                onDismiss = { showConsumedDialog = false },
+                title = stringResource(AYMR.strings.pref_discovery_consumed_title),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { showConsumedDialog = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(AYMR.strings.pref_discovery_consumed_reset),
+                        onClick = {
+                            scope.launchIO {
+                                consumedSignals.forEach { repository.removeSignal(it.mediaType, it.cleanTitle) }
+                                reloadConsumed()
+                                reloadTaste()
+                            }
+                            showConsumedDialog = false
+                        },
+                        enabled = consumedSignals.isNotEmpty(),
+                    )
+                },
+            ) {
+                if (consumedSignals.isEmpty()) {
+                    Text(
+                        stringResource(AYMR.strings.pref_discovery_consumed_empty),
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    Column {
+                        consumedSignals.forEach { signal ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clickable {
+                                        scope.launchIO {
+                                            // Undo consumed: тайтл снова может попасть в ленту.
+                                            repository.removeSignal(signal.mediaType, signal.cleanTitle)
+                                            reloadConsumed()
+                                            reloadTaste()
+                                        }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${signal.title} · ${signal.mediaType.key}",
+                                    color = colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
                                 Icon(
@@ -714,6 +796,16 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         icon = Icons.Outlined.AutoAwesome,
                         enabled = enabled,
                         onClick = {},
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_consumed_title),
+                        subtitle = stringResource(AYMR.strings.pref_discovery_consumed_summary),
+                        icon = Icons.Outlined.TaskAlt,
+                        enabled = enabled,
+                        onClick = {
+                            showConsumedDialog = true
+                            scope.launchIO { reloadConsumed() }
+                        },
                     ),
                     Preference.PreferenceItem.TextPreference(
                         title = stringResource(AYMR.strings.pref_discovery_taste_reset),

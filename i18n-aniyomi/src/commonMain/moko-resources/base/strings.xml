@@ -2223,6 +2223,10 @@
     <string name="pref_discovery_taste_reset_confirm">Reset learned taste for all tabs (anime, manga, novels)? Hidden titles and the feed itself are not affected</string>
     <string name="pref_discovery_taste_empty">Nothing learned yet — like or hide picks to teach the feed</string>
     <string name="pref_discovery_taste_signal_count">%1$d signals</string>
+    <string name="pref_discovery_consumed_title">Marked as watched</string>
+    <string name="pref_discovery_consumed_summary">Hidden from the feed without affecting taste. Tap a title to bring it back</string>
+    <string name="pref_discovery_consumed_empty">Nothing marked as watched yet</string>
+    <string name="pref_discovery_consumed_reset">Restore all</string>
     <string name="for_you_tag_blacklist_action">Hide all with tag “%1$s”</string>
     <string name="for_you_tag_blacklist_action_generic">Hide all with tag</string>
     <string name="for_you_tag_blacklist_disabled">Tags appear after the next feed update</string>
