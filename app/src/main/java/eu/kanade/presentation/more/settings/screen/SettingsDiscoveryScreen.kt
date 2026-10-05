@@ -286,6 +286,9 @@ object SettingsDiscoveryScreen : SearchableSettings {
                 onApply = { csv ->
                     discoveryPreferences.releaseStatusFilter().set(csv)
                     showStatusDialog = false
+                    // Применить сразу: без триггера лента показывала бы старые статусы
+                    // до следующего фонового цикла.
+                    DiscoveryUpdateJob.refreshNow(context)
                 },
                 onDismiss = { showStatusDialog = false },
             )
@@ -302,6 +305,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
                     discoveryPreferences.requiredGenres().set(reqCsv)
                     discoveryPreferences.ignoredGenres().set(ignCsv)
                     showGenreDialog = false
+                    // Игнор/приоритет/обязательные жанры — применить сразу, не ждать фоновый цикл.
+                    DiscoveryUpdateJob.refreshNow(context)
                 },
                 onDismiss = { showGenreDialog = false },
             )
@@ -338,6 +343,12 @@ object SettingsDiscoveryScreen : SearchableSettings {
                             title = stringResource(AYMR.strings.pref_discovery_external_providers),
                             subtitle = stringResource(AYMR.strings.pref_discovery_external_providers_summary),
                             enabled = enabled,
+                            onValueChanged = {
+                                // Переключение состава провайдеров — регенерировать ленту сразу,
+                                // иначе старые внешние тайтлы висят до фонового цикла.
+                                DiscoveryUpdateJob.refreshNow(context)
+                                true
+                            },
                         ),
                     )
                     add(

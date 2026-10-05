@@ -912,8 +912,14 @@ class NovelReaderScreenModel(
      * Taste Engine: «просмотрено» — открытие читалки помечает тайтл consumed
      * (нейтральный вес 0: вкус не трогает, тайтл уходит из ленты «Для вас»).
      * Хук на открытие, не на запись истории — работает и в инкогнито.
+     * Guard по тайтлу: перелистывание глав не перезаписывает сигнал заново
+     * (loadChapter зовётся и при seamless-переходах между главами).
      */
+    private var lastConsumedMarkedTitle: String? = null
+
     private fun markDiscoveryConsumed(title: String, sourceId: Long) {
+        if (title == lastConsumedMarkedTitle) return
+        lastConsumedMarkedTitle = title
         screenModelScope.launch {
             eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.recordConsumed(
                 repository = discoveryRepository,

@@ -404,16 +404,21 @@ class DiscoveryRunner(
         }
         // «Только плагины»: пустой TASTE-ряд (нет подходящих плагин-тайтлов) не должен
         // оставлять в кэше внешние тайтлы — «пустой ряд не перезаписывает» здесь
-        // мешает явному выбору пользователя, чистим вручную.
-        if (!useExternal && feed.rows[tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE].isNullOrEmpty()) {
+        // мешает явному выбору пользователя, чистим вручную. НО: упавший ряд (network)
+        // — не «честно пустой», его кэш не трогаем (feed.rows[T]=null при падении).
+        if (!useExternal && feed.rows[tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE].isNullOrEmpty() &&
+            tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE !in feed.failedRows
+        ) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE, emptyList())
         }
         // Статус-фильтр активен: пустой ряд (нет тайтлов выбранного статуса) не должен
         // жить старым кэшем с НЕсоответствующими статусами — иначе «выбран Завершённый,
-        // а показывается всякое» из старой генерации. Чистим явно.
+        // а показывается всякое» из старой генерации. Чистим явно. НО: упавший ряд
+        // (провайдер/сеть отвалились) — не «честно пустой», его кэш сохраняем, иначе
+        // при отвале сети с включённым фильтром пропадала бы вся лента.
         if (context.releaseStatuses.isNotEmpty()) {
             tachiyomi.domain.discovery.model.DiscoveryRowType.entries.forEach { rowType ->
-                if (feed.rows[rowType].isNullOrEmpty()) {
+                if (feed.rows[rowType].isNullOrEmpty() && rowType !in feed.failedRows) {
                     repository.replaceRows(mediaType, rowType, emptyList())
                 }
             }

@@ -294,6 +294,15 @@ class DiscoveryRepositoryImpl(
         if (signals.isEmpty()) return
         handler.await(inTransaction = true) { db ->
             signals.forEach { signal ->
+                // Страршинство и при restore: бэкапный слабый сигнал не затирает
+                // локальный сильный (устройство A: HIDE; устройство B: LIKE →
+                // после restore остаётся HIDE — пользователь на A скрыл осознанно).
+                val existing = db.discovery_signalsQueries
+                    .selectByTitle(signal.mediaType.key, signal.cleanTitle, ::signalMapper)
+                    .executeAsOneOrNull()
+                if (!DiscoverySignalType.overrides(existing?.signalType, signal.signalType)) {
+                    return@forEach
+                }
                 db.discovery_signalsQueries.upsert(
                     media_type = signal.mediaType.key,
                     clean_title = signal.cleanTitle,
@@ -305,6 +314,18 @@ class DiscoveryRepositoryImpl(
                     source_key = signal.sourceKey,
                     created_at = signal.createdAt,
                 )
+            }
+            // Тот же LRU-cap, что у live-записей: restore старого большого бэкапа
+            // не должен раздувать таблицу сверх лимита.
+            DiscoveryMediaType.entries.forEach { mediaType ->
+                val count = db.discovery_signalsQueries.countByMedia(mediaType.key).executeAsOne()
+                if (count > SIGNALS_CAP_PER_MEDIA) {
+                    db.discovery_signalsQueries.evictOldest(
+                        mediaType.key,
+                        mediaType.key,
+                        (count - SIGNALS_CAP_PER_MEDIA).toLong(),
+                    )
+                }
             }
         }
     }

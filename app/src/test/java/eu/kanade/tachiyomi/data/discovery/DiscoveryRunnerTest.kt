@@ -483,6 +483,41 @@ class DiscoveryRunnerTest {
         repo.replaced.all { it.third.isEmpty() } shouldBe true
     }
 
+    @Test
+    fun `status filter wipe does not touch failed rows`() = runTest {
+        val repo = FakeRepository()
+        // Активный фильтр + ряд LIKE упал (сеть/провайдер): кэш LIKE обязан выжить —
+        // «пустой ряд не перезаписывает» старше явного вайпа, иначе при отвале сети
+        // с включённым фильтром лента пропадала бы целиком.
+        val prefs = DiscoveryPreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    InMemoryPreferenceStore.InMemoryPreference("discovery_release_status_filter", "finished", ""),
+                ),
+            ),
+        )
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = prefs,
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = {
+                DiscoveryCoordinator(
+                    listOf(
+                        object : DiscoveryRowBuilder {
+                            override val rowType = DiscoveryRowType.LIKE
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> =
+                                throw IOException("network boom")
+                        },
+                    ),
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // LIKE упал → кэш не тронут (вайп только по честно-пустым рядам).
+        repo.replaced.none { it.second == DiscoveryRowType.LIKE } shouldBe true
+    }
+
     // ── Source participation (Task 2) ────────────────────────────────────────────
 
     private fun weightedSeedSources() = object : DiscoverySeedSources {
