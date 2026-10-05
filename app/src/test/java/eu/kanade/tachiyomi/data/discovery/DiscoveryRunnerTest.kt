@@ -438,6 +438,51 @@ class DiscoveryRunnerTest {
         repo.replaced.all { it.third.isEmpty() } shouldBe true
     }
 
+    @Test
+    fun `status filter active wipes empty row caches instead of keeping stale statuses`() = runTest {
+        val repo = FakeRepository()
+        // Фильтр «только Завершённый»; билдер честно возвращает пусто (нет завершённых).
+        // «Пустой ряд не затирает кэш» обязан отступить: старые ряды с НЕзавершёнными
+        // статусами — ровно та жалоба, из-за которой фильтр «не работал».
+        val prefs = DiscoveryPreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    InMemoryPreferenceStore.InMemoryPreference("discovery_release_status_filter", "finished", ""),
+                ),
+            ),
+        )
+        val seenStatuses = mutableListOf<Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = prefs,
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = { builders ->
+                DiscoveryCoordinator(
+                    builders.map { b ->
+                        object : DiscoveryRowBuilder {
+                            override val rowType = b.rowType
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+                                seenStatuses += context.releaseStatuses
+                                return emptyList()
+                            }
+                        }
+                    },
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // Контекст донёс фильтр до билдеров, пустые ряды вычищены из кэша.
+        seenStatuses.all { it == setOf(tachiyomi.domain.discovery.model.DiscoveryReleaseStatus.FINISHED) } shouldBe true
+        repo.replaced.map { it.second }.toSet() shouldBe setOf(
+            DiscoveryRowType.LIKE,
+            DiscoveryRowType.TASTE,
+            DiscoveryRowType.TREND,
+            DiscoveryRowType.SOURCE,
+        )
+        repo.replaced.all { it.third.isEmpty() } shouldBe true
+    }
+
     // ── Source participation (Task 2) ────────────────────────────────────────────
 
     private fun weightedSeedSources() = object : DiscoverySeedSources {

@@ -55,6 +55,12 @@ data class SuggestionItem(
     val providerId: String?,
     val mediaType: SuggestionMediaType,
     val reason: SuggestionReason = SuggestionReason.SEARCH_TITLE,
+    /**
+     * Сырой статус выпуска провайдера (AniList «FINISHED», Shikimori «released»…),
+     * если similar-выдача его несёт. Строгий пост-фильтр статус-настроек ленты
+     * опирается на него; null у провайдеров без статуса (MAL/MU/NU similar).
+     */
+    val releaseStatus: String? = null,
 ) : Serializable {
 
     /**

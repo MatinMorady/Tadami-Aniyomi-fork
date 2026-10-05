@@ -1926,7 +1926,7 @@
     <string name="pref_discovery_group_filters">Фильтры контента</string>
     <string name="pref_discovery_release_status">Статус выпуска</string>
     <string name="pref_discovery_release_status_summary_all">Все статусы (без фильтра)</string>
-    <string name="pref_discovery_release_status_hint">Действует на тренды (AniList/Shikimori) и на ряды источников, если расширение отдаёт статус (фильтром или у тайтлов); применяется при следующем обновлении ленты. Ряд «похоже» статус не знает.</string>
+    <string name="pref_discovery_release_status_hint">Действует на тренды (AniList/Shikimori/Jikan/MangaDex), ряды источников (если расширение отдаёт статус) и ряд «Похоже»: AniList/Shikimori несут статус и фильтруются, провайдеры без статуса (MAL/MangaUpdates/NovelUpdates) при выбранном фильтре в ряд не попадают. Применяется при следующем обновлении ленты.</string>
     <string name="pref_discovery_release_status_ongoing">Выходит</string>
     <string name="pref_discovery_release_status_ongoing_desc">Выходят новые эпизоды или главы</string>
     <string name="pref_discovery_release_status_finished">Завершён</string>

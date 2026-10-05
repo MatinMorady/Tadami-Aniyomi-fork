@@ -59,6 +59,43 @@ internal object SourceStatusFilterMatcher {
     fun entryPasses(status: Int, selected: Set<DiscoveryReleaseStatus>): Boolean =
         selected.isEmpty() || fromEntryStatus(status)?.let { it in selected } != false
 
+    /**
+     * Статус по сырому значению провайдера (AniList «RELEASING», Shikimori «released»,
+     * MAL «Currently Airing»…): нижний регистр, `_`/`-` → пробел, затем синоним-таблицы.
+     * null — значение не распознано.
+     */
+    fun statusOfRaw(raw: String?): DiscoveryReleaseStatus? {
+        val normalized = raw?.lowercase()
+            ?.replace('_', ' ')
+            ?.replace('-', ' ')
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+        return statusOfOption(normalized)
+    }
+
+    /**
+     * Строгий проход рекомендации внешнего провайдера: выбор пуст — всё проходит;
+     * иначе тайтл ОБЯЗАН нести распознанный статус из выбора. Провайдеры без статуса
+     * (MAL/MU/NU similar) при активном фильтре в ряд не попадают — фильтр обязан
+     * «реально работать», а не просачивать неизвестное.
+     */
+    fun rawStatusPasses(raw: String?, selected: Set<DiscoveryReleaseStatus>): Boolean {
+        if (selected.isEmpty()) return true
+        return statusOfRaw(raw) in selected
+    }
+
+    /** Пост-фильтр recommendations-выдачи строгим правилом [rawStatusPasses]. */
+    fun <T> filterByRawStatus(
+        items: List<T>,
+        selected: Set<DiscoveryReleaseStatus>,
+        rawOf: (T) -> String?,
+    ): List<T> = if (selected.isEmpty()) {
+        items
+    } else {
+        items.filter { rawStatusPasses(rawOf(it), selected) }
+    }
+
     // Константы status моделей каталога (SManga/SAnime/SNovel делят схему).
     private const val ENTRY_ONGOING = 1
     private const val ENTRY_COMPLETED = 2
@@ -80,10 +117,20 @@ internal object SourceStatusFilterMatcher {
         "переклад",
     )
 
-    // Порядок важен: FINISHED раньше ONGOING («Publishing finished» ≠ ongoing).
+    // Порядок важен: ANONS первым (NOT_YET_RELEASED содержит «released», но это анонс),
+    // затем FINISHED раньше ONGOING («Publishing finished» ≠ ongoing).
     private val OPTION_TOKENS: List<Pair<DiscoveryReleaseStatus, List<String>>> = listOf(
+        DiscoveryReleaseStatus.ANONS to listOf(
+            "not yet",
+            "upcoming",
+            "announced",
+            "анонс",
+            "запланир",
+            "próxim",
+            "à venir",
+        ),
         DiscoveryReleaseStatus.FINISHED to listOf(
-            "completed", "complete", "finished", "ended", "заверш", "закончен",
+            "completed", "complete", "finished", "ended", "released", "заверш", "закончен",
             "finalizado", "finalisé", "terminé", "terminado", "finito", "completo",
             "abgeschlossen", "beendet", "zakończ", "完結", "완결", "hoàn thành",
             "tamamland", "selesai", "tamat",
@@ -95,16 +142,7 @@ internal object SourceStatusFilterMatcher {
         ),
         DiscoveryReleaseStatus.PAUSED to listOf(
             "hiatus", "paused", "pause", "приостанов", "пауза", "en pausa", "en pause",
-            "in pausa", "pausado", "discontinu", "休載", "휴재", "暂停", "暫停",
-        ),
-        DiscoveryReleaseStatus.ANONS to listOf(
-            "not yet",
-            "upcoming",
-            "announced",
-            "анонс",
-            "запланир",
-            "próxim",
-            "à venir",
+            "in pausa", "pausado", "discontinu", "cancel", "休載", "휴재", "暂停", "暫停",
         ),
     )
 }

@@ -408,6 +408,16 @@ class DiscoveryRunner(
         if (!useExternal && feed.rows[tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE].isNullOrEmpty()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE, emptyList())
         }
+        // Статус-фильтр активен: пустой ряд (нет тайтлов выбранного статуса) не должен
+        // жить старым кэшем с НЕсоответствующими статусами — иначе «выбран Завершённый,
+        // а показывается всякое» из старой генерации. Чистим явно.
+        if (context.releaseStatuses.isNotEmpty()) {
+            tachiyomi.domain.discovery.model.DiscoveryRowType.entries.forEach { rowType ->
+                if (feed.rows[rowType].isNullOrEmpty()) {
+                    repository.replaceRows(mediaType, rowType, emptyList())
+                }
+            }
+        }
         failedRowsSink(mediaType, feed.failedRows)
     }
 }

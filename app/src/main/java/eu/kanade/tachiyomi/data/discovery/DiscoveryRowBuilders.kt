@@ -43,7 +43,11 @@ class DiscoveryLikeRowBuilder(
                 author = seed.author,
                 genres = seed.genres.ifEmpty { null },
             )
-            val result = suggestionCoordinator.fetchSuggestions(suggestionSeed, limit = 25)
+            val result = suggestionCoordinator.fetchSuggestions(
+                suggestionSeed,
+                limit = 25,
+                releaseStatuses = context.releaseStatuses,
+            )
             if (result.items.isEmpty() && result.attemptedSources > 0 &&
                 result.failedSources == result.attemptedSources
             ) {

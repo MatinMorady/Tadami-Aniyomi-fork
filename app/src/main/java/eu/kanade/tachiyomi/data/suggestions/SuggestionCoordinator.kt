@@ -76,10 +76,16 @@ class SuggestionCoordinator(
      * - Cache hit vs miss is logged per-source
      *
      * Deduplication: by providerId (if available) or providerUrl.
+     *
+     * [releaseStatuses] — строгий пост-фильтр статуса выпуска ленты «Для тебя»:
+     * при непустом выборе тайтл ОБЯЗАН нести распознанный статус из выбора
+     * ([SourceStatusFilterMatcher.rawStatusPasses]); провайдеры, чья similar-выдача
+     * статуса не несёт (MAL/MU/NU), при активном фильтре не попадают в результат.
      */
     suspend fun fetchSuggestions(
         seed: SuggestionSeed,
         limit: Int = 40,
+        releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus> = emptySet(),
     ): SuggestionFetchResult = supervisorScope {
         val boundedLimit = limit.coerceIn(1, 100)
         val sources = createSources(seed.mediaType)
@@ -129,6 +135,14 @@ class SuggestionCoordinator(
         val attemptedSources = sources.size
         val failedSources = results.count { it.second }
         val items = results.flatMap { it.first }
+            .let { aggregated ->
+                if (releaseStatuses.isEmpty()) {
+                    aggregated
+                } else {
+                    eu.kanade.tachiyomi.data.discovery.SourceStatusFilterMatcher
+                        .filterByRawStatus(aggregated, releaseStatuses) { it.releaseStatus }
+                }
+            }
             .dedupeByCleanTitle(enrichedSeed)
             .sortedByDescending { SuggestionSourceWeight.finalScore(it.reason, it.bestMatchScoreFor(enrichedSeed)) }
             .take(boundedLimit) // Cap at requested limit

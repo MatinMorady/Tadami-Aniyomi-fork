@@ -108,6 +108,7 @@ class AniListRecommendationSource(
                                         type
                                         format
                                         isAdult
+                                        status
                                         siteUrl
                                         title { romaji english native }
                                         coverImage { large }
@@ -308,6 +309,8 @@ class AniListRecommendationSource(
                     providerId = recId,
                     mediaType = mediaType,
                     reason = SuggestionReason.EXTERNAL_ANILIST,
+                    // Статус выпуска рекомендации — для строгого пост-фильтра ленты.
+                    releaseStatus = rec["status"]?.jsonPrimitive?.contentOrNull,
                 )
             }
         } else {
@@ -358,6 +361,7 @@ class AniListRecommendationSource(
                                         type
                                         format
                                         isAdult
+                                        status
                                         siteUrl
                                         title { romaji english native }
                                         coverImage { large }
