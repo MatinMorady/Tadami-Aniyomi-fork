@@ -87,4 +87,44 @@ class DiscoverySignalsMigrationTest {
             driver.close()
         }
     }
+
+    @Test
+    fun `fresh schema discovery_shown has shown_count column`() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        try {
+            Database.Schema.create(driver)
+            val columns = tableColumns(driver, "discovery_shown")
+            columns shouldContain "shown_count"
+            columns.size shouldBe 4
+        } finally {
+            driver.close()
+        }
+    }
+
+    @Test
+    fun `upgrade from 60 adds shown_count to discovery_shown`() {
+        val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
+        try {
+            // Схема ДО миграции 60 (v59/60 без shown_count): таблица discovery_shown
+            // как она была после 59.sqm (media_type, clean_title, shown_at).
+            driver.execute(
+                null,
+                """
+                CREATE TABLE discovery_shown (
+                    media_type TEXT NOT NULL,
+                    clean_title TEXT NOT NULL,
+                    shown_at INTEGER NOT NULL,
+                    PRIMARY KEY (media_type, clean_title)
+                )
+                """.trimIndent(),
+                0,
+            )
+            Database.Schema.migrate(driver, 60, 61)
+            val columns = tableColumns(driver, "discovery_shown")
+            columns shouldContain "shown_count"
+            columns.size shouldBe 4
+        } finally {
+            driver.close()
+        }
+    }
 }

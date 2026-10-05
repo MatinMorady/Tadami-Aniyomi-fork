@@ -203,10 +203,13 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
         val topBarHeightDp = with(density) { topBarHeightPx.toDp() }
 
         Box(Modifier.fillMaxSize().background(colors.background)) {
+            // Выбранный таб могли скрыть в настройках после открытия экрана — контент
+            // и табы показывают effectiveTab (fallback MIX), чтобы не было пустого разрыва.
+            val effectiveTab = if (tab in state.visibleTabs) tab else FeedSignalTab.MIX
             FeedBody(
                 state = state,
                 hazeState = hazeState,
-                tab = tab,
+                tab = effectiveTab,
                 provider = provider,
                 contentPadding = PaddingValues(
                     start = 16.dp,
@@ -320,7 +323,13 @@ class DiscoveryFeedScreen(val initialMediaKey: String) : Screen(), Serializable 
                     val tabCounts = remember(state) {
                         FeedSignalTab.entries.associateWith { itemsForTab(state, it).size }
                     }
-                    FeedTabs(tab = tab, counts = tabCounts, onTab = { tab = it })
+                    // tab здесь — effectiveTab (fallback MIX вычислен выше, в Content).
+                    FeedTabs(
+                        tab = effectiveTab,
+                        counts = tabCounts,
+                        onTab = { tab = it },
+                        visibleTabs = state.visibleTabs,
+                    )
                     FeedProviderChips(
                         options = providerOptions(state),
                         selected = provider,
@@ -488,6 +497,7 @@ private fun FeedTabs(
     tab: FeedSignalTab,
     counts: Map<FeedSignalTab, Int>,
     onTab: (FeedSignalTab) -> Unit,
+    visibleTabs: Set<FeedSignalTab> = FeedSignalTab.entries.toSet(),
 ) {
     val colors = AuroraTheme.colors
     val isDark = colors.isDark
@@ -499,7 +509,9 @@ private fun FeedTabs(
             .padding(start = 16.dp, end = 16.dp, top = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FeedSignalTab.entries.forEach { signal ->
+        // Выключенные в настройках ряды (или внешние провайдеры) — таб не рисуем:
+        // иначе при «только плагины» SIMILAR/FRESH были бы перманентно пустыми.
+        FeedSignalTab.entries.filter { it in visibleTabs }.forEach { signal ->
             val label = when (signal) {
                 FeedSignalTab.MIX -> stringResource(AYMR.strings.for_you_tab_mix)
                 FeedSignalTab.SIMILAR -> stringResource(AYMR.strings.for_you_tab_similar)

@@ -39,7 +39,8 @@ object AniListMalStatusResolver {
     private val json by lazy { Injekt.get<Json>() }
 
     // In-memory кэш: idMal → status (статус меняется редко; перезапрос на процесс достаточен).
-    private val cache = mutableMapOf<Long, String>()
+    // ConcurrentHashMap: резолв вызывается из параллельных корутин (per-seed async в координаторе).
+    private val cache = java.util.concurrent.ConcurrentHashMap<Long, String>()
 
     /**
      * Карта idMal → сырой статус AniList («RELEASING»/«FINISHED»/…).
@@ -50,7 +51,7 @@ object AniListMalStatusResolver {
         if (distinct.isEmpty()) return emptyMap()
 
         val cached = distinct.mapNotNull { id -> cache[id]?.let { id to it } }.toMap()
-        val missing = distinct.filter { it !in cache }
+        val missing = distinct.filter { id -> !cache.containsKey(id) }
         if (missing.isEmpty()) return cached
 
         val resolved = runCatching { queryStatuses(missing, type) }.getOrDefault(emptyMap())

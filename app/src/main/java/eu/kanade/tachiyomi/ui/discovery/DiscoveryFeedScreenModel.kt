@@ -44,7 +44,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
-data class DiscoveryFeedUiState(
+internal data class DiscoveryFeedUiState(
     val mediaType: DiscoveryMediaType = DiscoveryMediaType.ANIME,
     val rows: Map<DiscoveryRowType, List<DiscoverySuggestion>> = emptyMap(),
     val mix: List<DiscoverySuggestion> = emptyList(),
@@ -67,6 +67,8 @@ data class DiscoveryFeedUiState(
     val tagSnackbar: Pair<String, Int>? = null,
     // Lazy cover recovery: инкремент на каждое восстановленное покрытие — ключ рекомпозиции обложек.
     val coverRecoveryTick: Int = 0,
+    // Табы, видимые при текущих настройках рядов/провайдеров (выключенный ряд = мёртвый таб).
+    val visibleTabs: Set<FeedSignalTab> = FeedSignalTab.entries.toSet(),
 )
 
 /** CSV ключей упавших рядов из prefs → набор [DiscoveryRowType]. */
@@ -187,7 +189,7 @@ internal suspend fun prefetchDiscoveryMeta(
  * библиотеку точным поиском в источнике рекомендации (для внешних провайдеров
  * и при промахе открывает поиск); лонг-пресс скрывает с Undo.
  */
-class DiscoveryFeedScreenModel(
+internal class DiscoveryFeedScreenModel(
     initialMedia: DiscoveryMediaType,
     private val context: Context,
     private val repository: DiscoveryRepository = Injekt.get(),
@@ -206,6 +208,30 @@ class DiscoveryFeedScreenModel(
 
     fun start() {
         observeMedia(state.value.mediaType)
+        observeVisibleTabs()
+    }
+
+    /** Табы по настройкам рядов/провайдеров: выключенный ряд — мёртвый таб, скрываем. */
+    private fun observeVisibleTabs() {
+        screenModelScope.launchIO {
+            combine(
+                preferences.rowLikeEnabled().changes(),
+                preferences.rowTrendEnabled().changes(),
+                preferences.rowTasteEnabled().changes(),
+                preferences.rowSourceEnabled().changes(),
+                preferences.externalProvidersEnabled().changes(),
+            ) { like, trend, taste, source, external ->
+                buildSet {
+                    add(FeedSignalTab.MIX)
+                    if (like && external) add(FeedSignalTab.SIMILAR)
+                    if (taste) add(FeedSignalTab.TASTE)
+                    if (trend && external) add(FeedSignalTab.FRESH)
+                    if (source) add(FeedSignalTab.SOURCE)
+                }
+            }.collectLatest { tabs ->
+                mutableState.update { it.copy(visibleTabs = tabs) }
+            }
+        }
     }
 
     private fun observeMedia(mediaType: DiscoveryMediaType) {
