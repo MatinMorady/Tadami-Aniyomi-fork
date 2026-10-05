@@ -147,6 +147,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
         val seedCompleted by discoveryPreferences.seedCompleted().collectAsStateWithLifecycle()
         val seedActive14 by discoveryPreferences.seedActive14().collectAsStateWithLifecycle()
         val homeHeroMode by discoveryPreferences.homeHeroMode().collectAsStateWithLifecycle()
+        val externalProviders by discoveryPreferences.externalProvidersEnabled().collectAsStateWithLifecycle()
         val isCollageMode = homeHeroMode == "collage"
         // Auto резолвится в Stage при включённом «Для тебя» — stage-поднастройки видны и в авто-режиме.
         val isStageMode = homeHeroMode == "stage" || (homeHeroMode == "auto" && enabled)
@@ -329,6 +330,16 @@ object SettingsDiscoveryScreen : SearchableSettings {
                             enabled = enabled,
                         ),
                     )
+                    // «Только плагины»: выключает внешние провайдеры целиком —
+                    // LIKE/TREND (чисто внешние ряды) не строятся, TASTE — из каталогов.
+                    add(
+                        Preference.PreferenceItem.SwitchPreference(
+                            preference = discoveryPreferences.externalProvidersEnabled(),
+                            title = stringResource(AYMR.strings.pref_discovery_external_providers),
+                            subtitle = stringResource(AYMR.strings.pref_discovery_external_providers_summary),
+                            enabled = enabled,
+                        ),
+                    )
                     add(
                         Preference.PreferenceItem.ListPreference(
                             preference = discoveryPreferences.homeHeroMode(),
@@ -403,7 +414,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         preference = discoveryPreferences.rowLikeEnabled(),
                         title = stringResource(AYMR.strings.pref_discovery_row_like),
                         subtitle = stringResource(AYMR.strings.pref_discovery_row_like_summary),
-                        enabled = enabled,
+                        // Ряд «Похоже» чисто внешний: без внешних провайдеров он не строится.
+                        enabled = enabled && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.seedCount(),
@@ -418,12 +430,12 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         subtitleProvider = { value, _ ->
                             stringResource(AYMR.strings.pref_discovery_seed_count_summary, value)
                         },
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.seedCompleted(),
                         title = stringResource(AYMR.strings.pref_discovery_seed_completed),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.seedCompletedDays(),
@@ -437,12 +449,12 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_seed_completed_days),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowLike && seedCompleted,
+                        enabled = enabled && rowLike && externalProviders && seedCompleted,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.seedActive14(),
                         title = stringResource(AYMR.strings.pref_discovery_seed_active14),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.seedActiveDays(),
@@ -454,30 +466,30 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_seed_active_days),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowLike && seedActive14,
+                        enabled = enabled && rowLike && externalProviders && seedActive14,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.seedAdded(),
                         title = stringResource(AYMR.strings.pref_discovery_seed_added),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.suggestionsUseShikimori(),
                         title = stringResource(AYMR.strings.pref_discovery_provider_shikimori),
                         subtitle = stringResource(AYMR.strings.pref_discovery_provider_shikimori_summary),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.suggestionsUseMangaUpdatesNovel(),
                         title = stringResource(AYMR.strings.pref_discovery_provider_mangaupdates),
                         subtitle = stringResource(AYMR.strings.pref_discovery_provider_mangaupdates_summary),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.suggestionsUseNovelUpdates(),
                         title = stringResource(AYMR.strings.pref_discovery_provider_novelupdates),
                         subtitle = stringResource(AYMR.strings.pref_discovery_provider_novelupdates_summary),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                 ),
             ),
@@ -487,7 +499,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.rowTrendEnabled(),
                         title = stringResource(AYMR.strings.pref_discovery_row_trend),
-                        enabled = enabled,
+                        // Ряд трендов чисто внешний: без внешних провайдеров он не строится.
+                        enabled = enabled && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.trendSeason(),
@@ -498,7 +511,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_trend_season),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowTrend,
+                        enabled = enabled && rowTrend && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.trendSort(),
@@ -508,7 +521,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_trend_sort),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowTrend,
+                        enabled = enabled && rowTrend && externalProviders,
                     ),
                 ),
             ),

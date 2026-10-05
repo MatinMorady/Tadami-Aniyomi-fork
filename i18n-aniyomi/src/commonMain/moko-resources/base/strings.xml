@@ -2208,6 +2208,8 @@
     <string name="pref_discovery_enabled_summary">Master switch: Home teaser, full feed screen, background refresh</string>
     <string name="pref_discovery_nsfw_filter">Hide 18+ content</string>
     <string name="pref_discovery_nsfw_filter_summary">Independent switch: filters adult content from external providers regardless of the app-wide NSFW setting. Plugin catalogues follow the app setting</string>
+    <string name="pref_discovery_external_providers">External recommendation services</string>
+    <string name="pref_discovery_external_providers_summary">AniList, Shikimori, MAL, Jikan, MangaDex, MangaUpdates/NovelUpdates. Turn off to build picks only from installed plugin catalogues</string>
     <string name="for_you_failed_banner">Some picks failed to update — showing previous results</string>
     <string name="for_you_tag_hide_title">Hide title</string>
     <string name="for_you_more_like_this">More like this</string>

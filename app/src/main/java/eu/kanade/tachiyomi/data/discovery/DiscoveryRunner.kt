@@ -146,6 +146,16 @@ class DiscoveryRunner(
         } else {
             preferences.manualRefreshCount(mediaType).get()
         }
+        // Фоновые циклы тоже ротируют страницы провайдеров: иначе авто-обновления
+        // вечно тянут страницу 1 (тренды меняются медленно → лента «не обновляется»).
+        val backgroundCycle = if (isManualRefresh) {
+            preferences.backgroundCycleCount(mediaType).get()
+        } else {
+            val current = preferences.backgroundCycleCount(mediaType).get()
+            val next = current + 1
+            preferences.backgroundCycleCount(mediaType).set(next)
+            next
+        }
         val seedOffset = if (isManualRefresh) manualSeedOffset(refreshCount) else 0
         val seeds = seedSelector.select(
             candidates,
@@ -242,7 +252,11 @@ class DiscoveryRunner(
         } else {
             shownTitles
         }
-        val pageOffset = if (isManualRefresh) manualPageOffset(refreshCount) else 1
+        val pageOffset = if (isManualRefresh) {
+            manualPageOffset(refreshCount)
+        } else {
+            backgroundPageOffset(backgroundCycle)
+        }
 
         // Taste Learning Engine: fold сигнал-лога и слияние с библиотечным профилем.
         // Плавный старт (blend) — при пустом логе merge возвращает библиотечный профиль как есть.
@@ -280,6 +294,13 @@ class DiscoveryRunner(
             sourceIds = participation.sourceIds,
             recentCleanTitles = recentCleanTitles,
             shownCutoffMap = shownCutoffMap,
+            // Ручной рефреш: тайтлы текущей ленты не возвращаются stale-добором —
+            // наполнение ряда реально сменяется, а не «новые + всё старое».
+            currentFeedCleanTitles = if (isManualRefresh) {
+                currentSuggestions.mapTo(HashSet()) { it.cleanTitle }
+            } else {
+                emptySet()
+            },
             pageOffset = pageOffset,
         )
         logcat {
@@ -287,20 +308,22 @@ class DiscoveryRunner(
                 "statuses=${context.releaseStatuses} sources=${context.sourceIds} primary=${context.sourceId}"
         }
         // Выключенные в настройках ряды: чистим их записи в БД, чтобы UI не показывал «зомби».
-        if (!preferences.rowLikeEnabled().get()) {
+        // LIKE/TREND — чисто внешние ряды: при выключенных внешних провайдерах их тоже не строим.
+        val useExternal = preferences.externalProvidersEnabled().get()
+        if (!preferences.rowLikeEnabled().get() || !useExternal) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.LIKE, emptyList())
         }
         if (!preferences.rowTasteEnabled().get()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE, emptyList())
         }
-        if (!preferences.rowTrendEnabled().get()) {
+        if (!preferences.rowTrendEnabled().get() || !useExternal) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TREND, emptyList())
         }
         if (!preferences.rowSourceEnabled().get()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.SOURCE, emptyList())
         }
         val builders = buildList {
-            if (preferences.rowLikeEnabled().get()) {
+            if (preferences.rowLikeEnabled().get() && useExternal) {
                 add(DiscoveryLikeRowBuilder(suggestionCoordinatorFactory()))
             }
             if (preferences.rowTasteEnabled().get()) {
@@ -308,13 +331,16 @@ class DiscoveryRunner(
                     DiscoveryTasteRowBuilder(
                         trending = trendingFactory(),
                         catalog = sourceCatalog,
+                        // «Только плагины»: жанровые рекомендации строятся из каталогов,
+                        // внешние жанровые провайдеры не опрашиваются.
+                        includeExternal = useExternal,
                         sortProvider = {
                             if (preferences.trendSort().get() == "score") TrendSort.SCORE else TrendSort.POPULARITY
                         },
                     ),
                 )
             }
-            if (preferences.rowTrendEnabled().get()) {
+            if (preferences.rowTrendEnabled().get() && useExternal) {
                 add(
                     DiscoveryTrendRowBuilder(
                         trending = trendingFactory(),
@@ -376,6 +402,12 @@ class DiscoveryRunner(
         logcat {
             "[DiscoveryRunner] $mediaType done: rows=${feed.rows.mapValues { it.value.size }} failed=${feed.failedRows}"
         }
+        // «Только плагины»: пустой TASTE-ряд (нет подходящих плагин-тайтлов) не должен
+        // оставлять в кэше внешние тайтлы — «пустой ряд не перезаписывает» здесь
+        // мешает явному выбору пользователя, чистим вручную.
+        if (!useExternal && feed.rows[tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE].isNullOrEmpty()) {
+            repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE, emptyList())
+        }
         failedRowsSink(mediaType, feed.failedRows)
     }
 }
@@ -405,3 +437,9 @@ internal fun manualSeedOffset(refreshCount: Int): Int = refreshCount
  * Цикл 4 полностью повторял выдачу уже к 5-му ручному рефрешу.
  */
 internal fun manualPageOffset(refreshCount: Int): Int = ((refreshCount - 1) % 10) + 2
+
+/**
+ * Страница фонового цикла: 1..10, шагом по номеру цикла. Первый фон-прогон — страница 1
+ * (совпадает с прежним поведением), далее каждый цикл уходит глубже выдачи провайдера.
+ */
+internal fun backgroundPageOffset(cycleCount: Int): Int = ((cycleCount - 1).mod(10)) + 1

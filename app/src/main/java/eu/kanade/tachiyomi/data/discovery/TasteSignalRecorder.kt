@@ -46,6 +46,9 @@ object TasteSignalRecorder {
                 sourceKey = sourceKey,
             )
         }
+        if (signalType == DiscoverySignalType.CONSUMED) {
+            afterConsumed(repository, item.mediaType, item.cleanTitle)
+        }
     }
 
     /**
@@ -74,6 +77,24 @@ object TasteSignalRecorder {
                 provider = null,
                 sourceKey = sourceKey,
             )
+        }
+        afterConsumed(repository, mediaType, cleanTitle)
+    }
+
+    /**
+     * Пост-эффекты consumed: 48h-полка показа (тайтл не вернётся даже после сброса
+     * вкус-лога) + дебаунс-дозаполнение ленты (10 мин REPLACE-очередь): прочитанное
+     * заменяется свежим тайтлом из тех же плагинов, дыры в ряде не остаётся.
+     */
+    private suspend fun afterConsumed(
+        repository: DiscoveryRepository,
+        mediaType: DiscoveryMediaType,
+        cleanTitle: String,
+    ) {
+        runCatching { repository.markShown(mediaType, listOf(cleanTitle)) }
+        runCatching {
+            val app = Injekt.get<android.app.Application>()
+            DiscoveryUpdateJob.scheduleConsumedRefill(app, mediaType)
         }
     }
 

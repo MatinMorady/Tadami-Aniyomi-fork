@@ -1842,6 +1842,8 @@
     <string name="pref_discovery_enabled_summary">Мастер-переключатель: тизер на Home, полный экран, фоновое обновление</string>
     <string name="pref_discovery_nsfw_filter">Скрывать контент 18+</string>
     <string name="pref_discovery_nsfw_filter_summary">Независимый переключатель: фильтрует взрослый контент внешних провайдеров независимо от общих настроек приложения. Каталоги плагинов регулируются общими настройками</string>
+    <string name="pref_discovery_external_providers">Внешние сервисы рекомендаций</string>
+    <string name="pref_discovery_external_providers_summary">AniList, Shikimori, MAL, Jikan, MangaDex, MangaUpdates/NovelUpdates. Выключите — подборки строятся только из каталогов установленных плагинов</string>
     <string name="for_you_failed_banner">Часть подборок не обновилась — показаны прежние результаты</string>
     <string name="for_you_tag_hide_title">Скрыть тайтл</string>
     <string name="for_you_more_like_this">Больше такого</string>

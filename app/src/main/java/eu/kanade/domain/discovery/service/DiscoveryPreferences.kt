@@ -42,6 +42,18 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
     fun manualRefreshCount(mediaType: DiscoveryMediaType): Preference<Int> =
         preferenceStore.getInt("discovery_manual_refresh_count_" + mediaType.key, 0)
 
+    /** Число фоновых циклов обновления per-media — ротация страниц провайдеров для авто-обновлений. */
+    fun backgroundCycleCount(mediaType: DiscoveryMediaType): Preference<Int> =
+        preferenceStore.getInt("discovery_background_cycle_count_" + mediaType.key, 0)
+
+    /**
+     * Внешние сервисы рекомендаций (AniList, Shikimori, MAL, Jikan, MangaDex, MU/NU):
+     * false — подборки строятся только из каталогов установленных плагинов;
+     * ряды «Похоже» и «Тренды» (чисто внешние) не генерируются и чистятся из кэша.
+     */
+    fun externalProvidersEnabled(): Preference<Boolean> =
+        preferenceStore.getBoolean("discovery_external_providers", true)
+
     /**
      * Момент последней попытки bootstrap-генерации ленты медиатипа (анти-шторм:
      * при стойких неудачах генерации вход на вкладку не должен перезапускать её).

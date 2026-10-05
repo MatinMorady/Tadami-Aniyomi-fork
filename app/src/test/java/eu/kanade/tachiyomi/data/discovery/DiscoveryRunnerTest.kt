@@ -394,6 +394,50 @@ class DiscoveryRunnerTest {
         )
     }
 
+    @Test
+    fun `background page offset cycles one to ten without duplicates`() {
+        backgroundPageOffset(1) shouldBe 1
+        backgroundPageOffset(2) shouldBe 2
+        backgroundPageOffset(10) shouldBe 10
+        backgroundPageOffset(11) shouldBe 1
+        backgroundPageOffset(20) shouldBe 10
+    }
+
+    @Test
+    fun `external providers off skips like and trend builders and clears their cache`() = runTest {
+        val repo = FakeRepository()
+        val prefs = DiscoveryPreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    InMemoryPreferenceStore.InMemoryPreference("discovery_external_providers", false, true),
+                ),
+            ),
+        )
+        val seenBuilderTypes = mutableListOf<DiscoveryRowType>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = prefs,
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = { builders ->
+                seenBuilderTypes += builders.map { it.rowType }
+                DiscoveryCoordinator(emptyList())
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // Чисто внешние ряды (LIKE/TREND) не строятся — билдеры не создаются.
+        seenBuilderTypes.filter { it == DiscoveryRowType.LIKE || it == DiscoveryRowType.TREND } shouldBe emptyList()
+        // Их кэш-ряды очищены (как при выключенных рядах), TASTE тоже: пустая генерация
+        // без внешних жанровых провайдеров не должна оставлять старые внешние тайтлы.
+        // (LIKE/TREND чистятся до сборки, TASTE — после: порядок вызовов не значим.)
+        repo.replaced.map { it.second }.toSet() shouldBe setOf(
+            DiscoveryRowType.LIKE,
+            DiscoveryRowType.TASTE,
+            DiscoveryRowType.TREND,
+        )
+        repo.replaced.all { it.third.isEmpty() } shouldBe true
+    }
+
     // ── Source participation (Task 2) ────────────────────────────────────────────
 
     private fun weightedSeedSources() = object : DiscoverySeedSources {
