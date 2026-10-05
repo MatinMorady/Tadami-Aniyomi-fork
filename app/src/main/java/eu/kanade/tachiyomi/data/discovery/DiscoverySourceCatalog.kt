@@ -3,13 +3,16 @@ package eu.kanade.tachiyomi.data.discovery
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.data.suggestions.MultilingualQueryHelper
 import eu.kanade.tachiyomi.novelsource.NovelCatalogueSource
 import eu.kanade.tachiyomi.novelsource.model.NovelFilter
 import eu.kanade.tachiyomi.novelsource.model.NovelFilterList
+import eu.kanade.tachiyomi.novelsource.model.SNovel
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.coroutines.CancellationException
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
@@ -314,7 +317,7 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                         ?: if (page > 1) runCatching { source.getSearchManga(1, "", filters) }.getOrNull() else null
                 } ?: return emptyList()
 
-                val keptMangas = pageData.mangas
+                val keptMangas = enrichMangasWithStatus(source, pageData.mangas, releaseStatuses)
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
                 if (releaseStatuses.isNotEmpty()) {
                     logcat {
@@ -349,7 +352,7 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                         ?: if (page > 1) runCatching { source.getSearchAnime(1, "", filters) }.getOrNull() else null
                 } ?: return emptyList()
 
-                val keptAnimes = pageData.animes
+                val keptAnimes = enrichAnimesWithStatus(source, pageData.animes, releaseStatuses)
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
                 if (releaseStatuses.isNotEmpty()) {
                     logcat {
@@ -384,7 +387,7 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                         ?: if (page > 1) runCatching { source.getSearchNovels(1, "", filters) }.getOrNull() else null
                 } ?: return emptyList()
 
-                val keptNovels = pageData.novels
+                val keptNovels = enrichNovelsWithStatus(source, pageData.novels, releaseStatuses)
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
                 if (releaseStatuses.isNotEmpty()) {
                     logcat {
@@ -603,5 +606,65 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         is String -> value
         is Pair<*, *> -> value.first?.toString().orEmpty()
         else -> value?.toString().orEmpty()
+    }
+
+    /**
+     * Обогащение статусом для источников без статус-фильтра (MangaKakalot, FlameComics):
+     * при активном выборе статуса айтемы с UNKNOWN-статусом дозапрашиваются деталями
+     * (getMangaDetails/getAnimeDetails/getNovelDetails), где статус есть на странице.
+     * Ограничение [DETAILS_ENRICH_CAP] — витрина не делается тяжелой; остальные
+     * UNKNOWN проходят как раньше (best-effort, лента не голодает).
+     */
+    private suspend fun enrichMangasWithStatus(
+        source: CatalogueSource,
+        mangas: List<SManga>,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<SManga> {
+        if (releaseStatuses.isEmpty()) return mangas
+        val (unknown, known) = mangas.partition { SourceStatusFilterMatcher.fromEntryStatus(it.status) == null }
+        if (known.isNotEmpty() || unknown.isEmpty()) return mangas
+        // Все без статуса — иначе известные уже отфильтрованы корректно, детали не нужны.
+        val enriched = unknown.take(DETAILS_ENRICH_CAP).map { manga ->
+            runCatching {
+                source.getMangaDetails(manga)
+            }.getOrNull() ?: manga
+        }
+        return known + enriched + unknown.drop(DETAILS_ENRICH_CAP)
+    }
+
+    private suspend fun enrichAnimesWithStatus(
+        source: AnimeCatalogueSource,
+        animes: List<SAnime>,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<SAnime> {
+        if (releaseStatuses.isEmpty()) return animes
+        val (unknown, known) = animes.partition { SourceStatusFilterMatcher.fromEntryStatus(it.status) == null }
+        if (known.isNotEmpty() || unknown.isEmpty()) return animes
+        val enriched = unknown.take(DETAILS_ENRICH_CAP).map { anime ->
+            runCatching {
+                source.getAnimeDetails(anime)
+            }.getOrNull() ?: anime
+        }
+        return known + enriched + unknown.drop(DETAILS_ENRICH_CAP)
+    }
+
+    private suspend fun enrichNovelsWithStatus(
+        source: NovelCatalogueSource,
+        novels: List<SNovel>,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<SNovel> {
+        if (releaseStatuses.isEmpty()) return novels
+        val (unknown, known) = novels.partition { SourceStatusFilterMatcher.fromEntryStatus(it.status) == null }
+        if (known.isNotEmpty() || unknown.isEmpty()) return novels
+        val enriched = unknown.take(DETAILS_ENRICH_CAP).map { novel ->
+            runCatching {
+                source.getNovelDetails(novel)
+            }.getOrNull() ?: novel
+        }
+        return known + enriched + unknown.drop(DETAILS_ENRICH_CAP)
+    }
+
+    private companion object {
+        const val DETAILS_ENRICH_CAP = 8
     }
 }
