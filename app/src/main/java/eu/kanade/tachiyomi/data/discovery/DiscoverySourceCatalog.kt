@@ -465,8 +465,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
      * Select — одиночный (применим только при одном статусе), Group — чекбоксы/
      * tri-state (любое число), топ-левел TriState/CheckBox — по имени опции.
      * true = фильтр выставлен, запрос пойдёт через search с этим FilterList.
+     *
+     * internal: юнит-тест прогоняет РЕАЛЬНЫЕ формы фильтров расширений
+     * (weebcentral/asurascans/comick/readmanga/mangalib…) — см. RealSourcesStatusFilterSimulationTest.
      */
-    private fun applyMangaStatusFilter(filters: FilterList, selected: Set<DiscoveryReleaseStatus>): Boolean {
+    internal fun applyMangaStatusFilter(filters: FilterList, selected: Set<DiscoveryReleaseStatus>): Boolean {
         val select = filters.filterIsInstance<Filter.Select<*>>()
             .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
         if (select != null) {
