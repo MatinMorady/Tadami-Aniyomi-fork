@@ -4,7 +4,6 @@
   <p><strong>A polished Aniyomi fork for anime, manga, and novels (ranobe).</strong></p>
   <p>
     <a href="https://github.com/andarcanum/Tadami-Aniyomi-fork/releases"><img src="https://img.shields.io/github/v/release/andarcanum/Tadami-Aniyomi-fork?display_name=tag" alt="Latest Release"></a>
-    <a href="https://boosty.to/tadami"><img src="https://img.shields.io/badge/Boosty-Blog%20%26%20Previews-F15F2C?logo=boosty&logoColor=white" alt="Boosty Blog"></a>
     <a href="LICENSE"><img src="https://img.shields.io/github/license/andarcanum/Tadami-Aniyomi-fork" alt="License"></a>
     <a href="https://developer.android.com/about/versions/oreo"><img src="https://img.shields.io/badge/Android-8.0%2B-brightgreen" alt="Android 8+"></a>
   </p>
@@ -22,11 +21,8 @@ Requires Android 8.0+ (API 26+). Package name: `com.tadami.aurora`.
 > **Release Schedule / График выходов**
 > - **GitHub Releases:** Major stable versions are released **weekly**.  
 >   _Основные (стабильные) версии публикуются на GitHub **еженедельно**._
-> - **[Boosty Blog](https://boosty.to/tadami):** Intermediate preview builds, dev logs, and early updates are published regularly.  
->   _Промежуточные тестовые сборки, новости разработки и ранний доступ выходят в **[блоге на Boosty](https://boosty.to/tadami)**._
 
 - **Stable Releases:** [GitHub Releases](https://github.com/andarcanum/Tadami-Aniyomi-fork/releases)
-- **Dev & Preview Builds:** [Boosty Blog](https://boosty.to/tadami)
 
 ## Screenshots
 
@@ -139,45 +135,6 @@ property of their respective owners.
 Tadami is intended for **lawful use only**. Do not use Tadami to infringe the
 rights of others. See [DISCLAIMER.md](DISCLAIMER.md) for the full statement and
 [DMCA.md](DMCA.md) for our copyright/takedown policy (DMCA inquiries: [jannople7@gmail.com](mailto:jannople7@gmail.com)).
-
-## Support Development
-
-> [!IMPORTANT]
-> Donations fund **only the development of this open-source application** — coding,
-> maintenance, testing, and infrastructure. They are **not** a payment for content,
-> and they do **not** support, host, or endorse any third-party sources, extensions,
-> repositories, or copyrighted material. Tadami ships no content and provides no
-> access to any. Contributing is entirely voluntary.
->
-> _Пожертвования идут **исключительно на разработку** этого приложения с открытым
-> исходным кодом и **не являются оплатой контента**. Они не поддерживают и не
-> финансируют какие-либо сторонние источники, расширения или нелегальные материалы._
-
-<div align="center">
-
-If you'd like to support the work on the code, here are a few optional ways.
-
-<br />
-
-<a href="https://boosty.to/tadami/donate"><img src="https://img.shields.io/badge/Boosty-Support-F15F2C?style=for-the-badge&logo=boosty&logoColor=white" alt="Boosty" height="34" /></a>&nbsp;&nbsp;
-<a href="https://pay.cloudtips.ru/p/cae17cec"><img src="https://img.shields.io/badge/CloudTips-SBP%20%2F%20Card-1A73E8?style=for-the-badge&logo=cashapp&logoColor=white" alt="CloudTips" height="34" /></a>
-
-<sub>Our Boosty blog: <a href="https://boosty.to/tadami"><b>boosty.to/tadami</b></a></sub>
-
-<br />
-
-<details>
-<summary><b>💠 Crypto (USDT)</b></summary>
-<br />
-
-| Asset | Network | Address |
-| :---: | :---: | :--- |
-| ![USDT](https://img.shields.io/badge/USDT-26A17B?style=flat-square&logo=tether&logoColor=white) | **TON** | `UQBTdyHogZWuUnv10WfFUM0yQ8lc3iXFh-4JyLStNirFCBrm` |
-| ![USDT](https://img.shields.io/badge/USDT-26A17B?style=flat-square&logo=tether&logoColor=white) | **TRON (TRC20)** | `TJwbx9PNLLpMetpyJ83DpGCCdNWwkcEXTt` |
-
-</details>
-
-</div>
 
 ## Credits
 
