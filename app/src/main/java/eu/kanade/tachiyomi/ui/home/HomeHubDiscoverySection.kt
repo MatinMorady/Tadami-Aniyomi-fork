@@ -55,6 +55,7 @@ import androidx.compose.material.icons.automirrored.outlined.LabelOff
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -125,6 +126,8 @@ import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.resolveAuroraSurfaceColor
 import eu.kanade.presentation.util.rememberSupportsBlurBehind
 import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
+import eu.kanade.tachiyomi.data.discovery.filterFranchiseClustering
+import eu.kanade.tachiyomi.data.discovery.filterFranchiseClusteringGeneric
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
 import eu.kanade.tachiyomi.data.discovery.rrfScores
 import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
@@ -160,15 +163,26 @@ internal fun composeTeaserItems(
     val rows = items.groupBy { it.rowType }
         .mapValues { (_, row) ->
             row.map { s ->
-                DiscoveryRowItem(s.title, s.cleanTitle, s.coverUrl, s.reason, s.seedTitle, s.provider, s.score)
+                DiscoveryRowItem(
+                    title = s.title,
+                    cleanTitle = s.cleanTitle,
+                    coverUrl = s.coverUrl,
+                    reason = s.reason,
+                    seedTitle = s.seedTitle,
+                    provider = s.provider,
+                    score = s.score,
+                    sourceId = s.sourceId,
+                    sourceUrl = s.sourceUrl,
+                )
             }
         }
     val fullMix = interleaveMix(rows, total = items.size, rrf = rrfScores(rows))
-    val safeOffset = if (fullMix.isNotEmpty()) offset % fullMix.size else 0
+    val clustered = filterFranchiseClustering(fullMix, maxPerSeries = if (capped >= 15) 2 else 1)
+    val safeOffset = if (clustered.isNotEmpty()) offset % clustered.size else 0
     val rotated = if (safeOffset <= 0) {
-        fullMix.take(capped)
+        clustered.take(capped)
     } else {
-        (fullMix.drop(safeOffset) + fullMix.take(safeOffset)).take(capped)
+        (clustered.drop(safeOffset) + clustered.take(safeOffset)).take(capped)
     }
     return rotated.mapNotNull { row ->
         items.firstOrNull { it.cleanTitle == row.cleanTitle }?.toHomeHubDiscoveryItem()
@@ -176,13 +190,14 @@ internal fun composeTeaserItems(
 }
 
 /**
- * Выбирает элементы тизера с соблюдением 48-часовой уникальности:
+ * Выбирает элементы тизера с соблюдением 48-часовой уникальности и минимизацией
+ * пересечения с карточками, видимыми прямо сейчас:
  * 1. Исключает тайтлы из [shownTitles] (показанные за последние 48 ч).
- * 2. Если свежих тайтлов >= count, формирует сбалансированный тизер только из свежих.
- * 3. Если свежих тайтлов < count, добирает недостающие из ранее показанных строго в порядке
- *    [shownCutoffMap] (наименее недавно показанные первыми, без искажения квотами рядов).
- * 4. Если весь пул меньше или равен count, циклически ротирует порядок отображения по [offset],
- *    чтобы кнопка обновления и повторный вход не зависали.
+ * 2. Если задан [currentTitles], в первую очередь отбирает тайтлы, которых нет на экране.
+ * 3. Если свежих тайтлов >= count, формирует сбалансированный тизер из свежих с ротацией по [offset].
+ * 4. Если свежих тайтлов < count, добирает недостающие из ранее показанных в порядке
+ *    [shownCutoffMap] (наименее недавно показанные первыми, с приоритетом не видимых сейчас).
+ * 5. Если весь пул меньше или равен count, циклически ротирует порядок отображения по [offset].
  */
 internal fun selectFreshTeaserItems(
     pool: List<DiscoverySuggestion>,
@@ -190,6 +205,7 @@ internal fun selectFreshTeaserItems(
     count: Int,
     offset: Int = 0,
     shownCutoffMap: Map<String, Long> = emptyMap(),
+    currentTitles: Set<String> = emptySet(),
 ): List<HomeHubDiscoveryItem> {
     val capped = count.coerceIn(3, 20)
     if (pool.isEmpty()) return emptyList()
@@ -197,32 +213,72 @@ internal fun selectFreshTeaserItems(
     val freshPool = pool.filterNot { it.cleanTitle in shownTitles }
     val shownPool = pool.filter { it.cleanTitle in shownTitles }
 
+    // Сначала пробуем кандидатов, которых нет на экране
+    val freshNotCurrent = if (currentTitles.isNotEmpty()) {
+        freshPool.filterNot { it.cleanTitle in currentTitles }
+    } else {
+        freshPool
+    }
+
     val rawSelection: List<HomeHubDiscoveryItem> = when {
+        freshNotCurrent.size >= capped -> {
+            composeTeaserItems(freshNotCurrent, capped, offset = 0)
+        }
         freshPool.size >= capped -> {
-            composeTeaserItems(freshPool, capped, offset = 0)
+            // Свежих тайтлов в сумме достаточно, но часть из них на экране —
+            // минимизируем пересечение: freshNotCurrent первыми, добор из оставшихся fresh
+            val chosen = freshNotCurrent.map { it.toHomeHubDiscoveryItem() }
+            val remainingFresh = freshPool.filter { it.cleanTitle in currentTitles }
+                .map { it.toHomeHubDiscoveryItem() }
+            (chosen + remainingFresh).take(capped)
         }
         freshPool.isNotEmpty() -> {
-            val freshItems = freshPool.map { it.toHomeHubDiscoveryItem() }
-            val needed = capped - freshItems.size
-            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
-            val backfillItems = sortedShown.take(needed).map { it.toHomeHubDiscoveryItem() }
-            (freshItems + backfillItems).take(capped)
+            // Свежих тайтлов меньше capped: берем все свежие (не видимые сейчас в первую очередь)
+            val freshCandidates = (freshNotCurrent + freshPool.filter { it.cleanTitle in currentTitles })
+                .distinctBy { it.cleanTitle }
+                .map { it.toHomeHubDiscoveryItem() }
+            val needed = capped - freshCandidates.size
+
+            // Добираем из показанных: сначала те, которых нет на экране, затем остальные;
+            // внутри каждой группы — от наименее недавно показанных к более свежим
+            val shownNotCurrent = shownPool.filterNot { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            val shownOnScreen = shownPool.filter { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+
+            val backfillPool = (shownNotCurrent + shownOnScreen).take(needed)
+                .map { it.toHomeHubDiscoveryItem() }
+            (freshCandidates + backfillPool).take(capped)
         }
         else -> {
-            val sortedShown = shownPool.sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
-            sortedShown.take(capped).map { it.toHomeHubDiscoveryItem() }
+            // Свежий пул пуст: добираем строго по времени последнего показа,
+            // отдавая приоритет карточкам не на экране
+            val shownNotCurrent = shownPool.filterNot { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+            val shownOnScreen = shownPool.filter { it.cleanTitle in currentTitles }
+                .sortedBy { shownCutoffMap[it.cleanTitle] ?: 0L }
+
+            val orderedShown = (shownNotCurrent + shownOnScreen).take(capped)
+            orderedShown.map { it.toHomeHubDiscoveryItem() }
         }
     }
 
-    return if (pool.size <= capped && rawSelection.isNotEmpty()) {
-        val safeOffset = offset % rawSelection.size
+    val clustered = filterFranchiseClusteringGeneric(
+        items = rawSelection,
+        titleExtractor = { it.title },
+        cleanTitleExtractor = { it.cleanTitle },
+        maxPerSeries = if (capped >= 15) 2 else 1,
+    )
+
+    return if (pool.size <= capped && clustered.isNotEmpty()) {
+        val safeOffset = offset % clustered.size
         if (safeOffset <= 0) {
-            rawSelection
+            clustered
         } else {
-            rawSelection.drop(safeOffset) + rawSelection.take(safeOffset)
+            clustered.drop(safeOffset) + clustered.take(safeOffset)
         }
     } else {
-        rawSelection
+        clustered
     }
 }
 
@@ -293,7 +349,7 @@ internal fun resolveHeroPresentation(
         if (discoveryEnabled && discoveryCount >= 3) HomeHeroMode.Stage else HomeHeroMode.Continue
 }
 
-internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem(
+internal fun DiscoverySuggestion.toHomeHubDiscoveryItem(shownAt: Long? = null) = HomeHubDiscoveryItem(
     title = title,
     cleanTitle = cleanTitle,
     coverUrl = coverUrl,
@@ -304,6 +360,7 @@ internal fun DiscoverySuggestion.toHomeHubDiscoveryItem() = HomeHubDiscoveryItem
     mediaType = mediaType,
     sourceId = sourceId,
     sourceUrl = sourceUrl,
+    shownAt = shownAt,
 )
 
 internal fun HomeHubDiscoveryItem.toSuggestionItem(): SuggestionItem = SuggestionItem(
@@ -1162,11 +1219,10 @@ internal fun DiscoveryHeroCollage(
         else -> 70
     }
 
-    // Окно до 5 плиток через seeded-shuffle: реролл (offset+1) всегда меняет порядок/состав
-    // при любом размере ленты (фикс «мёртвого реролла» и дублей при <5 айтемов).
-    val tiles = remember(items, offset) {
-        items.shuffled(kotlin.random.Random(offset)).take(5)
-    }
+    // Окно до 5 плиток: свежее (48h-метки показа) вперёд, franchise-кластеризация —
+    // не больше одной плитки серии; реролл (offset+1) меняет состав в обеих группах
+    // (фикс «мёртвого реролла» и дублей при <5 айтемах сохранён).
+    val tiles = remember(items, offset) { collageTiles(items, offset) }
     val rest = tiles.drop(1)
     val col1 = listOfNotNull(rest.getOrNull(0), rest.getOrNull(2))
     val col2 = listOfNotNull(rest.getOrNull(1), rest.getOrNull(3))
@@ -1422,6 +1478,46 @@ private const val STAGE_CAUGHT_EPSILON = 0.01f
 private const val STAGE_KEN_BURNS_MIN_SCALE = 1.04f
 private const val STAGE_KEN_BURNS_MAX_SCALE = 1.14f
 
+/** Ken-burns профиль слота (B3): разбег наезда и направление дрейфа, от постера. */
+internal data class StageKenBurnsProfile(
+    val scaleAmplitude: Float,
+    val driftXFraction: Float,
+    val driftYFraction: Float,
+)
+
+/**
+ * B3: профиль ken-burns по стабильному хешу cleanTitle — у каждого постера свой
+ * разбег наезда и своё направление дрейфа, смена фокуса меняет характер движения.
+ * |дрейф| ≤ амплитуда/2: наезд всегда накрывает сдвиг, пустых краёв не бывает.
+ * Хеш прогоняется через avalanche-миксер: голый String.hashCode даёт
+ * коррелированные младшие биты у похожих тайтлов (одинаковые профили).
+ */
+internal fun stageKenBurnsProfile(cleanTitle: String): StageKenBurnsProfile {
+    val hash = mixStageHash(cleanTitle.hashCode())
+    val amplitude = 0.05f + (hash ushr 8 and 0xF) / 15f * 0.07f
+    val maxDrift = amplitude / 2f
+    val dirX = if (hash and 0x1 == 0) 1f else -1f
+    val dirY = if (hash and 0x2 == 0) 1f else -1f
+    val driftX = dirX * (0.01f + (hash ushr 4 and 0x7) / 7f * 0.02f).coerceAtMost(maxDrift)
+    val driftY = dirY * (0.005f + (hash ushr 12 and 0x3) / 3f * 0.01f).coerceAtMost(maxDrift)
+    return StageKenBurnsProfile(
+        scaleAmplitude = amplitude,
+        driftXFraction = driftX,
+        driftYFraction = driftY,
+    )
+}
+
+/** Avalanche-финализатор хеша (murmur-подобный): равномерное распределение бит. */
+internal fun mixStageHash(hash: Int): Int {
+    var h = hash
+    h = h xor (h ushr 16)
+    h *= 0x7feb352d
+    h = h xor (h ushr 15)
+    h *= 0x846ca68b.toInt()
+    h = h xor (h ushr 16)
+    return h
+}
+
 /** Поза слота карусели: только числа — держим её чистой и тестируемой. */
 @androidx.compose.runtime.Immutable
 internal data class StageSlotPose(
@@ -1482,6 +1578,51 @@ internal fun stageItemIndex(center: Int, slot: Int, size: Int): Int {
     if (size <= 0) return 0
     return ((center + slot) % size + size) % size
 }
+
+/**
+ * Ре-анкор центра при смене СОСТАВА ленты (items): центр переносится на новый
+ * индекс тайтла, который был в фокусе; тайтл исчез из подборки (скрыт, заменён
+ * рефрешем) — сцена сбрасывается к началу. Без смены состава позиция сохраняется.
+ * Чистая функция — тестируется без Compose.
+ */
+internal fun resolveStageReanchorCenter(
+    itemsChanged: Boolean,
+    previousFocusedTitle: String?,
+    newOrderedTitles: List<String>,
+    currentCenter: Int,
+): Int {
+    if (!itemsChanged || previousFocusedTitle == null) return currentCenter
+    if (newOrderedTitles.isEmpty()) return currentCenter
+    val newIndex = newOrderedTitles.indexOf(previousFocusedTitle)
+    return if (newIndex >= 0) newIndex else 0
+}
+
+/**
+ * Порядок hero-карусели Stage: непоказанные за 48h-окно вперёд, показанные —
+ * в хвост. Обе группы шафлятся по одному seed — реролл живой в обеих группах,
+ * детерминизм сохранён. Уникальность здесь — приоритет порядка, не отсечение:
+ * бесконечная карусель доходит до хвоста только когда свежее кончилось.
+ */
+internal fun stageHeroOrder(items: List<HomeHubDiscoveryItem>, seed: Int): List<HomeHubDiscoveryItem> {
+    if (items.size <= 1) return items
+    val random = kotlin.random.Random(seed)
+    val fresh = items.filter { (it.shownAt ?: 0L) <= 0L }
+    val shown = items.filter { (it.shownAt ?: 0L) > 0L }
+    if (fresh.isEmpty() || shown.isEmpty()) return items.shuffled(random)
+    return fresh.shuffled(random) + shown.shuffled(random)
+}
+
+/**
+ * Плитки Коллажа: до 5, свежее (48h) вперёд, не больше одной плитки франшизы.
+ * Коллаж рендерит полный пул подборки (как Stage), а не тизерное окно.
+ */
+internal fun collageTiles(items: List<HomeHubDiscoveryItem>, seed: Int): List<HomeHubDiscoveryItem> =
+    filterFranchiseClusteringGeneric(
+        items = stageHeroOrder(items, seed),
+        titleExtractor = { it.title },
+        cleanTitleExtractor = { it.cleanTitle },
+        maxPerSeries = 1,
+    ).take(5)
 
 /** Длительности перехода карусели: e-ink и выключенные системные анимации дают мгновенную смену кадра. */
 internal data class StageMotionSpec(val settleMillis: Int, val fadeMillis: Int)
@@ -1572,7 +1713,9 @@ internal fun DiscoveryHeroStage(
     val centerAnim = remember { Animatable(center.toFloat()) }
     val scope = rememberCoroutineScope()
 
-    val ordered = remember(items, offset) { items.shuffled(kotlin.random.Random(offset)) }
+    // 48h-уникальность hero: непоказанное вперёд (см. stageHeroOrder), реролл — seeded
+    // shuffle внутри групп. Фокус и авто-ротация ходят по свежему в первую очередь.
+    val ordered = remember(items, offset) { stageHeroOrder(items, offset) }
     val systemAnimationsEnabled = ValueAnimator.areAnimatorsEnabled()
     val motionSpec = remember(speed, colors.isEInk, systemAnimationsEnabled) {
         resolveStageMotionSpec(speed = speed, isEInk = colors.isEInk, animationsEnabled = systemAnimationsEnabled)
@@ -1583,7 +1726,12 @@ internal fun DiscoveryHeroStage(
     // fast-out-slow-in (tween без bounce: недодемпфированная пружина давала «заряженность»
     // на микро-драгах); флик — linear-out-slow-in: импульс продолжается быстро и тормозит к слоту.
     // e-ink и выключенные анимации — мгновенно.
-    fun settleTo(target: Int, isFlick: Boolean) {
+    // Пользовательское движение штампует stageLastRotationTime: авто-ротация не дёргает
+    // ленту сразу после ручного перехода (штамп учитывается при следующем пересчёте ожидания).
+    fun settleTo(target: Int, isFlick: Boolean, userInitiated: Boolean = true) {
+        if (userInitiated) {
+            discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
+        }
         if (target != center) {
             center = target
         }
@@ -1593,6 +1741,37 @@ internal fun DiscoveryHeroStage(
         }
         val easing = if (isFlick) LinearOutSlowInEasing else FastOutSlowInEasing
         scope.launch { centerAnim.animateTo(target.toFloat(), tween(motionSpec.settleMillis, easing = easing)) }
+    }
+
+    // Ре-анкор фокуса при смене СОСТАВА ленты (items) — синхронно, до первого кадра:
+    // центр переносится на новый индекс сфокусированного тайтла (если он остался),
+    // иначе сцена сбрасывается к началу. Реролл (смена offset без смены items) НЕ
+    // ре-анкорит — «смена порядка под позицией» сохранена by design.
+    val focusAnchor = remember {
+        object {
+            var items: List<HomeHubDiscoveryItem>? = null
+            var orderedTitles: List<String> = emptyList()
+            var center: Int = 0
+        }
+    }
+    if (ordered.isNotEmpty()) {
+        val reanchorCenter = resolveStageReanchorCenter(
+            itemsChanged = focusAnchor.items != null && focusAnchor.items !== items,
+            previousFocusedTitle = focusAnchor.orderedTitles.getOrNull(
+                stageItemIndex(focusAnchor.center, 0, focusAnchor.orderedTitles.size),
+            ),
+            newOrderedTitles = ordered.map { it.cleanTitle },
+            currentCenter = center,
+        )
+        if (reanchorCenter != center) {
+            center = reanchorCenter
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                centerAnim.snapTo(reanchorCenter.toFloat())
+            }
+        }
+        focusAnchor.items = items
+        focusAnchor.orderedTitles = ordered.map { it.cleanTitle }
+        focusAnchor.center = center
     }
     // Ken-burns у фокуса: состояние читается внутри graphicsLayer, поэтому кадры не рекомпозируют слоты.
     // B3: профиль (направление/дрейф) выбирается по постеру и применяется в слое слота.
@@ -1630,8 +1809,15 @@ internal fun DiscoveryHeroStage(
                     val last = discoveryPreferences.stageLastRotationTime().get()
                     val elapsed = if (last == 0L) 0L else System.currentTimeMillis() - last
                     delay(if (last == 0L) intervalMillis else (intervalMillis - elapsed).coerceAtLeast(1000L))
+                    // Пользователь взаимодействовал во время ожидания (settleTo обновил штамп):
+                    // пересчитываем остаток вместо немедленного рывка ленты «под рукой».
+                    val lastAfter = discoveryPreferences.stageLastRotationTime().get()
+                    if (lastAfter > last && lastAfter != 0L) {
+                        val elapsedAfter = System.currentTimeMillis() - lastAfter
+                        if (elapsedAfter < intervalMillis) continue
+                    }
                     discoveryPreferences.stageLastRotationTime().set(System.currentTimeMillis())
-                    settleTo(center + 1, isFlick = false)
+                    settleTo(center + 1, isFlick = false, userInitiated = false)
                 }
             }
         }
@@ -1766,6 +1952,9 @@ internal fun DiscoveryHeroStage(
                         distanceToFocus = abs(rel),
                         animatedCenter = centerAnim,
                         kenBurnsScale = kenBurnsScale,
+                        kenBurnsProfile = remember(item.cleanTitle) {
+                            stageKenBurnsProfile(item.cleanTitle)
+                        },
                         useKenBurns = !colors.isEInk,
                         coverMediaType = coverMediaType,
                         onClick = {
@@ -1938,6 +2127,7 @@ private fun BoxScope.StageSlot(
     distanceToFocus: Int,
     animatedCenter: Animatable<Float, AnimationVector1D>,
     kenBurnsScale: State<Float>,
+    kenBurnsProfile: StageKenBurnsProfile,
     useKenBurns: Boolean,
     coverMediaType: DiscoveryMediaType,
     onClick: () -> Unit,
@@ -2022,13 +2212,25 @@ private fun BoxScope.StageSlot(
                 contentScale = ContentScale.Crop,
                 colorFilter = rememberAuroraPosterColorFilter(),
                 // Ken-burns живёт только на обложке: раньше он масштабировал весь слот вместе с подписью.
-                // B3: профиль по хешу постера — наезд/отъезд и дрейф различаются между соседями.
+                // B3: профиль по хешу постера — наезд/отъезд и дрейф различаются между соседями;
+                // дрейф в фазе с наездом (|сдвиг| ≤ амплитуда/2), края не оголяются.
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        val kenBurns = if (useKenBurns && isVisualFocus) kenBurnsScale.value else 1f
-                        scaleX = kenBurns
-                        scaleY = kenBurns
+                        if (useKenBurns && isVisualFocus) {
+                            val phase = (
+                                (kenBurnsScale.value - STAGE_KEN_BURNS_MIN_SCALE) /
+                                    (STAGE_KEN_BURNS_MAX_SCALE - STAGE_KEN_BURNS_MIN_SCALE)
+                                ).coerceIn(0f, 1f)
+                            val scale = 1f + kenBurnsProfile.scaleAmplitude * phase
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = size.width * kenBurnsProfile.driftXFraction * phase
+                            translationY = size.height * kenBurnsProfile.driftYFraction * phase
+                        } else {
+                            scaleX = 1f
+                            scaleY = 1f
+                        }
                     },
                 error = fallbackPainter,
                 fallback = fallbackPainter,
@@ -2257,7 +2459,7 @@ private fun EmptyForYouCard(onMoreClick: () -> Unit) {
     }
 }
 
-/** B2: long-press меню — скрыть тайтл или скрыть все подборки с тегом (TASTE). */
+/** B2: long-press меню — «Больше такого», «Просмотрено», скрыть тайтл или тег (TASTE). */
 @Composable
 internal fun DiscoveryHideOptionsSheet(
     itemTitle: String,
@@ -2265,6 +2467,10 @@ internal fun DiscoveryHideOptionsSheet(
     onHide: () -> Unit,
     onBlacklistTag: (String) -> Unit,
     onDismiss: () -> Unit,
+    // Taste Engine: явный лайк — сильный позитивный сигнал (жанры/источник тайтла).
+    onMoreLikeThis: (() -> Unit)? = null,
+    // Taste Engine: «просмотрено» — нейтральное исключение тайтла (вкус не трогает).
+    onMarkConsumed: (() -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -2325,6 +2531,60 @@ internal fun DiscoveryHideOptionsSheet(
                 modifier = Modifier.padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                if (onMoreLikeThis != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                appHaptics.tap()
+                                onMoreLikeThis()
+                            }
+                            .padding(vertical = 13.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.AutoAwesome,
+                            contentDescription = null,
+                            tint = colors.accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            stringResource(AYMR.strings.for_you_more_like_this),
+                            color = colors.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+                if (onMarkConsumed != null) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable {
+                                appHaptics.tap()
+                                onMarkConsumed()
+                            }
+                            .padding(vertical = 13.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.TaskAlt,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            stringResource(AYMR.strings.for_you_mark_consumed),
+                            color = colors.textPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
                 Row(
                     Modifier
                         .fillMaxWidth()

@@ -1,0 +1,17 @@
+-- Taste Learning Engine: сигнал-лог взаимодействий с подборками «Для вас».
+-- Одна строка на (media_type, clean_title): сигнал перезаписывается по старшинству
+-- (hide > add > like > click) при записи; undo — DELETE строки. Жанры — снимок
+-- на момент сигнала (best-effort, CSV), source_key — ключ плагина для аффинити.
+CREATE TABLE discovery_signals (
+    media_type TEXT NOT NULL,
+    clean_title TEXT NOT NULL,
+    title TEXT NOT NULL,
+    signal TEXT NOT NULL,
+    weight REAL NOT NULL,
+    genres TEXT,
+    provider TEXT,
+    source_key TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (media_type, clean_title)
+);
+CREATE INDEX discovery_signals_time ON discovery_signals(media_type, created_at);

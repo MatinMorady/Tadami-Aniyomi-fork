@@ -1,5 +1,6 @@
 package eu.kanade.domain.track.anime
 
+import eu.kanade.tachiyomi.data.track.AnimeTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.data.track.anilist.Anilist
 import eu.kanade.tachiyomi.data.track.kitsu.Kitsu
@@ -10,7 +11,10 @@ class MapAnimeTrackStatusToLibrary(
 ) {
     fun map(trackerId: Long, status: Long): LibraryTrackStatus {
         val tracker = trackerManager.get(trackerId) ?: return LibraryTrackStatus.OTHER
-        val animeTracker = tracker.animeService
+        // A track row can point at a service without an anime side (e.g. a MangaUpdates track
+        // bound to an anime entry); Tracker.animeService is a blind cast and crashed the whole
+        // discovery seed build with ClassCastException. Treat it as unmappable instead.
+        val animeTracker = tracker as? AnimeTracker ?: return LibraryTrackStatus.OTHER
         val statusList = animeTracker.getStatusListAnime()
         return when (status) {
             animeTracker.getWatchingStatus() -> LibraryTrackStatus.READING

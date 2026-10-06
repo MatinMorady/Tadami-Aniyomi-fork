@@ -36,6 +36,8 @@ data class DiscoveryBuildContext(
     val recentCleanTitles: Set<String> = emptySet(),
     /** cleanTitle → таймстамп последнего показа (48h окно): порядок stale-добора в координаторе. */
     val shownCutoffMap: Map<String, Long> = emptyMap(),
+    /** Тайтлы ТЕКУЩЕЙ ленты (ручной рефреш): stale-добор их не возвращает — наполнение реально сменяется. */
+    val currentFeedCleanTitles: Set<String> = emptySet(),
     val pageOffset: Int = 1,
 )
 

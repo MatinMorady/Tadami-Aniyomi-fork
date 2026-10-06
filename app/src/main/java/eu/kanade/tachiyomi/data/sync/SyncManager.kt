@@ -131,6 +131,18 @@ class SyncManager(
             if (rethrowErrors) {
                 throw e
             }
+        } catch (e: Throwable) {
+            // An Error - in practice OutOfMemoryError while building the local backup on a
+            // small-heap device - must not take the whole process down from a Sync Now tap.
+            // Report it like any other sync failure and surface it to callers as a plain
+            // exception so their error UI runs instead of the crash handler.
+            this.logcat(LogPriority.ERROR, e) { "Sync error" }
+            if (showUserNotification) {
+                notifier.showSyncError("Sync error: ${e.message}")
+            }
+            if (rethrowErrors) {
+                throw IllegalStateException("Sync failed: ${e.message}", e)
+            }
         }
     }
 

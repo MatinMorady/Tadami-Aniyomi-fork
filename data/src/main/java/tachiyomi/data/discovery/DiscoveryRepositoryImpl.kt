@@ -1,5 +1,6 @@
 package tachiyomi.data.discovery
 
+import data.Discovery_signals
 import data.Discovery_suggestions
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -8,6 +9,8 @@ import tachiyomi.domain.discovery.model.DiscoveryBlacklistEntry
 import tachiyomi.domain.discovery.model.DiscoveryHiddenEntry
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignal
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
 
@@ -175,6 +178,22 @@ class DiscoveryRepositoryImpl(
         }.toMap()
     }
 
+    override suspend fun getShownWithCount(
+        mediaType: DiscoveryMediaType,
+        windowMillis: Long,
+    ): List<Triple<String, Long, Int>> {
+        val since = System.currentTimeMillis() - windowMillis
+        return handler.awaitList { db ->
+            db.discovery_shownQueries.selectShownWithCountSince(mediaType.key, since) {
+                    clean_title,
+                    shown_at,
+                    shown_count,
+                ->
+                Triple(clean_title, shown_at, shown_count.toInt())
+            }
+        }
+    }
+
     override suspend fun markShown(
         mediaType: DiscoveryMediaType,
         cleanTitles: Collection<String>,
@@ -186,7 +205,7 @@ class DiscoveryRepositoryImpl(
             db.discovery_shownQueries.cleanupOld(cutoff)
             for (cleanTitle in cleanTitles) {
                 if (cleanTitle.isNotBlank()) {
-                    db.discovery_shownQueries.insertOrReplace(mediaType.key, cleanTitle, timestamp)
+                    db.discovery_shownQueries.upsert(mediaType.key, cleanTitle, timestamp)
                 }
             }
         }
@@ -194,5 +213,140 @@ class DiscoveryRepositoryImpl(
 
     override suspend fun clearShown(mediaType: DiscoveryMediaType) {
         handler.await { db -> db.discovery_shownQueries.deleteAllByMedia(mediaType.key) }
+    }
+
+    // ==================== Taste Learning Engine ====================
+
+    private fun signalMapper(
+        mediaType: String,
+        cleanTitle: String,
+        title: String,
+        signal: String,
+        @Suppress("UNUSED_PARAMETER") weight: Double,
+        genres: String?,
+        provider: String?,
+        sourceKey: String?,
+        createdAt: Long,
+    ): DiscoverySignal = DiscoverySignal(
+        mediaType = DiscoveryMediaType.fromKey(mediaType) ?: DiscoveryMediaType.ANIME,
+        cleanTitle = cleanTitle,
+        title = title,
+        signalType = DiscoverySignalType.fromKey(signal) ?: DiscoverySignalType.CLICK,
+        genres = genres
+            ?.splitToSequence(",")
+            ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            ?.toList()
+            .orEmpty(),
+        provider = provider,
+        sourceKey = sourceKey,
+        createdAt = createdAt,
+    )
+
+    override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> =
+        handler.awaitList { db ->
+            db.discovery_signalsQueries.selectAllByMedia(mediaType.key, ::signalMapper)
+        }
+
+    override fun subscribeConsumed(mediaType: DiscoveryMediaType): Flow<Set<String>> =
+        handler.subscribeToList { db ->
+            db.discovery_signalsQueries.selectConsumedByMedia(mediaType.key, ::signalMapper)
+        }.map { signals -> signals.mapTo(HashSet()) { it.cleanTitle } }
+
+    override suspend fun recordSignal(
+        mediaType: DiscoveryMediaType,
+        cleanTitle: String,
+        title: String,
+        signalType: DiscoverySignalType,
+        genres: List<String>,
+        provider: String?,
+        sourceKey: String?,
+        timestamp: Long,
+    ) {
+        handler.await(inTransaction = true) { db ->
+            // Старшинство: слабый сигнал не затирает уже записанный сильный
+            // (клик после лайка не понижает вес).
+            val existing = db.discovery_signalsQueries
+                .selectByTitle(mediaType.key, cleanTitle, ::signalMapper)
+                .executeAsOneOrNull()
+            if (!DiscoverySignalType.overrides(existing?.signalType, signalType)) {
+                return@await
+            }
+            db.discovery_signalsQueries.upsert(
+                media_type = mediaType.key,
+                clean_title = cleanTitle,
+                title = title,
+                signal = signalType.key,
+                weight = signalType.weight,
+                genres = genres.joinToString(","),
+                provider = provider,
+                source_key = sourceKey,
+                created_at = timestamp,
+            )
+            // LRU-cap: лог не растёт бесконечно, вытесняются самые старые записи.
+            val count = db.discovery_signalsQueries.countByMedia(mediaType.key).executeAsOne()
+            if (count > SIGNALS_CAP_PER_MEDIA) {
+                db.discovery_signalsQueries.evictOldest(
+                    mediaType.key,
+                    mediaType.key,
+                    (count - SIGNALS_CAP_PER_MEDIA).toLong(),
+                )
+            }
+        }
+    }
+
+    override suspend fun removeSignal(mediaType: DiscoveryMediaType, cleanTitle: String) {
+        handler.await { db -> db.discovery_signalsQueries.delete(mediaType.key, cleanTitle) }
+    }
+
+    override suspend fun clearSignals(mediaType: DiscoveryMediaType) {
+        handler.await { db -> db.discovery_signalsQueries.deleteAllByMedia(mediaType.key) }
+    }
+
+    override suspend fun clearAllSignals() {
+        handler.await { db -> db.discovery_signalsQueries.deleteAll() }
+    }
+
+    override suspend fun restoreSignals(signals: List<DiscoverySignal>) {
+        if (signals.isEmpty()) return
+        handler.await(inTransaction = true) { db ->
+            signals.forEach { signal ->
+                // Страршинство и при restore: бэкапный слабый сигнал не затирает
+                // локальный сильный (устройство A: HIDE; устройство B: LIKE →
+                // после restore остаётся HIDE — пользователь на A скрыл осознанно).
+                val existing = db.discovery_signalsQueries
+                    .selectByTitle(signal.mediaType.key, signal.cleanTitle, ::signalMapper)
+                    .executeAsOneOrNull()
+                if (!DiscoverySignalType.overrides(existing?.signalType, signal.signalType)) {
+                    return@forEach
+                }
+                db.discovery_signalsQueries.upsert(
+                    media_type = signal.mediaType.key,
+                    clean_title = signal.cleanTitle,
+                    title = signal.title,
+                    signal = signal.signalType.key,
+                    weight = signal.signalType.weight,
+                    genres = signal.genres.joinToString(","),
+                    provider = signal.provider,
+                    source_key = signal.sourceKey,
+                    created_at = signal.createdAt,
+                )
+            }
+            // Тот же LRU-cap, что у live-записей: restore старого большого бэкапа
+            // не должен раздувать таблицу сверх лимита.
+            DiscoveryMediaType.entries.forEach { mediaType ->
+                val count = db.discovery_signalsQueries.countByMedia(mediaType.key).executeAsOne()
+                if (count > SIGNALS_CAP_PER_MEDIA) {
+                    db.discovery_signalsQueries.evictOldest(
+                        mediaType.key,
+                        mediaType.key,
+                        (count - SIGNALS_CAP_PER_MEDIA).toLong(),
+                    )
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val SIGNALS_CAP_PER_MEDIA = 500L
     }
 }

@@ -180,5 +180,7 @@ internal fun shikimoriSimilarToSuggestion(
         providerId = null,
         mediaType = mediaType,
         reason = SuggestionReason.EXTERNAL_SHIKIMORI,
+        // Статус выпуска («ongoing»/«released»/…) — для строгого пост-фильтра ленты.
+        releaseStatus = item.status,
     )
 }

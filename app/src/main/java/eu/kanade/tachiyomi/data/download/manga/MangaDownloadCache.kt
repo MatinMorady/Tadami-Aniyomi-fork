@@ -182,11 +182,22 @@ class MangaDownloadCache(
      * DECISION-6/7: resolve the cached manga directories by the scoped name first plus the
      * legacy title-only name - during the compatibility window a manga's chapters can live in
      * either directory (new downloads scoped, old ones legacy).
+     *
+     * A folder moved or renamed on disk (e.g. downloads imported from another app, refreshed
+     * title, sanitization drift) no longer matches either exact name; the mangaId suffix
+     * " [id]" at the end of the directory name is still a stable anchor for such folders,
+     * so fall back to matching any cached directory of this source whose name ends with the
+     * suffix. Exact names keep priority.
      */
     private fun mangaDirsFor(sourceDir: SourceDirectory, mangaTitle: String, mangaId: Long?): List<MangaDirectory> {
         val scoped = mangaId?.let { sourceDir.mangaDirs[provider.getMangaDirName(mangaTitle, it)] }
         val legacy = sourceDir.mangaDirs[provider.getLegacyMangaDirName(mangaTitle)]
-        return listOfNotNull(scoped, legacy)
+        val suffixMatched = mangaId?.let { id ->
+            val suffix = " [$id]"
+            sourceDir.mangaDirs.values.filter { it.dir?.name?.endsWith(suffix) == true }
+        }.orEmpty()
+        return (listOfNotNull(scoped, legacy) + suffixMatched)
+            .distinctBy { it.dir?.name }
     }
 
     /**

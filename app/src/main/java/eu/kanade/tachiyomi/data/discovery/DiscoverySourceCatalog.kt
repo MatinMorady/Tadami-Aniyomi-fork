@@ -3,13 +3,16 @@ package eu.kanade.tachiyomi.data.discovery
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.data.suggestions.MultilingualQueryHelper
 import eu.kanade.tachiyomi.novelsource.NovelCatalogueSource
 import eu.kanade.tachiyomi.novelsource.model.NovelFilter
 import eu.kanade.tachiyomi.novelsource.model.NovelFilterList
+import eu.kanade.tachiyomi.novelsource.model.SNovel
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.model.SManga
 import kotlinx.coroutines.CancellationException
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
@@ -43,6 +46,7 @@ interface DiscoverySourceCatalog {
     suspend fun popular(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
+        page: Int = 1,
         releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryRowItem>
 
@@ -50,6 +54,7 @@ interface DiscoverySourceCatalog {
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         genres: List<String>,
+        page: Int = 1,
         releaseStatuses: Set<DiscoveryReleaseStatus> = emptySet(),
     ): List<DiscoveryRowItem>
 
@@ -71,16 +76,19 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
     override suspend fun popular(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
+        page: Int,
         releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryRowItem> =
-        fetch(mediaType, sourceId, genres = null, releaseStatuses = releaseStatuses)
+        fetch(mediaType, sourceId, genres = null, page = page, releaseStatuses = releaseStatuses)
 
     override suspend fun popularWithGenres(
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         genres: List<String>,
+        page: Int,
         releaseStatuses: Set<DiscoveryReleaseStatus>,
-    ): List<DiscoveryRowItem> = fetch(mediaType, sourceId, genres = genres, releaseStatuses = releaseStatuses)
+    ): List<DiscoveryRowItem> =
+        fetch(mediaType, sourceId, genres = genres, page = page, releaseStatuses = releaseStatuses)
 
     override suspend fun latest(
         mediaType: DiscoveryMediaType,
@@ -100,10 +108,18 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val source = Injekt.get<MangaSourceManager>().getOrStub(sourceId) as? CatalogueSource
                     ?: return emptyList()
                 val pageData = if (source.supportsLatest) {
-                    runCatching { source.getLatestUpdates(page) }.getOrElse { source.getPopularManga(page) }
+                    runCatching { source.getLatestUpdates(page) }.getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                        ?: if (page > 1) {
+                            runCatching { source.getLatestUpdates(1) }.getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                        } else {
+                            null
+                        }
+                        ?: runCatching { source.getPopularManga(page) }.getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularManga(1) }.getOrNull() else null
                 } else {
-                    source.getPopularManga(page)
-                }
+                    runCatching { source.getPopularManga(page) }.getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularManga(1) }.getOrNull() else null
+                } ?: return emptyList()
                 val keptMangas = pageData.mangas
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
                 if (releaseStatuses.isNotEmpty()) {
@@ -120,10 +136,18 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val source = Injekt.get<AnimeSourceManager>().getOrStub(sourceId) as? AnimeCatalogueSource
                     ?: return emptyList()
                 val pageData = if (source.supportsLatest) {
-                    runCatching { source.getLatestUpdates(page) }.getOrElse { source.getPopularAnime(page) }
+                    runCatching { source.getLatestUpdates(page) }.getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                        ?: if (page > 1) {
+                            runCatching { source.getLatestUpdates(1) }.getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                        } else {
+                            null
+                        }
+                        ?: runCatching { source.getPopularAnime(page) }.getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularAnime(1) }.getOrNull() else null
                 } else {
-                    source.getPopularAnime(page)
-                }
+                    runCatching { source.getPopularAnime(page) }.getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularAnime(1) }.getOrNull() else null
+                } ?: return emptyList()
                 val keptAnimes = pageData.animes
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
                 if (releaseStatuses.isNotEmpty()) {
@@ -140,10 +164,18 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val source = Injekt.get<NovelSourceManager>().getOrStub(sourceId) as? NovelCatalogueSource
                     ?: return emptyList()
                 val pageData = if (source.supportsLatest) {
-                    runCatching { source.getLatestUpdates(page) }.getOrElse { source.getPopularNovels(page) }
+                    runCatching { source.getLatestUpdates(page) }.getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                        ?: if (page > 1) {
+                            runCatching { source.getLatestUpdates(1) }.getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                        } else {
+                            null
+                        }
+                        ?: runCatching { source.getPopularNovels(page) }.getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularNovels(1) }.getOrNull() else null
                 } else {
-                    source.getPopularNovels(page)
-                }
+                    runCatching { source.getPopularNovels(page) }.getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularNovels(1) }.getOrNull() else null
+                } ?: return emptyList()
                 val keptNovels = pageData.novels
                     .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
                 if (releaseStatuses.isNotEmpty()) {
@@ -188,7 +220,17 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val filters = source.getFilterList()
                 if (!applyMangaStatusFilter(filters, releaseStatuses)) return null
                 logcat { "[DiscoverySourceCatalog] statusSearch hit source=$sourceId statuses=$releaseStatuses" }
-                source.getSearchManga(page, "", filters).mangas.mapIndexed { idx, m ->
+                val pageData = runCatching { source.getSearchManga(page, "", filters) }
+                    .getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                    ?: if (page > 1) {
+                        runCatching { source.getSearchManga(1, "", filters) }.getOrNull()
+                    } else {
+                        null
+                    }
+                val mangas = pageData?.mangas
+                    ?.filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                    ?: return null
+                mangas.mapIndexed { idx, m ->
                     rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
                 }
             }
@@ -198,7 +240,17 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val filters = source.getFilterList()
                 if (!applyAnimeStatusFilter(filters, releaseStatuses)) return null
                 logcat { "[DiscoverySourceCatalog] statusSearch hit source=$sourceId statuses=$releaseStatuses" }
-                source.getSearchAnime(page, "", filters).animes.mapIndexed { idx, a ->
+                val pageData = runCatching { source.getSearchAnime(page, "", filters) }
+                    .getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                    ?: if (page > 1) {
+                        runCatching { source.getSearchAnime(1, "", filters) }.getOrNull()
+                    } else {
+                        null
+                    }
+                val animes = pageData?.animes
+                    ?.filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                    ?: return null
+                animes.mapIndexed { idx, a ->
                     rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
                 }
             }
@@ -208,7 +260,17 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                 val filters = source.getFilterList()
                 if (!applyNovelStatusFilter(filters, releaseStatuses)) return null
                 logcat { "[DiscoverySourceCatalog] statusSearch hit source=$sourceId statuses=$releaseStatuses" }
-                source.getSearchNovels(page, "", filters).novels.mapIndexed { idx, n ->
+                val pageData = runCatching { source.getSearchNovels(page, "", filters) }
+                    .getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                    ?: if (page > 1) {
+                        runCatching { source.getSearchNovels(1, "", filters) }.getOrNull()
+                    } else {
+                        null
+                    }
+                val novels = pageData?.novels
+                    ?.filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                    ?: return null
+                novels.mapIndexed { idx, n ->
                     rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
                 }
             }
@@ -224,6 +286,7 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         mediaType: DiscoveryMediaType,
         sourceId: Long,
         genres: List<String>?,
+        page: Int = 1,
         releaseStatuses: Set<DiscoveryReleaseStatus>,
     ): List<DiscoveryRowItem> = try {
         when (mediaType) {
@@ -241,11 +304,28 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                     val applied = applyMangaStatusFilter(candidate, releaseStatuses)
                     if (applied) filters = candidate
                     logcat {
-                        "[DiscoverySourceCatalog] search statusApplied=$applied source=$sourceId statuses=$releaseStatuses"
+                        "[DiscoverySourceCatalog] search statusApplied=$applied " +
+                            "source=$sourceId statuses=$releaseStatuses"
                     }
                 }
-                val page = if (filters == null) source.getPopularManga(1) else source.getSearchManga(1, "", filters)
-                page.mangas.mapIndexed { idx, m ->
+                val pageData = if (filters == null) {
+                    runCatching { source.getPopularManga(page) }.getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularManga(1) }.getOrNull() else null
+                } else {
+                    runCatching { source.getSearchManga(page, "", filters) }
+                        .getOrNull()?.takeIf { it.mangas.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getSearchManga(1, "", filters) }.getOrNull() else null
+                } ?: return emptyList()
+
+                val keptMangas = enrichMangasWithStatus(source, pageData.mangas, releaseStatuses)
+                    .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                if (releaseStatuses.isNotEmpty()) {
+                    logcat {
+                        "[DiscoverySourceCatalog] popular postfilter source=$sourceId " +
+                            "kept=${keptMangas.size}/${pageData.mangas.size} statuses=$releaseStatuses"
+                    }
+                }
+                keptMangas.mapIndexed { idx, m ->
                     rowItem(m.title, m.thumbnail_url, source.name, idx, sourceId, m.url)
                 }
             }
@@ -259,11 +339,28 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                     val applied = applyAnimeStatusFilter(candidate, releaseStatuses)
                     if (applied) filters = candidate
                     logcat {
-                        "[DiscoverySourceCatalog] search statusApplied=$applied source=$sourceId statuses=$releaseStatuses"
+                        "[DiscoverySourceCatalog] search statusApplied=$applied " +
+                            "source=$sourceId statuses=$releaseStatuses"
                     }
                 }
-                val page = if (filters == null) source.getPopularAnime(1) else source.getSearchAnime(1, "", filters)
-                page.animes.mapIndexed { idx, a ->
+                val pageData = if (filters == null) {
+                    runCatching { source.getPopularAnime(page) }.getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularAnime(1) }.getOrNull() else null
+                } else {
+                    runCatching { source.getSearchAnime(page, "", filters) }
+                        .getOrNull()?.takeIf { it.animes.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getSearchAnime(1, "", filters) }.getOrNull() else null
+                } ?: return emptyList()
+
+                val keptAnimes = enrichAnimesWithStatus(source, pageData.animes, releaseStatuses)
+                    .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                if (releaseStatuses.isNotEmpty()) {
+                    logcat {
+                        "[DiscoverySourceCatalog] popular postfilter source=$sourceId " +
+                            "kept=${keptAnimes.size}/${pageData.animes.size} statuses=$releaseStatuses"
+                    }
+                }
+                keptAnimes.mapIndexed { idx, a ->
                     rowItem(a.title, a.thumbnail_url, source.name, idx, sourceId, a.url)
                 }
             }
@@ -277,11 +374,28 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
                     val applied = applyNovelStatusFilter(candidate, releaseStatuses)
                     if (applied) filters = candidate
                     logcat {
-                        "[DiscoverySourceCatalog] search statusApplied=$applied source=$sourceId statuses=$releaseStatuses"
+                        "[DiscoverySourceCatalog] search statusApplied=$applied " +
+                            "source=$sourceId statuses=$releaseStatuses"
                     }
                 }
-                val page = if (filters == null) source.getPopularNovels(1) else source.getSearchNovels(1, "", filters)
-                page.novels.mapIndexed { idx, n ->
+                val pageData = if (filters == null) {
+                    runCatching { source.getPopularNovels(page) }.getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getPopularNovels(1) }.getOrNull() else null
+                } else {
+                    runCatching { source.getSearchNovels(page, "", filters) }
+                        .getOrNull()?.takeIf { it.novels.isNotEmpty() }
+                        ?: if (page > 1) runCatching { source.getSearchNovels(1, "", filters) }.getOrNull() else null
+                } ?: return emptyList()
+
+                val keptNovels = enrichNovelsWithStatus(source, pageData.novels, releaseStatuses)
+                    .filter { SourceStatusFilterMatcher.entryPasses(it.status, releaseStatuses) }
+                if (releaseStatuses.isNotEmpty()) {
+                    logcat {
+                        "[DiscoverySourceCatalog] popular postfilter source=$sourceId " +
+                            "kept=${keptNovels.size}/${pageData.novels.size} statuses=$releaseStatuses"
+                    }
+                }
+                keptNovels.mapIndexed { idx, n ->
                     rowItem(n.title, n.thumbnail_url, source.name, idx, sourceId, n.url)
                 }
             }
@@ -354,8 +468,11 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
      * Select — одиночный (применим только при одном статусе), Group — чекбоксы/
      * tri-state (любое число), топ-левел TriState/CheckBox — по имени опции.
      * true = фильтр выставлен, запрос пойдёт через search с этим FilterList.
+     *
+     * internal: юнит-тест прогоняет РЕАЛЬНЫЕ формы фильтров расширений
+     * (weebcentral/asurascans/comick/readmanga/mangalib…) — см. RealSourcesStatusFilterSimulationTest.
      */
-    private fun applyMangaStatusFilter(filters: FilterList, selected: Set<DiscoveryReleaseStatus>): Boolean {
+    internal fun applyMangaStatusFilter(filters: FilterList, selected: Set<DiscoveryReleaseStatus>): Boolean {
         val select = filters.filterIsInstance<Filter.Select<*>>()
             .firstOrNull { SourceStatusFilterMatcher.isStatusFilterName(it.name) }
         if (select != null) {
@@ -489,5 +606,65 @@ class AppDiscoverySourceCatalog : DiscoverySourceCatalog {
         is String -> value
         is Pair<*, *> -> value.first?.toString().orEmpty()
         else -> value?.toString().orEmpty()
+    }
+
+    /**
+     * Обогащение статусом для источников без статус-фильтра (MangaKakalot, FlameComics):
+     * при активном выборе статуса айтемы с UNKNOWN-статусом дозапрашиваются деталями
+     * (getMangaDetails/getAnimeDetails/getNovelDetails), где статус есть на странице.
+     * Ограничение [DETAILS_ENRICH_CAP] — витрина не делается тяжелой; остальные
+     * UNKNOWN проходят как раньше (best-effort, лента не голодает).
+     */
+    private suspend fun enrichMangasWithStatus(
+        source: CatalogueSource,
+        mangas: List<SManga>,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<SManga> {
+        if (releaseStatuses.isEmpty()) return mangas
+        val (unknown, known) = mangas.partition { SourceStatusFilterMatcher.fromEntryStatus(it.status) == null }
+        if (known.isNotEmpty() || unknown.isEmpty()) return mangas
+        // Все без статуса — иначе известные уже отфильтрованы корректно, детали не нужны.
+        val enriched = unknown.take(DETAILS_ENRICH_CAP).map { manga ->
+            runCatching {
+                source.getMangaDetails(manga)
+            }.getOrNull() ?: manga
+        }
+        return known + enriched + unknown.drop(DETAILS_ENRICH_CAP)
+    }
+
+    private suspend fun enrichAnimesWithStatus(
+        source: AnimeCatalogueSource,
+        animes: List<SAnime>,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<SAnime> {
+        if (releaseStatuses.isEmpty()) return animes
+        val (unknown, known) = animes.partition { SourceStatusFilterMatcher.fromEntryStatus(it.status) == null }
+        if (known.isNotEmpty() || unknown.isEmpty()) return animes
+        val enriched = unknown.take(DETAILS_ENRICH_CAP).map { anime ->
+            runCatching {
+                source.getAnimeDetails(anime)
+            }.getOrNull() ?: anime
+        }
+        return known + enriched + unknown.drop(DETAILS_ENRICH_CAP)
+    }
+
+    private suspend fun enrichNovelsWithStatus(
+        source: NovelCatalogueSource,
+        novels: List<SNovel>,
+        releaseStatuses: Set<DiscoveryReleaseStatus>,
+    ): List<SNovel> {
+        if (releaseStatuses.isEmpty()) return novels
+        val (unknown, known) = novels.partition { SourceStatusFilterMatcher.fromEntryStatus(it.status) == null }
+        if (known.isNotEmpty() || unknown.isEmpty()) return novels
+        val enriched = unknown.take(DETAILS_ENRICH_CAP).map { novel ->
+            runCatching {
+                source.getNovelDetails(novel)
+            }.getOrNull() ?: novel
+        }
+        return known + enriched + unknown.drop(DETAILS_ENRICH_CAP)
+    }
+
+    private companion object {
+        const val DETAILS_ENRICH_CAP = 8
     }
 }

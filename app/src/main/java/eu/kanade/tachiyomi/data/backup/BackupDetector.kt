@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.protobuf.ProtoBuf
 import kotlinx.serialization.protobuf.ProtoNumber
+import java.io.InputStream
 
 /**
  * Try to guess if the backup is an old aniyomi backup.
@@ -28,13 +29,7 @@ object BackupDetector {
 
     fun isLegacyBackup(bytes: ByteArray): Boolean {
         return try {
-            val fields = topLevelFieldNumbers(bytes)
-            // Legacy Aniyomi/Tadami stores anime/novel at top-level fields 3 and 5.
-            if (LEGACY_ANIME_FIELD in fields || LEGACY_NOVEL_FIELD in fields) {
-                return true
-            }
-            val detect = ProtoBuf.decodeFromByteArray(BackupDetector.serializer(), bytes)
-            detect.isLegacy && detect.backupAnimeSources.isNotEmpty()
+            scanBytes(bytes).isLegacy
         } catch (_: SerializationException) {
             false
         }
@@ -43,8 +38,7 @@ object BackupDetector {
     /** True when the wire format still carries legacy anime/novel payload fields. */
     fun hasLegacyPayloadFields(bytes: ByteArray): Boolean {
         return try {
-            val fields = topLevelFieldNumbers(bytes)
-            LEGACY_ANIME_FIELD in fields || LEGACY_NOVEL_FIELD in fields
+            scanBytes(bytes).sawLegacyMediaField
         } catch (_: Exception) {
             false
         }
@@ -78,40 +72,49 @@ object BackupDetector {
         // container (2.x), so it is recognisable before any protobuf parsing is attempted.
         if (LNReaderBackup.isLNReaderContainer(bytes)) return BackupOrigin.LNREADER
 
-        if (isLegacyBackup(bytes)) return BackupOrigin.LEGACY_ANIYOMI
-
-        val fields = try {
-            topLevelFieldNumbers(bytes)
+        val scan = try {
+            scanBytes(bytes)
         } catch (_: Exception) {
             return BackupOrigin.TADAMI
         }
-
-        return when {
-            fields.any { it in NATIVE_MARKER_FIELDS } -> BackupOrigin.TADAMI
-            // Our own sister-app export: Mihon shaped, but carrying a manifest we can verify.
-            hasConfirmedSisterManifest(bytes, fields) -> BackupOrigin.TADAMI_SISTER
-            KOMIKKU_FEED_FIELD in fields -> BackupOrigin.KOMIKKU
-            TACHIYOMI_SY_SAVED_SEARCH_FIELD in fields -> BackupOrigin.TACHIYOMI_SY
-            fields.any { it in MIHON_CONTENT_FIELDS } -> BackupOrigin.MIHON
-            else -> BackupOrigin.TADAMI
-        }
+        return originFromScan(scan)
     }
+
+    /**
+     * Streaming counterpart of [detectOrigin] for a decompressed payload stream.
+     *
+     * Used to verify what the writer just staged: the payload is proven from the wire without
+     * ever materializing it. LNReader containers never reach the writer, so the JSON/ZIP probe
+     * of the byte variant is deliberately not repeated here.
+     */
+    internal fun detectOrigin(input: InputStream): BackupOrigin = originFromScan(scanStream(input))
 
     /**
      * True only when field 20000 is present *and* decodes into a manifest with our signature and a
      * version this build understands. The presence of the field number alone proves nothing, since
      * any other app is free to use it.
      */
-    private fun hasConfirmedSisterManifest(bytes: ByteArray, fields: Set<Int>): Boolean {
-        if (TadamiSisterManifest.PROTO_FIELD !in fields) return false
+    private fun hasConfirmedSisterManifest(scan: PayloadScan): Boolean {
+        val payload = scan.manifestPayload ?: return false
         return try {
-            // Decode only the manifest field's own bytes: pulling the whole MihonBackup into RAM
-            // just to read field 20000 materializes the entire library next to the payload that is
-            // being verified, which exhausted the heap on small-heap devices.
-            val manifest = lastFieldPayload(bytes, TadamiSisterManifest.PROTO_FIELD) ?: return false
-            ProtoBuf.decodeFromByteArray(TadamiSisterManifest.serializer(), manifest).isValid
+            ProtoBuf.decodeFromByteArray(TadamiSisterManifest.serializer(), payload).isValid
         } catch (_: Exception) {
             false
+        }
+    }
+
+    internal fun originFromScan(scan: PayloadScan): BackupOrigin {
+        return when {
+            scan.isLegacy -> BackupOrigin.LEGACY_ANIYOMI
+            // Our own sister-app export: Mihon shaped, but carrying a manifest we can verify.
+            // Checked before the native markers because the export also carries the native anime
+            // fields (501-503) for Aniyomi-shaped readers, which would otherwise read as native.
+            hasConfirmedSisterManifest(scan) -> BackupOrigin.TADAMI_SISTER
+            scan.fields.any { it in NATIVE_MARKER_FIELDS } -> BackupOrigin.TADAMI
+            KOMIKKU_FEED_FIELD in scan.fields -> BackupOrigin.KOMIKKU
+            TACHIYOMI_SY_SAVED_SEARCH_FIELD in scan.fields -> BackupOrigin.TACHIYOMI_SY
+            scan.fields.any { it in MIHON_CONTENT_FIELDS } -> BackupOrigin.MIHON
+            else -> BackupOrigin.TADAMI
         }
     }
 
@@ -127,6 +130,8 @@ object BackupDetector {
 
     private const val LEGACY_ANIME_FIELD = 3
     private const val LEGACY_NOVEL_FIELD = 5
+    private const val LEGACY_ANIME_SOURCES_FIELD = 103
+    private const val IS_LEGACY_FIELD = 500
     private const val TACHIYOMI_SY_SAVED_SEARCH_FIELD = 600
     private const val KOMIKKU_FEED_FIELD = 610
 
@@ -144,52 +149,138 @@ object BackupDetector {
      *
      * Field numbers mirror the native [eu.kanade.tachiyomi.data.backup.models.Backup] schema:
      * 1 manga, 2 categories, 501 anime, 502 anime categories, 508 novel, 509 novel categories. A
-     * sister export is Mihon shaped, so its flattened manga and novels both land on field 1 while
-     * the anime/novel counters read zero — exactly what the writer expects for that format.
+     * sister export is Mihon shaped: flattened manga and novels both land on field 1 while novels
+     * read zero, and anime travels at the native 501/502 numbers for Aniyomi-shaped readers.
      *
      * A repeated message field occurs once per element, so counting top level occurrences is
      * equivalent to the decoded list sizes, at O(1) memory instead of a full object graph.
      */
-    fun contentSummary(bytes: ByteArray): BackupContentSummary {
-        val counts = topLevelFieldCounts(bytes)
+    fun contentSummary(bytes: ByteArray): BackupContentSummary = summaryFromScan(scanBytes(bytes))
+
+    /** Streaming [contentSummary] over a decompressed payload; see [detectOrigin] for the scope. */
+    internal fun contentSummary(input: InputStream): BackupContentSummary =
+        summaryFromScan(scanStream(input))
+
+    internal fun summaryFromScan(scan: PayloadScan): BackupContentSummary {
         return BackupContentSummary(
-            mangaCount = counts[NATIVE_MANGA_FIELD] ?: 0,
-            animeCount = counts[NATIVE_ANIME_FIELD] ?: 0,
-            novelCount = counts[NATIVE_NOVEL_FIELD] ?: 0,
-            categoriesCount = (counts[NATIVE_CATEGORY_FIELD] ?: 0) +
-                (counts[NATIVE_ANIME_CATEGORY_FIELD] ?: 0) +
-                (counts[NATIVE_NOVEL_CATEGORY_FIELD] ?: 0),
+            mangaCount = scan.counts[NATIVE_MANGA_FIELD] ?: 0,
+            animeCount = scan.counts[NATIVE_ANIME_FIELD] ?: 0,
+            novelCount = scan.counts[NATIVE_NOVEL_FIELD] ?: 0,
+            categoriesCount = (scan.counts[NATIVE_CATEGORY_FIELD] ?: 0) +
+                (scan.counts[NATIVE_ANIME_CATEGORY_FIELD] ?: 0) +
+                (scan.counts[NATIVE_NOVEL_CATEGORY_FIELD] ?: 0),
         )
     }
 
     /**
-     * Walk the top level of a protobuf message and collect the field numbers present.
-     * Nested messages are skipped wholesale (not recursed into).
+     * Everything a single top-level pass over a payload reveals: present field numbers, per field
+     * occurrence counts, the legacy markers and the sister manifest bytes (field 20000, last
+     * occurrence wins to match protobuf repeated/singular-last semantics).
      */
-    private fun topLevelFieldNumbers(bytes: ByteArray): Set<Int> {
+    internal class PayloadScan {
         val fields = mutableSetOf<Int>()
-        forEachTopLevelField(bytes) { number, _, _ -> fields += number }
-        return fields
-    }
+        val counts = mutableMapOf<Int, Int>()
+        var sawLegacyMediaField = false
+        var isLegacyVarint: Boolean? = null
+        var manifestPayload: ByteArray? = null
 
-    /** How many times each top level field occurs. A repeated message field occurs once per element. */
-    private fun topLevelFieldCounts(bytes: ByteArray): Map<Int, Int> {
-        val counts = HashMap<Int, Int>()
-        forEachTopLevelField(bytes) { number, _, _ -> counts[number] = (counts[number] ?: 0) + 1 }
-        return counts
-    }
+        /** Mirrors the old decode-based rule: legacy media fields, or isLegacy with anime sources. */
+        val isLegacy: Boolean
+            get() = sawLegacyMediaField ||
+                ((isLegacyVarint ?: true) && (counts[LEGACY_ANIME_SOURCES_FIELD] ?: 0) > 0)
 
-    /**
-     * Bytes of the last occurrence of [fieldNumber], or null when the field is absent. Last wins to
-     * match protobuf semantics for repeated fields, so origin detection and a later full decode of
-     * the same payload can never disagree about which occurrence is authoritative.
-     */
-    private fun lastFieldPayload(bytes: ByteArray, fieldNumber: Int): ByteArray? {
-        var payload: ByteArray? = null
-        forEachTopLevelField(bytes) { number, start, length ->
-            if (number == fieldNumber) payload = bytes.copyOfRange(start, start + length)
+        fun record(number: Int) {
+            fields += number
+            counts[number] = (counts[number] ?: 0) + 1
+            if (number == LEGACY_ANIME_FIELD || number == LEGACY_NOVEL_FIELD) {
+                sawLegacyMediaField = true
+            }
         }
-        return payload
+    }
+
+    internal fun scanBytes(bytes: ByteArray): PayloadScan {
+        val scan = PayloadScan()
+        forEachTopLevelField(bytes) { number, start, length ->
+            scan.record(number)
+            when (number) {
+                IS_LEGACY_FIELD -> scan.isLegacyVarint = readVarint(bytes, start).first != 0L
+                TadamiSisterManifest.PROTO_FIELD ->
+                    scan.manifestPayload = bytes.copyOfRange(start, start + length)
+            }
+        }
+        return scan
+    }
+
+    /** Single sequential pass over a decompressed payload stream; nested messages are skipped. */
+    internal fun scanStream(input: InputStream): PayloadScan {
+        val scan = PayloadScan()
+        while (true) {
+            val tag = readVarint(input) ?: break
+            val fieldNumber = (tag ushr 3).toInt()
+            val wireType = (tag and 0x7L).toInt()
+            if (fieldNumber == 0) throw SerializationException("Invalid protobuf field number 0")
+            scan.record(fieldNumber)
+            when (wireType) {
+                0 -> {
+                    val value = readVarint(input)
+                        ?: throw SerializationException("Truncated varint")
+                    if (fieldNumber == IS_LEGACY_FIELD) scan.isLegacyVarint = value != 0L
+                }
+                1 -> skipFully(input, 8)
+                2 -> {
+                    val length = (readVarint(input) ?: throw SerializationException("Truncated varint")).toInt()
+                    if (fieldNumber == TadamiSisterManifest.PROTO_FIELD) {
+                        scan.manifestPayload = readFully(input, length)
+                    } else {
+                        skipFully(input, length.toLong())
+                    }
+                }
+                5 -> skipFully(input, 4)
+                else -> throw SerializationException("Unsupported protobuf wire type $wireType")
+            }
+        }
+        return scan
+    }
+
+    private fun readFully(input: InputStream, length: Int): ByteArray {
+        val buffer = ByteArray(length)
+        var offset = 0
+        while (offset < length) {
+            val read = input.read(buffer, offset, length - offset)
+            if (read < 0) throw SerializationException("Truncated protobuf message")
+            offset += read
+        }
+        return buffer
+    }
+
+    private fun skipFully(input: InputStream, count: Long) {
+        var remaining = count
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped <= 0) {
+                // skip() may refuse even when bytes remain (some filtered streams): read one byte.
+                if (input.read() < 0) throw SerializationException("Truncated protobuf message")
+                remaining--
+            } else {
+                remaining -= skipped
+            }
+        }
+    }
+
+    private fun readVarint(input: InputStream): Long? {
+        var result = 0L
+        var shift = 0
+        while (true) {
+            val b = input.read()
+            if (b < 0) {
+                if (shift == 0) return null // clean end of message
+                throw SerializationException("Truncated varint")
+            }
+            result = result or ((b.toLong() and 0x7F) shl shift)
+            if (b and 0x80 == 0) return result
+            shift += 7
+            if (shift >= 64) throw SerializationException("Varint too long")
+        }
     }
 
     /**
@@ -233,7 +324,7 @@ object BackupDetector {
         while (i < bytes.size) {
             val b = bytes[i].toInt()
             result = result or ((b.toLong() and 0x7F) shl shift)
-            i++
+            i += 1
             if (b and 0x80 == 0) return result to i
             shift += 7
             if (shift >= 64) throw SerializationException("Varint too long")

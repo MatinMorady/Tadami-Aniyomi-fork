@@ -71,6 +71,7 @@ class DiscoveryCoordinator(
                         seenSoFar,
                         context.recentCleanTitles,
                         context.shownCutoffMap,
+                        context.currentFeedCleanTitles,
                     )
                     selected.forEach { seenSoFar += it.cleanTitle }
 
@@ -105,24 +106,29 @@ class DiscoveryCoordinator(
         seen: Set<String>,
         recentCleanTitles: Set<String>,
         shownCutoffMap: Map<String, Long>,
+        currentFeedCleanTitles: Set<String> = emptySet(),
     ): List<DiscoveryRowItem> {
         val valid = items
             .filterNot { it.cleanTitle.isBlank() || it.cleanTitle in excluded || it.cleanTitle in seen }
             .distinctBy { it.cleanTitle }
 
+        val clustered = filterFranchiseClustering(valid, maxPerSeries = 2)
+
         return if (recentCleanTitles.isNotEmpty()) {
-            val fresh = valid.filterNot { it.cleanTitle in recentCleanTitles }
+            val fresh = clustered.filterNot { it.cleanTitle in recentCleanTitles }
             if (fresh.size >= rowLimit) {
                 fresh.take(rowLimit)
             } else {
-                // Добираем показанными: дольше всего не показанные первыми;
-                // без таймстампа (напр. текущая лента при ручном рефреше) — в конец.
-                val stale = valid.filter { it.cleanTitle in recentCleanTitles }
+                // Добираем показанными: дольше всего не показанные первыми; без таймстампа — в конец.
+                // Тайтлы ТЕКУЩЕЙ ленты (ручной рефреш) в добор не возвращаются —
+                // наполнение ряда реально сменяется, а не «новые + всё старое».
+                val stale = clustered
+                    .filter { it.cleanTitle in recentCleanTitles && it.cleanTitle !in currentFeedCleanTitles }
                     .sortedBy { shownCutoffMap[it.cleanTitle] ?: Long.MAX_VALUE }
                 (fresh + stale).take(rowLimit)
             }
         } else {
-            valid.take(rowLimit)
+            clustered.take(rowLimit)
         }
     }
 }

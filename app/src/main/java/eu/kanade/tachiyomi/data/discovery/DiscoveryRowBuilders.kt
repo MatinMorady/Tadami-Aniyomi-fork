@@ -43,7 +43,11 @@ class DiscoveryLikeRowBuilder(
                 author = seed.author,
                 genres = seed.genres.ifEmpty { null },
             )
-            val result = suggestionCoordinator.fetchSuggestions(suggestionSeed, limit = 25)
+            val result = suggestionCoordinator.fetchSuggestions(
+                suggestionSeed,
+                limit = 25,
+                releaseStatuses = context.releaseStatuses,
+            )
             if (result.items.isEmpty() && result.attemptedSources > 0 &&
                 result.failedSources == result.attemptedSources
             ) {
@@ -196,6 +200,9 @@ class DiscoveryTasteRowBuilder(
     private val trending: DiscoveryTrendingSource,
     private val catalog: DiscoverySourceCatalog,
     private val sortProvider: () -> TrendSort,
+    // «Только плагины»: false — внешние жанровые провайдеры не опрашиваются,
+    // ряд строится исключительно из каталога primary-источника.
+    private val includeExternal: Boolean = true,
 ) : DiscoveryRowBuilder {
 
     override val rowType = DiscoveryRowType.TASTE
@@ -216,14 +223,18 @@ class DiscoveryTasteRowBuilder(
         } else {
             genreNames
         }
-        val trendingResult = runCatching {
-            trending.fetchByGenres(
-                context.mediaType,
-                genreNames,
-                sortProvider(),
-                page = context.pageOffset,
-                releaseStatuses = context.releaseStatuses,
-            )
+        val trendingResult = if (includeExternal) {
+            runCatching {
+                trending.fetchByGenres(
+                    context.mediaType,
+                    genreNames,
+                    sortProvider(),
+                    page = context.pageOffset,
+                    releaseStatuses = context.releaseStatuses,
+                )
+            }
+        } else {
+            null
         }
         val sourceResult = if (context.sourceId > 0) {
             runCatching {
@@ -231,13 +242,14 @@ class DiscoveryTasteRowBuilder(
                     context.mediaType,
                     context.sourceId,
                     sourceGenreNames,
+                    page = context.pageOffset,
                     releaseStatuses = context.releaseStatuses,
                 )
             }
         } else {
             null
         }
-        val fromTrending = trendingResult.getOrNull().orEmpty()
+        val fromTrending = trendingResult?.getOrNull().orEmpty()
             // best-effort: провайдеры без жанров в выдаче (source-latest) не фильтруются
             .filterNot { item -> matchesAnyGenre(item.genres, expandedBlacklist) }
             // V3: обязательные жанры — best-effort (пустой результат → без фильтра).
@@ -261,7 +273,7 @@ class DiscoveryTasteRowBuilder(
             )
         }
         val combined = mergeNormalized(fromTrending, fromSource)
-        val anyFailed = trendingResult.isFailure || (sourceResult?.isFailure ?: false)
+        val anyFailed = (trendingResult?.isFailure ?: false) || (sourceResult?.isFailure ?: false)
         if (combined.isEmpty() && anyFailed) {
             throw IOException("taste sources failed without results")
         }
@@ -307,7 +319,12 @@ class DiscoverySourceRowBuilder(
             val latestItems = latestResult.getOrDefault(emptyList()).take(latestQuota)
             val latestTitles = latestItems.mapTo(HashSet()) { it.cleanTitle }
             val popularResult = runCatching {
-                catalog.popular(context.mediaType, id, releaseStatuses = context.releaseStatuses)
+                catalog.popular(
+                    context.mediaType,
+                    id,
+                    page = context.pageOffset,
+                    releaseStatuses = context.releaseStatuses,
+                )
             }
             // Источник считается провалившимся, только если popular упал И latest ничего
             // не дал — иначе ряд честно строится из реального контента.

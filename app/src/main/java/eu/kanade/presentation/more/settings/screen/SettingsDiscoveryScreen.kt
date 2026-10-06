@@ -27,9 +27,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -114,11 +118,35 @@ object SettingsDiscoveryScreen : SearchableSettings {
         var showBlacklistDialog by remember { mutableStateOf(false) }
         var showStatusDialog by remember { mutableStateOf(false) }
         var showGenreDialog by remember { mutableStateOf(false) }
+        var showResetTasteDialog by remember { mutableStateOf(false) }
         var blacklistTags by remember { mutableStateOf<List<Pair<DiscoveryMediaType, String>>>(emptyList()) }
         val reloadBlacklist: suspend () -> Unit = {
             blacklistTags = DiscoveryMediaType.entries.flatMap { media ->
                 repository.getBlacklistedTags(media).sorted().map { media to it }
             }
+        }
+
+        // Taste Learning Engine: сводка выученного профиля для настроек.
+        var tasteSignalCount by remember { mutableStateOf(0) }
+        var tasteTopGenres by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+        val reloadTaste: suspend () -> Unit = {
+            val allSignals = DiscoveryMediaType.entries.flatMap { repository.getSignals(it) }
+            tasteSignalCount = allSignals.size
+            tasteTopGenres = eu.kanade.tachiyomi.data.discovery.foldLearnedTasteProfile(allSignals)
+                .genres.take(5)
+        }
+        LaunchedEffect(Unit) { reloadTaste() }
+
+        // «Просмотренные» (consumed): список с per-title undo — вернуть тайтл в ленту.
+        var showConsumedDialog by remember { mutableStateOf(false) }
+        var consumedSignals by remember {
+            mutableStateOf<List<tachiyomi.domain.discovery.model.DiscoverySignal>>(emptyList())
+        }
+        val reloadConsumed: suspend () -> Unit = {
+            consumedSignals = DiscoveryMediaType.entries
+                .flatMap { repository.getSignals(it) }
+                .filter { it.signalType == tachiyomi.domain.discovery.model.DiscoverySignalType.CONSUMED }
+                .sortedByDescending { it.createdAt }
         }
 
         val discoveryPreferences = remember { Injekt.get<DiscoveryPreferences>() }
@@ -132,6 +160,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
         val seedCompleted by discoveryPreferences.seedCompleted().collectAsStateWithLifecycle()
         val seedActive14 by discoveryPreferences.seedActive14().collectAsStateWithLifecycle()
         val homeHeroMode by discoveryPreferences.homeHeroMode().collectAsStateWithLifecycle()
+        val externalProviders by discoveryPreferences.externalProvidersEnabled().collectAsStateWithLifecycle()
         val isCollageMode = homeHeroMode == "collage"
         // Auto резолвится в Stage при включённом «Для тебя» — stage-поднастройки видны и в авто-режиме.
         val isStageMode = homeHeroMode == "stage" || (homeHeroMode == "auto" && enabled)
@@ -163,6 +192,38 @@ object SettingsDiscoveryScreen : SearchableSettings {
             ) {
                 Text(
                     stringResource(AYMR.strings.pref_discovery_clear_hidden_dialog_message),
+                    color = colors.textSecondary,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+        }
+
+        if (showResetTasteDialog) {
+            AuroraFrostDialog(
+                onDismiss = { showResetTasteDialog = false },
+                title = stringResource(AYMR.strings.pref_discovery_taste_reset),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { showResetTasteDialog = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(MR.strings.action_ok),
+                        onClick = {
+                            showResetTasteDialog = false
+                            scope.launchIO {
+                                // Сброс только выученного вкуса: кэш ленты, hidden и
+                                // блэклист не трогаются — «вкусы» и «лента» независимы.
+                                repository.clearAllSignals()
+                                reloadTaste()
+                            }
+                        },
+                    )
+                },
+            ) {
+                Text(
+                    stringResource(AYMR.strings.pref_discovery_taste_reset_confirm),
                     color = colors.textSecondary,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -231,6 +292,75 @@ object SettingsDiscoveryScreen : SearchableSettings {
             }
         }
 
+        // «Просмотренные»: список consumed-тайтлов с per-title undo и общим возвратом.
+        if (showConsumedDialog) {
+            AuroraFrostDialog(
+                onDismiss = { showConsumedDialog = false },
+                title = stringResource(AYMR.strings.pref_discovery_consumed_title),
+                footer = {
+                    AuroraFrostCancel(
+                        label = stringResource(MR.strings.action_cancel),
+                        onClick = { showConsumedDialog = false },
+                    )
+                    AuroraFrostConfirm(
+                        label = stringResource(AYMR.strings.pref_discovery_consumed_reset),
+                        onClick = {
+                            scope.launchIO {
+                                consumedSignals.forEach { repository.removeSignal(it.mediaType, it.cleanTitle) }
+                                reloadConsumed()
+                                reloadTaste()
+                            }
+                            showConsumedDialog = false
+                        },
+                        enabled = consumedSignals.isNotEmpty(),
+                    )
+                },
+            ) {
+                if (consumedSignals.isEmpty()) {
+                    Text(
+                        stringResource(AYMR.strings.pref_discovery_consumed_empty),
+                        color = colors.textSecondary,
+                        fontSize = 13.sp,
+                    )
+                } else {
+                    Column {
+                        consumedSignals.forEach { signal ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .clickable {
+                                        scope.launchIO {
+                                            // Undo consumed: тайтл снова может попасть в ленту.
+                                            repository.removeSignal(signal.mediaType, signal.cleanTitle)
+                                            reloadConsumed()
+                                            reloadTaste()
+                                        }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${signal.title} · ${signal.mediaType.key}",
+                                    color = colors.textPrimary,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // V1: диалог мультивыбора статусов выпуска (4 свитча, дефолт — все включены).
         if (showStatusDialog) {
             ReleaseStatusFilterDialog(
@@ -238,6 +368,9 @@ object SettingsDiscoveryScreen : SearchableSettings {
                 onApply = { csv ->
                     discoveryPreferences.releaseStatusFilter().set(csv)
                     showStatusDialog = false
+                    // Применить сразу: без триггера лента показывала бы старые статусы
+                    // до следующего фонового цикла.
+                    DiscoveryUpdateJob.refreshNow(context)
                 },
                 onDismiss = { showStatusDialog = false },
             )
@@ -254,6 +387,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
                     discoveryPreferences.requiredGenres().set(reqCsv)
                     discoveryPreferences.ignoredGenres().set(ignCsv)
                     showGenreDialog = false
+                    // Игнор/приоритет/обязательные жанры — применить сразу, не ждать фоновый цикл.
+                    DiscoveryUpdateJob.refreshNow(context)
                 },
                 onDismiss = { showGenreDialog = false },
             )
@@ -280,6 +415,22 @@ object SettingsDiscoveryScreen : SearchableSettings {
                             title = stringResource(AYMR.strings.pref_discovery_nsfw_filter),
                             subtitle = stringResource(AYMR.strings.pref_discovery_nsfw_filter_summary),
                             enabled = enabled,
+                        ),
+                    )
+                    // «Только плагины»: выключает внешние провайдеры целиком —
+                    // LIKE/TREND (чисто внешние ряды) не строятся, TASTE — из каталогов.
+                    add(
+                        Preference.PreferenceItem.SwitchPreference(
+                            preference = discoveryPreferences.externalProvidersEnabled(),
+                            title = stringResource(AYMR.strings.pref_discovery_external_providers),
+                            subtitle = stringResource(AYMR.strings.pref_discovery_external_providers_summary),
+                            enabled = enabled,
+                            onValueChanged = {
+                                // Переключение состава провайдеров — регенерировать ленту сразу,
+                                // иначе старые внешние тайтлы висят до фонового цикла.
+                                DiscoveryUpdateJob.refreshNow(context)
+                                true
+                            },
                         ),
                     )
                     add(
@@ -356,7 +507,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         preference = discoveryPreferences.rowLikeEnabled(),
                         title = stringResource(AYMR.strings.pref_discovery_row_like),
                         subtitle = stringResource(AYMR.strings.pref_discovery_row_like_summary),
-                        enabled = enabled,
+                        // Ряд «Похоже» чисто внешний: без внешних провайдеров он не строится.
+                        enabled = enabled && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.seedCount(),
@@ -371,12 +523,12 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         subtitleProvider = { value, _ ->
                             stringResource(AYMR.strings.pref_discovery_seed_count_summary, value)
                         },
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.seedCompleted(),
                         title = stringResource(AYMR.strings.pref_discovery_seed_completed),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.seedCompletedDays(),
@@ -390,12 +542,12 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_seed_completed_days),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowLike && seedCompleted,
+                        enabled = enabled && rowLike && externalProviders && seedCompleted,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.seedActive14(),
                         title = stringResource(AYMR.strings.pref_discovery_seed_active14),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.seedActiveDays(),
@@ -407,30 +559,30 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_seed_active_days),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowLike && seedActive14,
+                        enabled = enabled && rowLike && externalProviders && seedActive14,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.seedAdded(),
                         title = stringResource(AYMR.strings.pref_discovery_seed_added),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.suggestionsUseShikimori(),
                         title = stringResource(AYMR.strings.pref_discovery_provider_shikimori),
                         subtitle = stringResource(AYMR.strings.pref_discovery_provider_shikimori_summary),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.suggestionsUseMangaUpdatesNovel(),
                         title = stringResource(AYMR.strings.pref_discovery_provider_mangaupdates),
                         subtitle = stringResource(AYMR.strings.pref_discovery_provider_mangaupdates_summary),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.suggestionsUseNovelUpdates(),
                         title = stringResource(AYMR.strings.pref_discovery_provider_novelupdates),
                         subtitle = stringResource(AYMR.strings.pref_discovery_provider_novelupdates_summary),
-                        enabled = enabled && rowLike,
+                        enabled = enabled && rowLike && externalProviders,
                     ),
                 ),
             ),
@@ -440,7 +592,8 @@ object SettingsDiscoveryScreen : SearchableSettings {
                     Preference.PreferenceItem.SwitchPreference(
                         preference = discoveryPreferences.rowTrendEnabled(),
                         title = stringResource(AYMR.strings.pref_discovery_row_trend),
-                        enabled = enabled,
+                        // Ряд трендов чисто внешний: без внешних провайдеров он не строится.
+                        enabled = enabled && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.trendSeason(),
@@ -451,7 +604,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_trend_season),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowTrend,
+                        enabled = enabled && rowTrend && externalProviders,
                     ),
                     Preference.PreferenceItem.ListPreference(
                         preference = discoveryPreferences.trendSort(),
@@ -461,7 +614,7 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         ),
                         title = stringResource(AYMR.strings.pref_discovery_trend_sort),
                         subtitleProvider = { value, entries -> entries[value] },
-                        enabled = enabled && rowTrend,
+                        enabled = enabled && rowTrend && externalProviders,
                     ),
                 ),
             ),
@@ -622,6 +775,45 @@ object SettingsDiscoveryScreen : SearchableSettings {
                         enabled = enabled,
                     ),
                     // V0: блэклист тегов переехал в группу «Фильтры контента» выше.
+                ),
+            ),
+            // Taste Learning Engine: выученный профиль вкуса и его сброс.
+            // Профиль строится из лайков/добавлений/скрытий в ленте «Для вас».
+            Preference.PreferenceGroup(
+                title = stringResource(AYMR.strings.pref_discovery_taste_title),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_taste_title),
+                        subtitle = run {
+                            val signals = tasteSignalCount
+                            if (signals == 0) {
+                                stringResource(AYMR.strings.pref_discovery_taste_empty)
+                            } else {
+                                stringResource(AYMR.strings.pref_discovery_taste_signal_count, signals) +
+                                    " · " + tasteTopGenres.joinToString { it.first }
+                            }
+                        },
+                        icon = Icons.Outlined.AutoAwesome,
+                        enabled = enabled,
+                        onClick = {},
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_consumed_title),
+                        subtitle = stringResource(AYMR.strings.pref_discovery_consumed_summary),
+                        icon = Icons.Outlined.TaskAlt,
+                        enabled = enabled,
+                        onClick = {
+                            showConsumedDialog = true
+                            scope.launchIO { reloadConsumed() }
+                        },
+                    ),
+                    Preference.PreferenceItem.TextPreference(
+                        title = stringResource(AYMR.strings.pref_discovery_taste_reset),
+                        subtitle = stringResource(AYMR.strings.pref_discovery_taste_summary),
+                        icon = Icons.Outlined.RestartAlt,
+                        enabled = enabled,
+                        onClick = { showResetTasteDialog = true },
+                    ),
                 ),
             ),
         )

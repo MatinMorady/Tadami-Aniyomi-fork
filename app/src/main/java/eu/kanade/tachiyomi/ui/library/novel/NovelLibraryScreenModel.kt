@@ -8,7 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.documentfile.provider.DocumentFile
 import cafe.adriel.voyager.core.model.StateScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
 import eu.kanade.core.preference.asState
 import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.entries.novel.LocalNovelBookImport
@@ -49,7 +48,11 @@ import kotlinx.collections.immutable.toPersistentList
 import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -166,6 +169,28 @@ class NovelLibraryScreenModel(
         randomSortSeed = libraryPreferences.randomNovelSortSeed().get(),
     ),
 ) {
+
+    /**
+     * Owned process-lifetime scope - deliberately NOT Voyager's screenModelScope store
+     * dependency. This model is held by tab data objects for the whole process (J1), but
+     * ScreenModelStore keys the scope of an UNREGISTERED model under lastScreenModelKey -
+     * whichever screen model was remembered last app-wide (e.g. a pushed MangaScreen). When
+     * that screen pops, the store's prefix sweep cancels the borrowed scope: every pipeline
+     * and preference collector of this model dies silently, later gate re-writes are no-ops
+     * and the library section is stuck on LoadingScreen until a process restart (the v0.62.8
+     * "Manga section spins forever after finishing a manhwa" report). This member shadows the
+     * imported extension for the whole class; same pattern as ReaderSettingsScreenModel.
+     * Regression net: LibrarySharedModelScopeTest.
+     */
+    private val screenModelScope: CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Main.immediate + CoroutineName("NovelLibraryScreenModel"),
+    )
+
+    override fun onDispose() {
+        super.onDispose()
+        screenModelScope.cancel()
+    }
+
     var activeCategoryIndex: Int by libraryPreferences.lastUsedNovelCategory().asState(screenModelScope)
 
     // F1: shared instances - the raw factories were subscribed multiple times inside the same
@@ -1223,8 +1248,26 @@ class NovelLibraryScreenModel(
                 mappedCategories
             }
 
+            // DECISION-3 (manga parity): a series is placed by its own category, but when that
+            // category is hidden or dangling the whole series used to vanish while its volumes
+            // stayed suppressed as singles (idsInSeries). Fall back to the first VISIBLE category
+            // any of its volumes belongs to; only a series with no visible category hides.
+            val visibleIds = displayCategories.map { it.id }.toHashSet()
+            val regrouped = libraryNovels.entries
+                .flatMap { (categoryId, items) -> items.map { categoryId to it } }
+                .groupBy({ (categoryId, item) ->
+                    if (item is NovelLibraryItem.Series && categoryId !in visibleIds) {
+                        item.librarySeries.entries
+                            .map { it.category }
+                            .firstOrNull { it in visibleIds }
+                            ?: categoryId
+                    } else {
+                        categoryId
+                    }
+                }) { it.second }
+
             displayCategories
-                .associateWith { libraryNovels[it.id].orEmpty().toPersistentList() }
+                .associateWith { regrouped[it.id].orEmpty().toPersistentList() }
                 .toPersistentMap()
         }
     }
@@ -1809,7 +1852,9 @@ class NovelLibraryScreenModel(
     fun openAddToSeries() {
         screenModelScope.launchIO {
             val allSeries = getLibraryNovelSeries.subscribe().first()
-            val series = allSeries.map { it.series }
+            // Empty (zombie) series must not be offered: the grid hides them, so listing them
+            // here made the library look like it holds more series than it actually shows.
+            val series = allSeries.filter { it.entries.isNotEmpty() }.map { it.series }
             mutableState.update { it.copy(dialog = Dialog.AddToSeries(series)) }
         }
     }

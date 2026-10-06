@@ -210,6 +210,7 @@ class NovelReaderScreenModel(
     private val novelHighlightRepository:
     tachiyomi.domain.book.novel.repository.NovelHighlightRepository = Injekt.get(),
     private val isSystemDark: () -> Boolean = { Injekt.get<Application>().isNightMode() },
+    private val discoveryRepository: tachiyomi.domain.discovery.repository.DiscoveryRepository = Injekt.get(),
     private val geminiTranslationService: GeminiTranslationService = run {
         val app = Injekt.get<Application>()
         val networkHelper = Injekt.get<eu.kanade.tachiyomi.network.NetworkHelper>()
@@ -906,6 +907,28 @@ class NovelReaderScreenModel(
     private var settingsJob: Job? = null
     private var contentModel: NovelReaderContentModel? = null
     private var currentNovel: Novel? = null
+
+    /**
+     * Taste Engine: «просмотрено» — открытие читалки помечает тайтл consumed
+     * (нейтральный вес 0: вкус не трогает, тайтл уходит из ленты «Для вас»).
+     * Хук на открытие, не на запись истории — работает и в инкогнито.
+     * Guard по тайтлу: перелистывание глав не перезаписывает сигнал заново
+     * (loadChapter зовётся и при seamless-переходах между главами).
+     */
+    private var lastConsumedMarkedTitle: String? = null
+
+    private fun markDiscoveryConsumed(title: String, sourceId: Long) {
+        if (title == lastConsumedMarkedTitle) return
+        lastConsumedMarkedTitle = title
+        screenModelScope.launch {
+            eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.recordConsumed(
+                repository = discoveryRepository,
+                mediaType = tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL,
+                title = title,
+                sourceId = sourceId,
+            )
+        }
+    }
     private var currentChapter: NovelChapter? = null
     private var chapterOrderList: MutableList<NovelChapter> = mutableListOf()
     private var fullChapterOrderList: List<NovelChapter> = emptyList()
@@ -1052,6 +1075,10 @@ class NovelReaderScreenModel(
         clearChapterTransientState()
         currentNovel = novel
         observeIncognitoForNovel(novel)
+        // Taste Engine: «просмотрено» — открытие читалки помечает тайтл consumed
+        // (нейтральный вес 0: вкус не трогает, тайтл уходит из ленты «Для вас»).
+        // Хук на открытие, не на запись истории — работает и в инкогнито.
+        markDiscoveryConsumed(novel.title, novel.source)
         currentChapter = chapter
         fullChapterOrderList = snapshot.chapterOrderList
         chapterOrderList = NovelReaderChapterWindow.resolveWindow(

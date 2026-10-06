@@ -241,6 +241,8 @@
     <string name="single_action_custom">Custom</string>
     <string name="pref_category_long_press">Long press</string>
     <string name="pref_long_press_action">Long press action</string>
+    <string name="player_speed_gesture_reset_on_release">Reset speed on gesture release</string>
+    <string name="player_speed_gesture_reset_on_release_summary">The long-press speed gesture returns to the previous speed when released. Disable to keep the speed you slid to</string>
     <string name="long_press_action_none">None</string>
     <string name="long_press_action_screenshot">Take screenshot</string>
     <string name="long_press_action_playback_speed">Dynamic playback speed</string>
@@ -491,6 +493,8 @@
     <string name="pref_preserve_reading_position">Preserve reading position on read chapters</string>
     <string name="pref_download_slots">Maximum downloads</string>
     <string name="pref_parallel_page_downloads">Parallel page downloads</string>
+    <string name="pref_novel_parallel_chapter_downloads">Parallel novel chapter downloads</string>
+    <string name="novel_parallel_chapter_downloads_info">How many novel chapters download at the same time. Higher values are faster, but some sources may temporarily block rapid requests; use the anti-blocking settings to compensate.</string>
     <string name="custom_button_settings">Custom buttons</string>
     <string name="local_source_badge">Local</string>
     <string name="type">Type</string>
@@ -1617,7 +1621,7 @@
     <string name="resmush">resmush.it</string>
     <string name="bandwidth_data_saver_server">Bandwidth Hero Proxy Server</string>
     <string name="data_saver_server_summary">Put Bandwidth Hero Proxy server url here</string>
-    <string name="download_slots_info">Will only download concurrently from self-hosted or unmetered sources</string>
+    <string name="download_slots_info">Number of chapters downloaded at the same time from one manga source. Higher values may trigger rate-limiting on some sources.</string>
     <string name="parallel_page_downloads_info">Higher values can speed up page loading, but some sources work better with smaller values.</string>
     <string name="unseen">Unseen</string>
     <string name="label_manga_extension_repos">Manga extension stores</string>
@@ -2163,7 +2167,7 @@
     <string name="pref_home_hero_cta_mode_summary">Style for the action button on the Home screen: %s</string>
     <string name="pref_home_hero_cta_mode_aurora">Aurora</string>
     <string name="pref_home_hero_cta_mode_classic">Classic</string>
-    <string name="pref_home_hero_mode_auto">Automatic (cinematic when For You is on)</string>
+    <string name="pref_home_hero_mode_auto">Automatic (cinematic when For You is on and has picks)</string>
     <string name="pref_home_hero_mode_continue">Continue</string>
     <string name="pref_home_hero_mode_collage">For You collage</string>
     <string name="pref_home_hero_mode_hybrid">Hybrid (continue + picks)</string>
@@ -2179,6 +2183,7 @@
     <string name="for_you_updated_hours">Updated %1$d h ago</string>
     <string name="for_you_updated_never">Not updated yet</string>
     <string name="for_you_refresh_cooldown">Wait %1$d seconds before refreshing again</string>
+    <string name="for_you_limited_pool">Recommendations refreshed from available items</string>
     <string name="for_you_tab_mix">Mix</string>
     <string name="for_you_tab_similar">Similar</string>
     <string name="for_you_tab_taste">Your taste</string>
@@ -2203,8 +2208,24 @@
     <string name="pref_discovery_enabled_summary">Master switch: Home teaser, full feed screen, background refresh</string>
     <string name="pref_discovery_nsfw_filter">Hide 18+ content</string>
     <string name="pref_discovery_nsfw_filter_summary">Independent switch: filters adult content from external providers regardless of the app-wide NSFW setting. Plugin catalogues follow the app setting</string>
+    <string name="pref_discovery_external_providers">External recommendation services</string>
+    <string name="pref_discovery_external_providers_summary">AniList, Shikimori, MAL, Jikan, MangaDex, MangaUpdates/NovelUpdates. Turn off to build picks only from installed plugin catalogues</string>
     <string name="for_you_failed_banner">Some picks failed to update — showing previous results</string>
     <string name="for_you_tag_hide_title">Hide title</string>
+    <string name="for_you_more_like_this">More like this</string>
+    <string name="for_you_more_like_this_toast">Got it — we’ll take that into account</string>
+    <string name="for_you_mark_consumed">Mark as watched</string>
+    <string name="for_you_mark_consumed_toast">Marked — this pick won’t show up again</string>
+    <string name="pref_discovery_taste_title">Learned taste profile</string>
+    <string name="pref_discovery_taste_summary">Improves picks from your likes, adds and hidden titles. Reset any time</string>
+    <string name="pref_discovery_taste_reset">Reset learned taste</string>
+    <string name="pref_discovery_taste_reset_confirm">Reset learned taste for all tabs (anime, manga, novels)? Hidden titles and the feed itself are not affected</string>
+    <string name="pref_discovery_taste_empty">Nothing learned yet — like or hide picks to teach the feed</string>
+    <string name="pref_discovery_taste_signal_count">%1$d signals</string>
+    <string name="pref_discovery_consumed_title">Marked as watched</string>
+    <string name="pref_discovery_consumed_summary">Hidden from the feed without affecting taste. Tap a title to bring it back</string>
+    <string name="pref_discovery_consumed_empty">Nothing marked as watched yet</string>
+    <string name="pref_discovery_consumed_reset">Restore all</string>
     <string name="for_you_tag_blacklist_action">Hide all with tag “%1$s”</string>
     <string name="for_you_tag_blacklist_action_generic">Hide all with tag</string>
     <string name="for_you_tag_blacklist_disabled">Tags appear after the next feed update</string>
@@ -2213,7 +2234,7 @@
     <string name="pref_discovery_blacklist_tags_summary">Tag-level “not interested”: picks with these genres are filtered out</string>
     <string name="pref_discovery_blacklist_empty">No hidden tags yet</string>
     <string name="pref_discovery_blacklist_reset">Reset all tags</string>
-    <string name="backup_discovery_data">For You hidden titles and tags</string>
+    <string name="backup_discovery_data">For You hidden titles, tags and taste signals</string>
     <string name="pref_home_hero_mode">Main banner style</string>
     <string name="pref_collage_rotation_interval">Tile rotation interval</string>
     <string name="pref_stage_rotation_interval">Focus rotation interval</string>
@@ -2274,7 +2295,7 @@
     <string name="pref_discovery_group_filters">Content filters</string>
     <string name="pref_discovery_release_status">Release status</string>
     <string name="pref_discovery_release_status_summary_all">All statuses (no filter)</string>
-    <string name="pref_discovery_release_status_hint">Applies to trend rows (AniList/Shikimori) and to source rows when the extension exposes a status filter or item statuses; takes effect at the next feed refresh. The \"Similar to…\" row ignores status.</string>
+    <string name="pref_discovery_release_status_hint">Applies to trend rows (AniList/Shikimori/Jikan/MangaDex), source rows when the extension exposes a status, and the “Similar to…” row: AniList/Shikimori carry a status and are filtered; providers without one (MAL/MangaUpdates/NovelUpdates) drop out of that row while a filter is selected. Takes effect at the next feed refresh.</string>
     <string name="pref_discovery_release_status_ongoing">Releasing</string>
     <string name="pref_discovery_release_status_ongoing_desc">New episodes or chapters are coming out</string>
     <string name="pref_discovery_release_status_finished">Finished</string>
@@ -2298,7 +2319,7 @@
     <string name="pref_discovery_genre_add_custom">Add \"%1$s\"</string>
     <string name="pref_discovery_genre_popular">Popular</string>
     <string name="pref_discovery_row_taste">“Your taste” row</string>
-    <string name="pref_discovery_row_taste_summary">Personalized genre recommendations based on your library</string>
+    <string name="pref_discovery_row_taste_summary">Personalized genre recommendations based on your library and likes/hides</string>
     <string name="pref_discovery_row_source">Source catalogue row</string>
     <string name="pref_discovery_row_source_summary">Popular titles from your preferred source</string>
     <string name="pref_discovery_seed_completed_days">Completed recency window</string>
@@ -2306,7 +2327,7 @@
     <string name="pref_discovery_clear_hidden_title">Reset hidden recommendations</string>
     <string name="pref_discovery_clear_hidden_summary">Restore all previously hidden titles to the feed</string>
     <string name="pref_discovery_clear_hidden_dialog_title">Reset hidden titles?</string>
-    <string name="pref_discovery_clear_hidden_dialog_message">All titles you previously hid will be eligible to appear in the recommendations feed again.</string>
+    <string name="pref_discovery_clear_hidden_dialog_message">All titles you previously hid will be eligible to appear in the recommendations feed again. Titles marked as watched are not affected.</string>
     <string name="pref_discovery_clear_hidden_success">Hidden recommendations reset</string>
     <string name="pref_discovery_days_7">7 days</string>
     <string name="pref_discovery_days_14">14 days</string>

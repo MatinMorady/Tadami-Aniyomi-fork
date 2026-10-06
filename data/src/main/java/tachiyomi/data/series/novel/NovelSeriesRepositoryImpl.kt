@@ -106,6 +106,12 @@ class NovelSeriesRepositoryImpl(
         }
     }
 
+    override suspend fun moveSeriesFromCategoryToDefault(categoryId: Long) {
+        handler.await { db ->
+            db.novel_seriesQueries.resetCategory(categoryId)
+        }
+    }
+
     override suspend fun insertEntry(entry: NovelSeriesEntry) {
         handler.await { db ->
             db.novel_series_entriesQueries.insert(

@@ -100,6 +100,37 @@ class MihonBackupCompatibilityTest {
     }
 
     @Test
+    fun `sister export carries anime at the Aniyomi field numbers so anime-capable apps restore it`() {
+        // Regression: the compatible export flattened novels into manga but dropped anime
+        // entirely, so importing the file into Aniyomi/Animetail restored the manga list and
+        // showed an empty anime library.
+        val tadamiBackup = sampleTadamiBackup().copy(
+            isLegacy = false,
+            backupAnime = listOf(sampleAnime()),
+            backupAnimeCategories = listOf(BackupCategory(name = "Anime cat", order = 1)),
+            backupAnimeSources = listOf(BackupAnimeSource(name = "Anime source", sourceId = 9)),
+        )
+
+        val bytes = ProtoBuf.encodeToByteArray(
+            MihonBackup.serializer(),
+            tadamiBackup.toMihonBackup(),
+        )
+
+        // Aniyomi-shaped readers decode anime from fields 501/502/503.
+        val viaAniyomiShape = ProtoBuf.decodeFromByteArray(Backup.serializer(), bytes)
+        assertEquals(listOf("Anime title"), viaAniyomiShape.backupAnime.map { it.title })
+        assertEquals(listOf("Anime cat"), viaAniyomiShape.backupAnimeCategories.map { it.name })
+        assertEquals(listOf("Anime source"), viaAniyomiShape.backupAnimeSources.map { it.name })
+
+        // Pure Mihon readers must still see only the Mihon fields.
+        val viaStrictMihon = ProtoBuf.decodeFromByteArray(StrictMihonBackup.serializer(), bytes)
+        assertEquals(listOf("Manga title"), viaStrictMihon.backupManga.map { it.title })
+
+        // And the file still identifies as our sister export, not as native Tadami.
+        assertEquals(BackupOrigin.TADAMI_SISTER, BackupDetector.detectOrigin(bytes))
+    }
+
+    @Test
     fun `Mihon backup extension repos use proto field 106 and restore into Tadami manga repos`() {
         val mihonBackup = MihonBackup(
             backupManga = listOf(sampleManga().toMihonBackupManga()),
@@ -290,6 +321,10 @@ class MihonBackupCompatibilityTest {
             title = "Manga title",
             chapters = listOf(BackupChapter(url = "/chapter-1", name = "Chapter 1")),
         )
+    }
+
+    private fun sampleAnime(): BackupAnime {
+        return BackupAnime(source = 9, url = "/anime", title = "Anime title")
     }
 
     private fun sampleNovel(): BackupNovel {

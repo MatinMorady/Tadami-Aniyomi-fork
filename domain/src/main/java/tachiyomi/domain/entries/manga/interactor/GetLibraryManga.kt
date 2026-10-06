@@ -20,8 +20,12 @@ class GetLibraryManga(
 
     fun subscribe(): Flow<List<LibraryManga>> {
         return mangaRepository.getLibraryMangaAsFlow()
-            .retry {
-                if (it is NullPointerException) {
+            .retry(MAX_NPE_RETRIES) { cause ->
+                // Cursor-mapper NPEs (library view, see crash logs) are retried a few times for
+                // transient races, but never forever: on devices where the offending row state
+                // persisted this loop re-queried the whole library every 0.5s indefinitely and
+                // the section silently never loaded. A persistent failure falls to catch below.
+                if (cause is NullPointerException) {
                     delay(0.5.seconds)
                     true
                 } else {
@@ -30,5 +34,9 @@ class GetLibraryManga(
             }.catch {
                 this@GetLibraryManga.logcat(LogPriority.ERROR, it)
             }
+    }
+
+    private companion object {
+        const val MAX_NPE_RETRIES = 3L
     }
 }

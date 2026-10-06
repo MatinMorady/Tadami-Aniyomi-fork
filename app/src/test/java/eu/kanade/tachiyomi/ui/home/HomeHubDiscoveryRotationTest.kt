@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.home
 
 import eu.kanade.domain.ui.model.HomeHeroMode
+import eu.kanade.tachiyomi.data.discovery.extractSeriesKey
 import io.kotest.matchers.shouldBe
 import org.junit.Test
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
@@ -306,5 +307,67 @@ class HomeHubDiscoveryRotationTest {
         val result = selectFreshTeaserItems(pool, shownTitles = shown, count = 3, shownCutoffMap = cutoffMap)
         result.size shouldBe 3
         result.map { it.title } shouldBe listOf("Fresh 1", "Fresh 2", "Old 1")
+    }
+
+    @Test
+    fun `selectFreshTeaserItems avoids currentTitles when alternatives available`() {
+        val pool = (1..6).map { suggestion("Item $it") }
+        val current = setOf("item 1", "item 2", "item 3")
+
+        val result = selectFreshTeaserItems(
+            pool = pool,
+            shownTitles = emptySet(),
+            count = 3,
+            currentTitles = current,
+        )
+
+        result.size shouldBe 3
+        val resultCleanTitles = result.map { it.cleanTitle }.toSet()
+        resultCleanTitles.intersect(current) shouldBe emptySet()
+        result.map { it.title } shouldBe listOf("Item 4", "Item 5", "Item 6")
+    }
+
+    @Test
+    fun `selectFreshTeaserItems falls back gracefully when pool is exhausted or only currentTitles remain`() {
+        val pool = (1..4).map { suggestion("Candidate $it") }
+        val current = setOf("candidate 1", "candidate 2", "candidate 3")
+
+        val result = selectFreshTeaserItems(
+            pool = pool,
+            shownTitles = emptySet(),
+            count = 3,
+            currentTitles = current,
+        )
+
+        result.size shouldBe 3
+        result[0].title shouldBe "Candidate 4"
+        val remainingTitles = result.drop(1).map { it.title }
+        (remainingTitles.all { it in listOf("Candidate 1", "Candidate 2", "Candidate 3") }) shouldBe true
+    }
+
+    @Test
+    fun `composeTeaserItems prevents franchise clustering by prioritizing diverse series`() {
+        val pool = listOf(
+            suggestion("Jujutsu Kaisen: Shibuya Incident"),
+            suggestion("Jujutsu Kaisen Season 2"),
+            suggestion("Jujutsu Kaisen Movie 0"),
+            suggestion("Dungeon Meshi"),
+            suggestion("Chainsaw Man"),
+        )
+
+        val result = composeTeaserItems(pool, limit = 3)
+        result.size shouldBe 3
+        val titles = result.map { it.title }
+        titles shouldBe listOf("Jujutsu Kaisen: Shibuya Incident", "Dungeon Meshi", "Chainsaw Man")
+    }
+
+    @Test
+    fun `extractSeriesKey correctly identifies sequels, seasons, and subtitles`() {
+        extractSeriesKey("Solo Leveling: Ragnarok", "solo leveling: ragnarok") shouldBe "solo leveling"
+        extractSeriesKey("Jujutsu Kaisen Season 2", "jujutsu kaisen season 2") shouldBe "jujutsu kaisen"
+        extractSeriesKey("Sword Art Online II", "sword art online ii") shouldBe "sword art online"
+        extractSeriesKey("Spy x Family Part 2", "spy x family part 2") shouldBe "spy x family"
+        extractSeriesKey("Attack on Titan: The Final Season", "attack on titan: the final season") shouldBe
+            "attack on titan"
     }
 }

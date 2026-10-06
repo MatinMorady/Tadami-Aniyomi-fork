@@ -1,0 +1,53 @@
+CREATE TABLE discovery_signals (
+    media_type TEXT NOT NULL,
+    clean_title TEXT NOT NULL,
+    title TEXT NOT NULL,
+    signal TEXT NOT NULL,
+    weight REAL NOT NULL,
+    genres TEXT,
+    provider TEXT,
+    source_key TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (media_type, clean_title)
+);
+
+CREATE INDEX discovery_signals_time ON discovery_signals(media_type, created_at);
+
+selectAllByMedia:
+SELECT * FROM discovery_signals WHERE media_type = ? ORDER BY created_at ASC;
+
+selectByTitle:
+SELECT * FROM discovery_signals WHERE media_type = ? AND clean_title = ?;
+
+upsert:
+INSERT INTO discovery_signals(media_type, clean_title, title, signal, weight, genres, provider, source_key, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(media_type, clean_title) DO UPDATE SET
+    title = excluded.title,
+    signal = excluded.signal,
+    weight = excluded.weight,
+    genres = excluded.genres,
+    provider = excluded.provider,
+    source_key = excluded.source_key,
+    created_at = excluded.created_at;
+
+delete:
+DELETE FROM discovery_signals WHERE media_type = ? AND clean_title = ?;
+
+deleteAllByMedia:
+DELETE FROM discovery_signals WHERE media_type = ?;
+
+deleteAll:
+DELETE FROM discovery_signals;
+
+countByMedia:
+SELECT COUNT(*) FROM discovery_signals WHERE media_type = ?;
+
+selectConsumedByMedia:
+SELECT * FROM discovery_signals WHERE media_type = ? AND signal = 'consumed' ORDER BY created_at ASC;
+
+evictOldest:
+DELETE FROM discovery_signals WHERE media_type = ? AND clean_title IN (
+    SELECT clean_title FROM discovery_signals WHERE media_type = ?
+    ORDER BY created_at ASC LIMIT ?
+);

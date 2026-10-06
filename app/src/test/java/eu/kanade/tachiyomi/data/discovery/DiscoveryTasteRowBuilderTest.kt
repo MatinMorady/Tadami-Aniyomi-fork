@@ -43,6 +43,7 @@ class DiscoveryTasteRowBuilderTest {
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            page: Int,
             releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 
@@ -50,6 +51,7 @@ class DiscoveryTasteRowBuilderTest {
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            page: Int,
             releaseStatuses: Set<DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> {
             if (shouldFail) throw IOException("catalog boom")
@@ -150,5 +152,42 @@ class DiscoveryTasteRowBuilderTest {
             context(profile = listOf("Fantasy" to 2.0), blacklistedTags = setOf("Fantasy")),
         )
         result shouldBe emptyList()
+    }
+
+    @Test
+    fun `includeExternal false builds from catalog only and ignores trending failure`() = runTest {
+        // «Только плагины»: внешний провайдер не опрашивается вовсе — даже его
+        // падение не считается ошибкой ряда; выдача только из каталога.
+        val trending = FakeTrending(
+            genreItems = listOf(
+                DiscoveryTrendingItem("External Pick", "external pick", null, 1L, null, genres = listOf("Fantasy")),
+            ),
+            shouldFail = true,
+        )
+        val catalog = FakeCatalog(
+            genreItems = listOf(DiscoveryRowItem("Plugin Pick", "plugin pick", null, null, null, "MangaHub", 1.0)),
+        )
+        val result = DiscoveryTasteRowBuilder(
+            trending,
+            catalog,
+            sortProvider = { TrendSort.POPULARITY },
+            includeExternal = false,
+        ).build(context())
+        result.map { it.title } shouldBe listOf("Plugin Pick")
+    }
+
+    @Test
+    fun `includeExternal false with empty catalog returns empty without throwing`() = runTest {
+        // Плагин-каталог пуст и падает: ряда нет, но и ложного «failed» нет —
+        // вызов внешних отключён, пустой результат валиден.
+        val result = runCatching {
+            DiscoveryTasteRowBuilder(
+                FakeTrending(shouldFail = true),
+                FakeCatalog(shouldFail = true),
+                sortProvider = { TrendSort.POPULARITY },
+                includeExternal = false,
+            ).build(context())
+        }
+        result.getOrDefault(emptyList()) shouldBe emptyList()
     }
 }

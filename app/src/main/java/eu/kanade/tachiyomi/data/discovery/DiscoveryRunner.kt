@@ -10,6 +10,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryReleaseStatus
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
@@ -137,7 +138,25 @@ class DiscoveryRunner(
 
     private suspend fun runFor(mediaType: DiscoveryMediaType, isManualRefresh: Boolean = false) {
         val candidates = seedSources.candidates(mediaType)
-        val seedOffset = if (isManualRefresh) 2 else 0
+        val refreshCount = if (isManualRefresh) {
+            val current = preferences.manualRefreshCount(mediaType).get()
+            val next = current + 1
+            preferences.manualRefreshCount(mediaType).set(next)
+            next
+        } else {
+            preferences.manualRefreshCount(mediaType).get()
+        }
+        // Фоновые циклы тоже ротируют страницы провайдеров: иначе авто-обновления
+        // вечно тянут страницу 1 (тренды меняются медленно → лента «не обновляется»).
+        val backgroundCycle = if (isManualRefresh) {
+            preferences.backgroundCycleCount(mediaType).get()
+        } else {
+            val current = preferences.backgroundCycleCount(mediaType).get()
+            val next = current + 1
+            preferences.backgroundCycleCount(mediaType).set(next)
+            next
+        }
+        val seedOffset = if (isManualRefresh) manualSeedOffset(refreshCount) else 0
         val seeds = seedSelector.select(
             candidates,
             SeedSettings(
@@ -151,6 +170,10 @@ class DiscoveryRunner(
             offset = seedOffset,
         )
         val sourcePreferences = sourcePreferencesProvider()
+        // Taste Learning Engine: один запрос сигнал-лога на генерацию — и на
+        // source-аффинити участия плагинов, и на fold/merge вкуса, и на
+        // «просмотрено»-исключение ниже.
+        val allSignals = runCatching { repository.getSignals(mediaType) }.getOrDefault(emptyList())
         val preferredSourceId = when (mediaType) {
             DiscoveryMediaType.ANIME -> sourcePreferences.lastUsedAnimeSource().get()
             DiscoveryMediaType.MANGA -> sourcePreferences.lastUsedMangaSource().get()
@@ -160,6 +183,9 @@ class DiscoveryRunner(
         // auto = топ-3 плагинов по весу библиотеки, manual = набор пользователя (cap 8).
         val plugins = installedPluginsProvider(mediaType)
         val sourceWeights = candidates.filter { it.sourceId > 0 }.groupingBy { it.sourceId }.eachCount()
+        // Taste Learning Engine: аффинити источников из сигнал-лога бустит вес участия
+        // плагина (плавный tanh-буст, порядок честен и при негативе — кламп 0.4..2.0x).
+        val learnedSourceAffinity = foldLearnedTasteProfile(signals = allSignals).sourceAffinity
         val pluginStats = plugins.mapNotNull { plugin ->
             val representative = plugin.sourceIds.sortedWith(
                 compareByDescending<Long> { sourceWeights[it] ?: 0 }.thenBy { it },
@@ -169,8 +195,13 @@ class DiscoveryRunner(
                 representative = representative,
                 memberIds = plugin.sourceIds.toSet(),
                 weight = plugin.sourceIds.sumOf { sourceWeights[it] ?: 0 },
+                affinity = learnedSourceAffinity[plugin.key] ?: 0.0,
             )
-        }.sortedWith(compareByDescending<DiscoveryPluginStat> { it.weight }.thenBy { it.representative })
+        }.sortedWith(
+            compareByDescending<DiscoveryPluginStat> {
+                applySourceAffinity(it.weight, it.affinity)
+            }.thenBy { it.representative },
+        )
         val excludedKeys = parseKeyCsv(preferences.discoverySourceExcluded(mediaType).get())
         val participation = if (pluginStats.isEmpty()) {
             // Плагины неизвестны (юнит-тесты / расширения ещё не загружены при раннем старте):
@@ -221,15 +252,42 @@ class DiscoveryRunner(
         } else {
             shownTitles
         }
-        val pageOffset = if (isManualRefresh) 2 else 1
+        val pageOffset = if (isManualRefresh) {
+            manualPageOffset(refreshCount)
+        } else {
+            backgroundPageOffset(backgroundCycle)
+        }
+
+        // Taste Learning Engine: fold сигнал-лога и слияние с библиотечным профилем.
+        // Плавный старт (blend) — при пустом логе merge возвращает библиотечный профиль как есть.
+        // Неявный негатив: тайтл показан ≥3 раз за 48ч без явного сигнала → жанры
+        // получают мягкий минус. Синтез на лету (не пишется в БД), явные сигналы важнее.
+        val implicitNegatives = runCatching {
+            synthesizeImplicitNegatives(
+                shownWithCount = repository.getShownWithCount(mediaType),
+                explicitSignals = allSignals,
+                currentSuggestions = currentSuggestions,
+                mediaType = mediaType,
+            )
+        }.getOrDefault(emptyList())
+        val learnedProfile = foldLearnedTasteProfile(signals = allSignals + implicitNegatives)
+        val mergedTasteProfile = mergeTasteProfiles(
+            libraryProfile = buildTasteProfile(candidates),
+            learned = learnedProfile,
+        )
+        // «Просмотрено/прочитано»: нейтральное исключение — consumed-тайтлы не
+        // попадают в новые генерации ленты (вкусовой профиль они не трогают).
+        val consumedCleanTitles = allSignals
+            .filter { it.signalType == DiscoverySignalType.CONSUMED }
+            .mapTo(HashSet()) { it.cleanTitle }
 
         val context = DiscoveryBuildContext(
             mediaType = mediaType,
             seeds = seedsWithTracks,
             libraryCleanTitles = candidates.mapTo(HashSet()) { normalizeDiscoveryTitle(it.title) },
             historyCleanTitles = seedSources.historyCleanTitles(mediaType),
-            hiddenCleanTitles = repository.getHiddenTitles(mediaType),
-            tasteProfile = buildTasteProfile(candidates),
+            hiddenCleanTitles = repository.getHiddenTitles(mediaType) + consumedCleanTitles,
+            tasteProfile = mergedTasteProfile,
             // V3: глобальный игнор-список жанров (преф) поверх per-media блэклиста тегов.
             blacklistedTags = repository.getBlacklistedTags(mediaType) +
                 parseGenreFilterCsv(preferences.ignoredGenres().get()).let { (canon, raw) -> canon + raw },
@@ -246,6 +304,13 @@ class DiscoveryRunner(
             sourceIds = participation.sourceIds,
             recentCleanTitles = recentCleanTitles,
             shownCutoffMap = shownCutoffMap,
+            // Ручной рефреш: тайтлы текущей ленты не возвращаются stale-добором —
+            // наполнение ряда реально сменяется, а не «новые + всё старое».
+            currentFeedCleanTitles = if (isManualRefresh) {
+                currentSuggestions.mapTo(HashSet()) { it.cleanTitle }
+            } else {
+                emptySet()
+            },
             pageOffset = pageOffset,
         )
         logcat {
@@ -253,20 +318,22 @@ class DiscoveryRunner(
                 "statuses=${context.releaseStatuses} sources=${context.sourceIds} primary=${context.sourceId}"
         }
         // Выключенные в настройках ряды: чистим их записи в БД, чтобы UI не показывал «зомби».
-        if (!preferences.rowLikeEnabled().get()) {
+        // LIKE/TREND — чисто внешние ряды: при выключенных внешних провайдерах их тоже не строим.
+        val useExternal = preferences.externalProvidersEnabled().get()
+        if (!preferences.rowLikeEnabled().get() || !useExternal) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.LIKE, emptyList())
         }
         if (!preferences.rowTasteEnabled().get()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE, emptyList())
         }
-        if (!preferences.rowTrendEnabled().get()) {
+        if (!preferences.rowTrendEnabled().get() || !useExternal) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TREND, emptyList())
         }
         if (!preferences.rowSourceEnabled().get()) {
             repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.SOURCE, emptyList())
         }
         val builders = buildList {
-            if (preferences.rowLikeEnabled().get()) {
+            if (preferences.rowLikeEnabled().get() && useExternal) {
                 add(DiscoveryLikeRowBuilder(suggestionCoordinatorFactory()))
             }
             if (preferences.rowTasteEnabled().get()) {
@@ -274,13 +341,16 @@ class DiscoveryRunner(
                     DiscoveryTasteRowBuilder(
                         trending = trendingFactory(),
                         catalog = sourceCatalog,
+                        // «Только плагины»: жанровые рекомендации строятся из каталогов,
+                        // внешние жанровые провайдеры не опрашиваются.
+                        includeExternal = useExternal,
                         sortProvider = {
                             if (preferences.trendSort().get() == "score") TrendSort.SCORE else TrendSort.POPULARITY
                         },
                     ),
                 )
             }
-            if (preferences.rowTrendEnabled().get()) {
+            if (preferences.rowTrendEnabled().get() && useExternal) {
                 add(
                     DiscoveryTrendRowBuilder(
                         trending = trendingFactory(),
@@ -342,14 +412,59 @@ class DiscoveryRunner(
         logcat {
             "[DiscoveryRunner] $mediaType done: rows=${feed.rows.mapValues { it.value.size }} failed=${feed.failedRows}"
         }
+        // «Только плагины»: пустой TASTE-ряд (нет подходящих плагин-тайтлов) не должен
+        // оставлять в кэше внешние тайтлы — «пустой ряд не перезаписывает» здесь
+        // мешает явному выбору пользователя, чистим вручную. НО: упавший ряд (network)
+        // — не «честно пустой», его кэш не трогаем (feed.rows[T]=null при падении).
+        if (!useExternal && feed.rows[tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE].isNullOrEmpty() &&
+            tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE !in feed.failedRows
+        ) {
+            repository.replaceRows(mediaType, tachiyomi.domain.discovery.model.DiscoveryRowType.TASTE, emptyList())
+        }
+        // Статус-фильтр активен: пустой ряд (нет тайтлов выбранного статуса) не должен
+        // жить старым кэшем с НЕсоответствующими статусами — иначе «выбран Завершённый,
+        // а показывается всякое» из старой генерации. Чистим явно. НО: упавший ряд
+        // (провайдер/сеть отвалились) — не «честно пустой», его кэш сохраняем, иначе
+        // при отвале сети с включённым фильтром пропадала бы вся лента.
+        if (context.releaseStatuses.isNotEmpty()) {
+            tachiyomi.domain.discovery.model.DiscoveryRowType.entries.forEach { rowType ->
+                if (feed.rows[rowType].isNullOrEmpty() && rowType !in feed.failedRows) {
+                    repository.replaceRows(mediaType, rowType, emptyList())
+                }
+            }
+        }
         failedRowsSink(mediaType, feed.failedRows)
     }
 }
 
-/** Статистика плагина для резолва участия: репрезентативный источник + суммарный вес библиотеки. */
+/**
+ * Статистика плагина для резолва участия: репрезентативный источник, суммарный вес
+ * библиотеки и Taste-аффинити из сигнал-лога (см. [applySourceAffinity]).
+ */
 private data class DiscoveryPluginStat(
     val key: String,
     val representative: Long,
     val memberIds: Set<Long>,
     val weight: Int,
+    val affinity: Double = 0.0,
 )
+
+/**
+ * Оффсет ротации сидов ручного рефреша: шаг 1 (свободный счётчик, без cap).
+ * Шаг 2 с предварительным % 20 посещал только половину позиций окна при чётных
+ * размерах пула и циклился на 20 — селектор сам приводится по distinct.size,
+ * шаг 1 гарантированно обходит все позиции при любом размере.
+ */
+internal fun manualSeedOffset(refreshCount: Int): Int = refreshCount
+
+/**
+ * Страница провайдеров/каталогов ручного рефреша: цикл 10 страниц (2..11).
+ * Цикл 4 полностью повторял выдачу уже к 5-му ручному рефрешу.
+ */
+internal fun manualPageOffset(refreshCount: Int): Int = ((refreshCount - 1) % 10) + 2
+
+/**
+ * Страница фонового цикла: 1..10, шагом по номеру цикла. Первый фон-прогон — страница 1
+ * (совпадает с прежним поведением), далее каждый цикл уходит глубже выдачи провайдера.
+ */
+internal fun backgroundPageOffset(cycleCount: Int): Int = ((cycleCount - 1).mod(10)) + 1

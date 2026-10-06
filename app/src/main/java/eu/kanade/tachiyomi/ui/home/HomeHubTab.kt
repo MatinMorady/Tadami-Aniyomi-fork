@@ -728,6 +728,8 @@ internal data class HomeHubDiscoveryItem(
     // Plugin-binding для direct open (Home-тизеры): полная связка открывает экран тайтла.
     val sourceId: Long? = null,
     val sourceUrl: String? = null,
+    // Метка последнего показа (48h-окно): hero-карусель Stage заказывает непоказанное вперёд.
+    val shownAt: Long? = null,
 )
 
 /** Бейдж «откроется напрямую»: только полная привязка (id + непустой url). */
@@ -958,13 +960,21 @@ object HomeHubTab : Tab {
         }
         // Per-media bootstrap: если лента активной вкладки никогда не генерировалась —
         // one-shot сразу (фикс дыры: после успеха аниме манга/новеллы ждали бы до 24ч).
+        // Анти-шторм: повторная попытка не чаще DISCOVERY_BOOTSTRAP_RETRY_MS — при стойких
+        // неудачах (оффлайн, все ряды failed) свайп вкладок не перезапускает генерацию.
         LaunchedEffect(selectedSection) {
             val mediaType = when (selectedSection) {
                 HomeHubSection.Anime -> tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME
                 HomeHubSection.Manga -> tachiyomi.domain.discovery.model.DiscoveryMediaType.MANGA
                 HomeHubSection.Novel -> tachiyomi.domain.discovery.model.DiscoveryMediaType.NOVEL
             }
-            if (discoveryRepository.lastUpdatedAt(mediaType) == null) {
+            if (
+                eu.kanade.tachiyomi.data.discovery.shouldBootstrapDiscoveryFeed(
+                    lastUpdatedAt = discoveryRepository.lastUpdatedAt(mediaType),
+                    lastBootstrapAttemptAt = discoveryPreferences.bootstrapAttemptAt(mediaType).get(),
+                )
+            ) {
+                discoveryPreferences.bootstrapAttemptAt(mediaType).set(System.currentTimeMillis())
                 eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob.refreshNow(context, mediaType)
             }
         }
@@ -986,6 +996,12 @@ object HomeHubTab : Tab {
                 // mediaType берём из айтема, а не из текущей вкладки: snackbar переживает
                 // свайп между вкладками, и undo обязан целиться в исходный медиатип.
                 discoveryRepository.hide(item.mediaType, item.cleanTitle)
+                // Taste Engine: скрытие = сильный негативный сигнал (undo удаляет строку лога).
+                eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                    discoveryRepository,
+                    item.toDiscoverySuggestion(),
+                    tachiyomi.domain.discovery.model.DiscoverySignalType.HIDE,
+                )
                 hiddenSnackItem = item
             }
         }
@@ -1008,6 +1024,8 @@ object HomeHubTab : Tab {
                 if (item != null) {
                     discoveryHideScope.launch {
                         discoveryRepository.unhide(item.mediaType, item.cleanTitle)
+                        // Taste Engine: undo отменяет и сигнал скрытия.
+                        discoveryRepository.removeSignal(item.mediaType, item.cleanTitle)
                     }
                 }
             }

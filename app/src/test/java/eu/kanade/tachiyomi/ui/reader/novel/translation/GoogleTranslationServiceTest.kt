@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.reader.novel.translation
 
+import eu.kanade.presentation.entries.translation.googleTranslationLanguageCodeFor
 import io.kotest.matchers.maps.shouldContain
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -153,5 +154,64 @@ class GoogleTranslationServiceTest {
         result.translatedByIndex shouldContain (0 to "Первый")
         result.translatedByIndex shouldContain (1 to "Второй")
         server.requestCount shouldBe 2
+    }
+
+    @Test
+    fun `free-text language names resolve to catalog codes on the wire`() = runTest {
+        server.enqueue(
+            MockResponse().setBody("""[[["[0]\nOl\u00e1","[0]\nHello",null,null,1]],null,"en"]"""),
+        )
+        val service = GoogleTranslationService(
+            client = OkHttpClient(),
+            translateUrl = server.url("/translate_a/single"),
+            userAgent = "unit-test-agent",
+        )
+
+        val result = service.translateBatch(
+            texts = listOf("Hello"),
+            params = GoogleTranslationParams(
+                sourceLang = "English",
+                targetLang = "\u041f\u043e\u0440\u0442\u0443\u0433\u0430\u043b\u044c\u0441\u043a\u0438\u0439",
+            ),
+        )
+
+        val request = server.takeRequest()
+        // Device-locale tables miss aliases and trimmed firmware locale sets miss names entirely;
+        // the catalog must answer first so the wire always carries a real language tag.
+        request.requestUrl?.queryParameter("sl") shouldBe "en"
+        request.requestUrl?.queryParameter("tl") shouldBe "pt"
+        result.translatedByIndex.isEmpty() shouldBe false
+    }
+
+    @Test
+    fun `unmappable target language fails loudly without hitting the network`() = runTest {
+        val service = GoogleTranslationService(
+            client = OkHttpClient(),
+            translateUrl = server.url("/translate_a/single"),
+            userAgent = "unit-test-agent",
+        )
+        val logs = mutableListOf<String>()
+
+        val result = service.translateBatch(
+            texts = listOf("Hello"),
+            params = GoogleTranslationParams(sourceLang = "en", targetLang = "Portuguese (Brazilian)"),
+            onLog = { logs += it },
+        )
+
+        result.translatedByIndex shouldBe emptyMap()
+        server.requestCount shouldBe 0
+        logs.any { it.startsWith("Unknown target language") } shouldBe true
+    }
+
+    @Test
+    fun `catalog resolves names codes and aliases case-insensitively`() {
+        googleTranslationLanguageCodeFor("Portuguese") shouldBe "pt"
+        googleTranslationLanguageCodeFor("pt") shouldBe "pt"
+        googleTranslationLanguageCodeFor(
+            "\u043f\u043e\u0440\u0442\u0443\u0433\u0430\u043b\u044c\u0441\u043a\u0438\u0439",
+        ) shouldBe
+            "pt"
+        googleTranslationLanguageCodeFor("AUTO") shouldBe "auto"
+        googleTranslationLanguageCodeFor("Portuguese (Brazil)") shouldBe null
     }
 }

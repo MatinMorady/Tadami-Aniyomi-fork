@@ -40,15 +40,21 @@ class MangaDownloadProvider(
     /**
      * Returns the download directory for a manga (scoped, id-suffixed). For internal use only.
      *
+     * Reuses an existing manga directory when one is already on disk (the scoped form, or the
+     * legacy title-only folder - e.g. downloads moved from another app) instead of always
+     * creating a scoped duplicate next to it. See issue #143 (duplicate download folders).
+     *
      * @param mangaTitle the title of the manga to query.
      * @param mangaId the database id of the manga.
      * @param source the source of the manga.
      */
     internal fun getMangaDir(mangaTitle: String, mangaId: Long, source: MangaSource): UniFile {
         try {
-            return downloadsDir!!
+            val sourceDir = downloadsDir!!
                 .createDirectory(getSourceDirName(source))!!
-                .createDirectory(getMangaDirName(mangaTitle, mangaId))!!
+            return sourceDir.findFile(getMangaDirName(mangaTitle, mangaId))
+                ?: sourceDir.findFile(getLegacyMangaDirName(mangaTitle))
+                ?: sourceDir.createDirectory(getMangaDirName(mangaTitle, mangaId))!!
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e) { "Invalid download directory" }
             throw Exception(

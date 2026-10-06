@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.data.suggestions
 
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.data.suggestions.sources.AniListMalStatusResolver
 import eu.kanade.tachiyomi.data.suggestions.sources.AniListRecommendationSource
 import eu.kanade.tachiyomi.data.suggestions.sources.MangaUpdatesSimilarSource
 import eu.kanade.tachiyomi.data.suggestions.sources.MyAnimeListRecommendationSource
@@ -76,10 +77,16 @@ class SuggestionCoordinator(
      * - Cache hit vs miss is logged per-source
      *
      * Deduplication: by providerId (if available) or providerUrl.
+     *
+     * [releaseStatuses] — строгий пост-фильтр статуса выпуска ленты «Для тебя»:
+     * при непустом выборе тайтл ОБЯЗАН нести распознанный статус из выбора
+     * ([SourceStatusFilterMatcher.rawStatusPasses]); провайдеры, чья similar-выдача
+     * статуса не несёт (MAL/MU/NU), при активном фильтре не попадают в результат.
      */
     suspend fun fetchSuggestions(
         seed: SuggestionSeed,
         limit: Int = 40,
+        releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus> = emptySet(),
     ): SuggestionFetchResult = supervisorScope {
         val boundedLimit = limit.coerceIn(1, 100)
         val sources = createSources(seed.mediaType)
@@ -128,7 +135,41 @@ class SuggestionCoordinator(
         val results = jobs.map { it.await() }
         val attemptedSources = sources.size
         val failedSources = results.count { it.second }
-        val items = results.flatMap { it.first }
+        val aggregated = results.flatMap { it.first }
+        val items = aggregated
+            .let { list ->
+                if (releaseStatuses.isEmpty()) return@let list
+                // MAL-рекомендации (Jikan) статуса не несут: резолвим их статус одним
+                // пакетным запросом AniList idMal_in, иначе строгий фильтр выпиливал
+                // бы весь MAL-вклад. Прочие провайдеры без статуса (MU/NU) не резолвим.
+                val statuslessMal = list.filter {
+                    it.releaseStatus == null && it.reason == SuggestionReason.EXTERNAL_MAL
+                }
+                if (statuslessMal.isEmpty()) return@let list
+                val idToStatus = runCatching {
+                    AniListMalStatusResolver.resolveByMalIds(
+                        statuslessMal.mapNotNull { it.providerId?.toLongOrNull() },
+                        type = "ANIME",
+                    )
+                }.getOrDefault(emptyMap())
+                if (idToStatus.isEmpty()) return@let list
+                list.map { item ->
+                    if (item.releaseStatus == null && item.reason == SuggestionReason.EXTERNAL_MAL) {
+                        val status = item.providerId?.toLongOrNull()?.let(idToStatus::get)
+                        if (status != null) item.copy(releaseStatus = status) else item
+                    } else {
+                        item
+                    }
+                }
+            }
+            .let { aggregatedWithStatus ->
+                if (releaseStatuses.isEmpty()) {
+                    aggregatedWithStatus
+                } else {
+                    eu.kanade.tachiyomi.data.discovery.SourceStatusFilterMatcher
+                        .filterByRawStatus(aggregatedWithStatus, releaseStatuses) { it.releaseStatus }
+                }
+            }
             .dedupeByCleanTitle(enrichedSeed)
             .sortedByDescending { SuggestionSourceWeight.finalScore(it.reason, it.bestMatchScoreFor(enrichedSeed)) }
             .take(boundedLimit) // Cap at requested limit

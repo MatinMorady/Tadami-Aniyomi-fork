@@ -31,12 +31,14 @@ class DiscoveryTrendRowBuilderTest {
         override suspend fun popular(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
+            page: Int,
             releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
         override suspend fun popularWithGenres(
             mediaType: DiscoveryMediaType,
             sourceId: Long,
             genres: List<String>,
+            page: Int,
             releaseStatuses: Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>,
         ): List<DiscoveryRowItem> = emptyList()
 

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -35,7 +34,6 @@ fun AuroraCompactEntryRowCard(
     colors: AuroraColors = AuroraTheme.colors,
     selected: Boolean = false,
     highlighted: Boolean = false,
-    dimmed: Boolean = false,
     cornerRadius: Dp = 20.dp,
     outerVerticalPadding: Dp = 6.dp,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
@@ -45,7 +43,6 @@ fun AuroraCompactEntryRowCard(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    val contentAlpha = if (dimmed) 0.68f else 1f
     val overlayColor = when {
         selected -> colors.accent.copy(alpha = 0.14f)
         highlighted -> colors.accent.copy(alpha = 0.055f)
@@ -181,10 +178,7 @@ fun AuroraCompactEntryRowCard(
                 )
                 .padding(contentPadding),
         ) {
-            Box(
-                modifier = Modifier.alpha(contentAlpha),
-                content = content,
-            )
+            content()
         }
     }
 }

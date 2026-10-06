@@ -405,7 +405,7 @@ class DomainModule : InjektModule {
         addFactory { ReorderNovelCategory(get()) }
         addFactory { UpdateNovelCategory(get()) }
         addFactory { HideNovelCategory(get()) }
-        addFactory { DeleteNovelCategory(get(), get(), get()) }
+        addFactory { DeleteNovelCategory(get(), get(), get(), get()) }
         addFactory { SetNovelCategories(get()) }
 
         addSingletonFactory<MangaSeriesRepository> { MangaSeriesRepositoryImpl(get(), get()) }

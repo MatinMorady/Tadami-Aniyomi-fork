@@ -77,6 +77,8 @@ internal fun parseMangaDexData(
             }
         }.getOrNull().orEmpty()
 
+        val rawStatus = runCatching { attributes["status"]?.jsonPrimitive?.contentOrNull }.getOrNull()
+
         DiscoveryTrendingItem(
             title = primaryTitle,
             cleanTitle = normalizeDiscoveryTitle(primaryTitle),
@@ -85,6 +87,7 @@ internal fun parseMangaDexData(
             seasonLabel = null,
             genres = tags,
             provider = "mangadex_trend",
+            releaseStatus = rawStatus,
         )
     }
 }
@@ -110,9 +113,26 @@ internal fun mangadexStatusParam(releaseStatuses: Set<DiscoveryReleaseStatus>): 
             DiscoveryReleaseStatus.ONGOING -> "&status[]=ongoing"
             DiscoveryReleaseStatus.FINISHED -> "&status[]=completed"
             DiscoveryReleaseStatus.ANONS -> "" // у MangaDex нет статуса «анонс» в списочном фильтре
-            DiscoveryReleaseStatus.PAUSED -> "&status[]=hiatus"
+            DiscoveryReleaseStatus.PAUSED -> "&status[]=hiatus&status[]=cancelled"
         }
     }
+
+internal fun filterMangaDexByStatus(
+    items: List<DiscoveryTrendingItem>,
+    releaseStatuses: Set<DiscoveryReleaseStatus>,
+): List<DiscoveryTrendingItem> {
+    if (releaseStatuses.isEmpty()) return items
+    return items.filter { item ->
+        val itemStatus = item.releaseStatus?.lowercase() ?: return@filter true
+        val status = when (itemStatus) {
+            "ongoing" -> DiscoveryReleaseStatus.ONGOING
+            "completed" -> DiscoveryReleaseStatus.FINISHED
+            "hiatus", "cancelled" -> DiscoveryReleaseStatus.PAUSED
+            else -> null
+        }
+        status == null || status in releaseStatuses
+    }
+}
 
 open class MangaDexTrendingSource(
     private val clientProvider: () -> OkHttpClient = { Injekt.get<NetworkHelper>().client },
@@ -152,7 +172,8 @@ open class MangaDexTrendingSource(
                 .awaitSuccess()
                 .parseAs<JsonObject>(jsonProvider())
 
-            parseMangaDexData(response, isRussianLocaleProvider())
+            val items = parseMangaDexData(response, isRussianLocaleProvider())
+            filterMangaDexByStatus(items, releaseStatuses)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -181,7 +202,8 @@ open class MangaDexTrendingSource(
                 .awaitSuccess()
                 .parseAs<JsonObject>(jsonProvider())
 
-            parseMangaDexData(response, isRussianLocaleProvider())
+            val items = parseMangaDexData(response, isRussianLocaleProvider())
+            filterMangaDexByStatus(items, releaseStatuses)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

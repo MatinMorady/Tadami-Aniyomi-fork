@@ -7,11 +7,15 @@ import eu.kanade.tachiyomi.data.backup.BackupDetector
 import eu.kanade.tachiyomi.data.backup.BackupDiagnosticLog
 import eu.kanade.tachiyomi.data.backup.BackupOrigin
 import eu.kanade.tachiyomi.data.backup.BackupWriteReceipt
+import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.i18n.MR
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
+import java.security.DigestOutputStream
 import java.security.MessageDigest
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
@@ -34,29 +38,55 @@ class BackupWriter(
 ) {
 
     /**
+     * Streaming write: [emit] pushes the top level protobuf fields straight into the staged gzip
+     * stream, so the uncompressed payload never exists as a single array in RAM. On large
+     * libraries that array (tens of megabytes) sat next to the creator's own object graph and
+     * pushed small-heap devices into OutOfMemoryError.
+     *
      * @param destination file chosen by the user or created by the auto backup job.
-     * @param payload uncompressed protobuf payload.
      * @param expected content the caller believes it serialized.
      * @param expectedOrigin format the caller believes it wrote.
+     * @param emit writes the uncompressed payload bytes; every byte is digested and counted.
      * @return a receipt describing what is actually stored on disk.
      */
-    suspend fun write(
+    suspend fun writeStreamed(
         destination: UniFile,
-        payload: ByteArray,
         expected: BackupContentSummary,
         expectedOrigin: BackupOrigin,
+        emit: (OutputStream) -> Unit,
     ): BackupWriteReceipt {
         val staging = File.createTempFile("backup-staging", ".tachibk", context.cacheDir)
         try {
-            BackupDiagnosticLog.measure(context, "stage_gzip") {
-                FileOutputStream(staging).use { out ->
-                    GZIPOutputStream(out).use { it.write(payload) }
+            var plainBytes = 0L
+            val payloadDigest = BackupDiagnosticLog.measure(context, "stage_gzip") {
+                FileOutputStream(staging).use { fileOut ->
+                    GZIPOutputStream(fileOut).use { gzipOut ->
+                        val digestOut = DigestOutputStream(gzipOut, MessageDigest.getInstance("SHA-256"))
+                        val counting = object : OutputStream() {
+                            override fun write(b: Int) {
+                                digestOut.write(b)
+                                plainBytes++
+                            }
+
+                            override fun write(b: ByteArray, off: Int, len: Int) {
+                                digestOut.write(b, off, len)
+                                plainBytes += len
+                            }
+                        }
+                        emit(counting)
+                        counting.flush()
+                        digestOut.messageDigest.digest()
+                    }
                 }
+            }
+            BackupDiagnosticLog.log(context, "serialize_size", "bytes=$plainBytes")
+            if (plainBytes == 0L) {
+                throw IllegalStateException(context.stringResource(MR.strings.empty_backup_error))
             }
 
             // Verify the staged bytes before touching the user's existing backup.
             BackupDiagnosticLog.measure(context, "verify_staged") {
-                verifyStagedBackup(staging, payload, expected, expectedOrigin)
+                verifyStagedStream(staging, payloadDigest, expected, expectedOrigin)
             }
 
             BackupDiagnosticLog.measure(context, "write_destination") {
@@ -171,35 +201,50 @@ internal fun verifyStagedBackup(
     expected: BackupContentSummary,
     expectedOrigin: BackupOrigin,
 ) {
+    verifyStagedStream(staged, sha256Bytes(payload), expected, expectedOrigin)
+}
+
+/**
+ * Streaming variant: the payload digest was computed while emitting, and origin plus content
+ * counts are scanned off the decompressed staged stream without materializing the payload.
+ */
+internal fun verifyStagedStream(
+    staged: File,
+    payloadDigest: ByteArray,
+    expected: BackupContentSummary,
+    expectedOrigin: BackupOrigin,
+) {
     // The staged artifact must decompress to exactly the serialized payload: this is the link that
     // ties the destination digest check (destination == staged) back to what was serialized.
-    val payloadDigest = sha256(payload)
     val stagedDigest = GZIPInputStream(FileInputStream(staged)).use { sha256(it) }
-    if (stagedDigest != payloadDigest) {
+    if (stagedDigest != payloadDigest.toHexString()) {
         throw IOException(
             "Backup staged file does not contain the bytes that were serialized " +
-                "(sha256 $stagedDigest instead of $payloadDigest)",
+                "(sha256 $stagedDigest instead of ${payloadDigest.toHexString()})",
         )
     }
 
-    val actualOrigin = BackupDetector.detectOrigin(payload)
-    if (actualOrigin != expectedOrigin) {
-        throw IOException(
-            "Backup staged file was written as $expectedOrigin but reads back as $actualOrigin",
-        )
-    }
+    GZIPInputStream(FileInputStream(staged)).use { stream ->
+        val scan = BackupDetector.scanStream(stream)
+        val actualOrigin = BackupDetector.originFromScan(scan)
+        if (actualOrigin != expectedOrigin) {
+            throw IOException(
+                "Backup staged file was written as $expectedOrigin but reads back as $actualOrigin",
+            )
+        }
 
-    val actual = BackupDetector.contentSummary(payload)
-    if (actual != expected) {
-        throw IOException(
-            "Backup staged file is incomplete: expected $expected but it contains $actual",
-        )
+        val actual = BackupDetector.summaryFromScan(scan)
+        if (actual != expected) {
+            throw IOException(
+                "Backup staged file is incomplete: expected $expected but it contains $actual",
+            )
+        }
     }
 }
 
 private const val DIGEST_CHUNK = 64 * 1024
 
-private fun sha256(bytes: ByteArray): String {
+private fun sha256Bytes(bytes: ByteArray): ByteArray {
     val digest = MessageDigest.getInstance("SHA-256")
     var offset = 0
     while (offset < bytes.size) {
@@ -207,8 +252,10 @@ private fun sha256(bytes: ByteArray): String {
         digest.update(bytes, offset, length)
         offset += length
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    return digest.digest()
 }
+
+private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
 
 private fun sha256(input: InputStream): String {
     val digest = MessageDigest.getInstance("SHA-256")

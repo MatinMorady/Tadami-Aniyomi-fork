@@ -94,6 +94,8 @@ import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
 @Composable
@@ -611,9 +613,20 @@ private fun HomeHubScreen(
     // напрямую (materialize по sourceId/sourceUrl); неполная привязка, неустановленный
     // источник или любая ошибка деградирует в прежнюю шторку предпросмотра.
     // Guard повторного тапа: openingTeaser сбрасывается в finally (в т.ч. при отмене).
+    val tasteRepository = remember {
+        Injekt.get<tachiyomi.domain.discovery.repository.DiscoveryRepository>()
+    }
     val openTeaser: (HomeHubDiscoveryItem) -> Unit = openDirectEntry?.let { openEntry ->
         { item ->
             if (openingTeaser != item) {
+                // Taste Engine: клик по тизеру = слабый позитивный сигнал (guard исключает дубль).
+                scope.launch {
+                    eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                        tasteRepository,
+                        item.toDiscoverySuggestion(),
+                        tachiyomi.domain.discovery.model.DiscoverySignalType.CLICK,
+                    )
+                }
                 scope.launch {
                     openingTeaser = item
                     val entryId = try {
@@ -643,6 +656,10 @@ private fun HomeHubScreen(
     val history = filteredContent.history
     val recommendations = filteredContent.recommendations
     val discovery = filteredContent.discovery
+    // Hero (Stage/Collage) рендерит пул целиком: решение режима, рендер слота и
+    // scroll-эвристика считаются от пула, а не от тизерного окна — иначе пустой
+    // на миг тизер деградировал hero в Continue и обратно («мигание» режима).
+    val heroFeedItems = resolveStageItems(filteredContent.discoveryPool, discovery)
     val showWelcome = (state.showWelcome || state.showFilteredEmpty) && !isFiltering
     val reserveHeroSlot = shouldReserveHomeHubHeroSlot(
         hasHero = state.hero != null,
@@ -653,7 +670,7 @@ private fun HomeHubScreen(
     val heroPresentation = resolveHeroPresentation(
         prefMode = heroMode,
         discoveryEnabled = state.discoveryEnabled,
-        discoveryCount = state.discovery.size,
+        discoveryCount = heroFeedItems.size,
     )
     // Коллаж и гибрид уже отображают «Для тебя» в слоте героя; для них нижний дублирующий ряд не нужен.
     val forYouItems = resolveForYouItems(
@@ -673,7 +690,7 @@ private fun HomeHubScreen(
         showWelcome = showWelcome,
         historyCount = historyItems.size,
         recommendationCount = recommendations.size,
-        discoveryCount = discovery.size,
+        discoveryCount = heroFeedItems.size,
     )
 
     Box(Modifier.fillMaxSize()) {
@@ -707,7 +724,7 @@ private fun HomeHubScreen(
                         heroPresentation = heroPresentation,
                         hasHero = hero != null,
                         reserveHeroSlot = reserveHeroSlot,
-                        hasDiscovery = discovery.isNotEmpty(),
+                        hasDiscovery = heroFeedItems.isNotEmpty(),
                     )
                 ) {
                     item(key = "hero", contentType = "home_hub_hero") {
@@ -715,14 +732,14 @@ private fun HomeHubScreen(
                             // Ветка stage идёт первой: при наличии hero она обязана перебивать HeroSection,
                             // иначе режим не отрисуется никогда.
                             heroPresentation == HomeHeroMode.Stage -> DiscoveryHeroStage(
-                                items = resolveStageItems(filteredContent.discoveryPool, discovery),
+                                items = heroFeedItems,
                                 coverMediaType = section.toDiscoveryMediaType(),
                                 onMoreClick = onForYouMoreClick,
                                 onItemClick = { openTeaser(it) },
                                 onLongClick = { longPressItem = it },
                             )
                             heroPresentation == HomeHeroMode.Collage -> DiscoveryHeroCollage(
-                                items = discovery,
+                                items = heroFeedItems,
                                 coverMediaType = section.toDiscoveryMediaType(),
                                 onMoreClick = onForYouMoreClick,
                                 onItemClick = { openTeaser(it) },
@@ -894,6 +911,34 @@ private fun HomeHubScreen(
                     onDiscoveryBlacklistTag?.invoke(lpItem, tag, countAffectedTeasers(state.discovery, tag))
                 },
                 onDismiss = { longPressItem = null },
+                onMoreLikeThis = {
+                    longPressItem = null
+                    // Taste Engine: явный лайк — сильный позитивный сигнал.
+                    scope.launch {
+                        eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                            tasteRepository,
+                            lpItem.toDiscoverySuggestion(),
+                            tachiyomi.domain.discovery.model.DiscoverySignalType.LIKE,
+                        )
+                    }
+                    context.toast(
+                        context.contextStringResource(AYMR.strings.for_you_more_like_this_toast),
+                    )
+                },
+                onMarkConsumed = {
+                    longPressItem = null
+                    // Taste Engine: «просмотрено» — нейтральное исключение (вкус не трогает).
+                    scope.launch {
+                        eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.record(
+                            tasteRepository,
+                            lpItem.toDiscoverySuggestion(),
+                            tachiyomi.domain.discovery.model.DiscoverySignalType.CONSUMED,
+                        )
+                    }
+                    context.toast(
+                        context.contextStringResource(AYMR.strings.for_you_mark_consumed_toast),
+                    )
+                },
             )
         }
     }

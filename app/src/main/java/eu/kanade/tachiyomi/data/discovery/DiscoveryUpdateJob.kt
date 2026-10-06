@@ -151,5 +151,57 @@ class DiscoveryUpdateJob(context: Context, workerParams: WorkerParameters) :
                 .build()
             context.workManager.enqueueUniqueWork(TAG_BACKFILL, ExistingWorkPolicy.REPLACE, request)
         }
+
+        private const val TAG_AFTER_CONSUMED = "DiscoveryRefillAfterConsumed"
+
+        /**
+         * Дебаунс-дозаполнение ленты после «просмотрено»: 10 минут REPLACE-очередью —
+         * каждое новое чтение сдвигает окно, шторма обновлений нет (не более одного
+         * прогона на очередь). Прогон фоновый: consumed-тайтл исключён (сигнал-лог +
+         * 48h-полка), ряды добираются свежим из тех же плагинов — прочитанное
+         * заменяется, а не оставляет дыру.
+         */
+        fun scheduleConsumedRefill(context: Context, mediaType: DiscoveryMediaType) {
+            val preferences = Injekt.get<DiscoveryPreferences>()
+            if (!preferences.discoveryEnabled().get()) return
+            val request = OneTimeWorkRequestBuilder<DiscoveryUpdateJob>()
+                .setInitialDelay(10, TimeUnit.MINUTES)
+                .addTag(TAG_AFTER_CONSUMED)
+                .setInputData(
+                    Data.Builder().putString(KEY_TARGET_MEDIA_TYPE, mediaType.key).build(),
+                )
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(networkType(preferences))
+                        .build(),
+                )
+                .build()
+            context.workManager.enqueueUniqueWork(
+                TAG_AFTER_CONSUMED + ":" + mediaType.key,
+                ExistingWorkPolicy.REPLACE,
+                request,
+            )
+        }
     }
+}
+
+/** Минимальный интервал между bootstrap-попытками одного медиатипа (анти-шторм). */
+internal const val DISCOVERY_BOOTSTRAP_RETRY_MS = 6L * 3600_000L
+
+/**
+ * Нужна ли bootstrap-генерация ленты: кэша нет вовсе (lastUpdatedAt == null), а
+ * предыдущая попытка была достаточно давно (или её не было). Гасит шторм
+ * «каждый вход на вкладку = перезапуск генерации», когда генерация стабильно
+ * падает (оффлайн, все ряды failed) и [tachiyomi.domain.discovery.repository.DiscoveryRepository.lastUpdatedAt]
+ * так и не появляется.
+ */
+internal fun shouldBootstrapDiscoveryFeed(
+    lastUpdatedAt: Long?,
+    lastBootstrapAttemptAt: Long,
+    now: Long = System.currentTimeMillis(),
+    retryMs: Long = DISCOVERY_BOOTSTRAP_RETRY_MS,
+): Boolean {
+    if (lastUpdatedAt != null) return false
+    val sinceAttempt = now - lastBootstrapAttemptAt
+    return sinceAttempt < 0L || sinceAttempt >= retryMs
 }

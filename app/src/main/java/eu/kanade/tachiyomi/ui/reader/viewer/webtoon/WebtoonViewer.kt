@@ -632,7 +632,12 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
             pendingRelativeRestore = null
             stopPendingRelativeRestoreLoop()
             item.chapter.requestedPageOffset = resolvedOffsetPx
-            item.chapter.requestedPageOffsetRatioPpm = null
+            // Keep the ratio on a settled restore: unlike resolvedOffsetPx (valid only for the
+            // CURRENT page geometry), it is orientation-independent. Nulling it here made the
+            // next rotation restore from px captured in the previous orientation - ~2x off with
+            // fit-width scaling, which overshot the page (or the whole chapter) and read as
+            // "progress reset". moveToPage prefers the ratio whenever it is set.
+            item.chapter.requestedPageOffsetRatioPpm = pending.ratioPpm
         }
         return true
     }

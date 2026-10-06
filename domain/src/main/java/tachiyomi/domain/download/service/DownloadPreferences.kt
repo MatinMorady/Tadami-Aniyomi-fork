@@ -86,6 +86,7 @@ class DownloadPreferences(
 
     fun numberOfDownloads() = preferenceStore.getInt("download_slots", 1)
     fun pageDownloadConcurrency() = preferenceStore.getInt("download_page_concurrency", 2)
+    fun novelDownloadConcurrency() = preferenceStore.getInt("novel_download_concurrency", 3)
     fun downloadSpeedLimit() = preferenceStore.getInt("download_speed_limit", 0)
 
     fun novelDownloadDelayMs() = preferenceStore.getInt("novel_download_delay_ms", 1_200)

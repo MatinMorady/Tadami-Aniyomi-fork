@@ -248,6 +248,11 @@ object PlayerSettingsGesturesScreen : SearchableSettings {
                     ).associateWith { stringResource(it.stringRes) }.toPersistentMap(),
                     title = stringResource(AYMR.strings.pref_long_press_action),
                 ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = gesturePreferences.speedGestureResetOnRelease(),
+                    title = stringResource(AYMR.strings.player_speed_gesture_reset_on_release),
+                    subtitle = stringResource(AYMR.strings.player_speed_gesture_reset_on_release_summary),
+                ),
             ),
         )
     }

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.data.backup.restore.restorers
 
 import eu.kanade.tachiyomi.data.backup.models.BackupNovelSeries
 import eu.kanade.tachiyomi.data.cache.SeriesCoverCache
+import kotlinx.coroutines.flow.first
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.domain.entries.novel.interactor.GetNovelByUrlAndSourceId
 import tachiyomi.domain.series.model.SeriesCoverMode
@@ -23,6 +24,10 @@ class NovelSeriesRestorer(
         if (seriesList.isEmpty()) return
 
         val categoryByName = getNovelCategories.await().associateBy { it.name }
+        // Restores run repeatedly (cloud sync merges every cycle). Inserting unconditionally
+        // created a brand new row per run and left the previous one as an empty zombie, so the
+        // series list grew by one duplicate per sync. Reuse the row with the same title instead.
+        val existingByTitle = novelSeriesRepository.getAllSeries().first().associateBy { it.title }
 
         seriesList.forEach { backupSeries ->
             val resolvedEntries = backupSeries.entries
@@ -42,20 +47,21 @@ class NovelSeriesRestorer(
                 getNovelByUrlAndSourceId.await(coverUrl, coverSource)?.id
             }
 
-            val insertedSeriesId = novelSeriesRepository.insertSeries(
-                NovelSeries(
-                    id = -1,
-                    title = backupSeries.title,
-                    description = backupSeries.description,
-                    categoryId = categoryId,
-                    sortOrder = backupSeries.sortOrder,
-                    dateAdded = backupSeries.dateAdded,
-                    coverLastModified = backupSeries.coverLastModified,
-                    pinned = backupSeries.pinned,
-                    coverMode = SeriesCoverMode.from(backupSeries.coverMode),
-                    coverEntryId = coverEntryId,
-                ),
-            )
+            val insertedSeriesId = existingByTitle[backupSeries.title]?.id
+                ?: novelSeriesRepository.insertSeries(
+                    NovelSeries(
+                        id = -1,
+                        title = backupSeries.title,
+                        description = backupSeries.description,
+                        categoryId = categoryId,
+                        sortOrder = backupSeries.sortOrder,
+                        dateAdded = backupSeries.dateAdded,
+                        coverLastModified = backupSeries.coverLastModified,
+                        pinned = backupSeries.pinned,
+                        coverMode = SeriesCoverMode.from(backupSeries.coverMode),
+                        coverEntryId = coverEntryId,
+                    ),
+                )
 
             resolvedEntries.forEach { (position, novelId) ->
                 novelSeriesRepository.deleteEntry(novelId)

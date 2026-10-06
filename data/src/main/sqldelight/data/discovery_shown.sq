@@ -2,6 +2,7 @@ CREATE TABLE discovery_shown (
     media_type TEXT NOT NULL,
     clean_title TEXT NOT NULL,
     shown_at INTEGER NOT NULL,
+    shown_count INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (media_type, clean_title)
 );
 
@@ -16,9 +17,16 @@ SELECT clean_title, shown_at FROM discovery_shown
 WHERE media_type = ? AND shown_at >= ?
 ORDER BY shown_at ASC;
 
-insertOrReplace:
-INSERT OR REPLACE INTO discovery_shown(media_type, clean_title, shown_at)
-VALUES (?, ?, ?);
+selectShownWithCountSince:
+SELECT clean_title, shown_at, shown_count FROM discovery_shown
+WHERE media_type = ? AND shown_at >= ?;
+
+upsert:
+INSERT INTO discovery_shown(media_type, clean_title, shown_at, shown_count)
+VALUES (?, ?, ?, 1)
+ON CONFLICT(media_type, clean_title) DO UPDATE SET
+    shown_at = excluded.shown_at,
+    shown_count = shown_count + 1;
 
 cleanupOld:
 DELETE FROM discovery_shown

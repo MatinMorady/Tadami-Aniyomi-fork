@@ -9,6 +9,7 @@ import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.ui.UserProfilePreferences
 import eu.kanade.tachiyomi.extension.anime.AnimeExtensionManager
 import eu.kanade.tachiyomi.ui.main.MainActivity
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
@@ -26,6 +27,7 @@ import tachiyomi.i18n.aniyomi.AYMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
 internal class HomeHubScreenModel(
     context: android.content.Context = Injekt.get<android.app.Application>(),
@@ -215,10 +217,17 @@ internal class HomeHubScreenModel(
                 discoveryRepository.subscribe(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
                 discoveryPreferences.discoveryEnabled().changes(),
                 discoveryPreferences.teaserCount().changes(),
-                discoveryRepository.subscribeHidden(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                // «Просмотрено/прочитано»: реактивно исчезает из пула/тизера сразу
+                // после открытия читалки (в т.ч. в инкогнито) или ручной отметки.
+                combine(
+                    discoveryRepository.subscribeHidden(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                    discoveryRepository.subscribeConsumed(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                ) { hidden, consumed -> hidden to consumed },
                 discoveryRepository.subscribeBlacklist(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
-            ) { items, enabled, count, hidden, blacklist ->
-                items.filterNot { it.cleanTitle in hidden } to Triple(
+            ) { items, enabled, count, hiddenAndConsumed, blacklist ->
+                val hidden = hiddenAndConsumed.first
+                val consumed = hiddenAndConsumed.second
+                items.filterNot { it.cleanTitle in hidden || it.cleanTitle in consumed } to Triple(
                     enabled,
                     count,
                     eu.kanade.tachiyomi.data.discovery.expandGenreSet(blacklist.toList()),
@@ -230,9 +239,19 @@ internal class HomeHubScreenModel(
                         eu.kanade.tachiyomi.data.discovery.isBlacklisted(it, expandedBlacklist)
                     }
                     cachedDiscoveryPool = eu.kanade.tachiyomi.data.discovery.dedupeCrossRow(filtered)
+                    // 48h-метки показа: hero-карусель Stage заказывает непоказанное вперёд.
+                    val shownAtByTitle = runCatching {
+                        discoveryRepository.getShownTitlesWithTimestamp(
+                            tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME,
+                        )
+                    }.getOrDefault(emptyMap())
                     // Полный пул для hero-карусели: без тизерного окна, чтобы листать всю подборку.
                     mutableState.update {
-                        it.copy(discoveryPool = cachedDiscoveryPool.map { item -> item.toHomeHubDiscoveryItem() })
+                        it.copy(
+                            discoveryPool = cachedDiscoveryPool.map { item ->
+                                item.toHomeHubDiscoveryItem(shownAtByTitle[item.cleanTitle])
+                            },
+                        )
                     }
                     if (enabled) {
                         updateDiscoveryTeaser(advanceOffset = false)
@@ -249,7 +268,13 @@ internal class HomeHubScreenModel(
     private var discoveryOffset: Int = 0
     private var lastReentryTime: Long = 0L
 
-    private suspend fun updateDiscoveryTeaser(advanceOffset: Boolean = false) {
+    private var lastRefreshClickTime = 0L
+
+    private suspend fun updateDiscoveryTeaser(
+        advanceOffset: Boolean = false,
+        forceUpdate: Boolean = false,
+        notifyIfLimited: Boolean = false,
+    ) {
         if (!discoveryPreferences.discoveryEnabled().get()) {
             mutableState.update { it.copy(discovery = emptyList(), discoveryEnabled = false) }
             return
@@ -261,7 +286,7 @@ internal class HomeHubScreenModel(
             return
         }
 
-        if (!advanceOffset && state.value.discovery.isNotEmpty()) {
+        if (!forceUpdate && !advanceOffset && state.value.discovery.isNotEmpty()) {
             val validCleanTitles = pool.mapTo(HashSet()) { it.cleanTitle }
             val currentValid = state.value.discovery.filter { it.cleanTitle in validCleanTitles }
             if (currentValid.size == count) {
@@ -278,6 +303,7 @@ internal class HomeHubScreenModel(
             discoveryRepository.getShownTitlesWithTimestamp(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME)
         }.getOrDefault(emptyMap())
         val shownTitles = shownMap.keys
+        val currentTitles = state.value.discovery.mapTo(HashSet()) { it.cleanTitle }
 
         val teaser = selectFreshTeaserItems(
             pool = pool,
@@ -285,7 +311,16 @@ internal class HomeHubScreenModel(
             count = count,
             offset = discoveryOffset,
             shownCutoffMap = shownMap,
+            currentTitles = currentTitles,
         )
+
+        if (notifyIfLimited && currentTitles.isNotEmpty()) {
+            val distinctPoolSize = pool.distinctBy { it.cleanTitle }.size
+            val hasOverlap = teaser.any { it.cleanTitle in currentTitles }
+            if (hasOverlap || distinctPoolSize <= count) {
+                context.toast(context.contextStringResource(AYMR.strings.for_you_limited_pool))
+            }
+        }
 
         val cleanTitlesToMark = teaser.map { it.cleanTitle }
         if (cleanTitlesToMark.isNotEmpty()) {
@@ -302,7 +337,7 @@ internal class HomeHubScreenModel(
 
     override fun onScreenReentry() {
         val now = System.currentTimeMillis()
-        if (now - lastReentryTime < 500L) return
+        if (!shouldAdvanceDiscoveryTeaserOnReentry(now, lastReentryTime)) return
         lastReentryTime = now
         screenModelScope.launchIO {
             updateDiscoveryTeaser(advanceOffset = true)
@@ -311,24 +346,38 @@ internal class HomeHubScreenModel(
 
     override fun rotateOrRefreshDiscovery() {
         if (!discoveryPreferences.discoveryEnabled().get()) return
-        screenModelScope.launchIO {
-            updateDiscoveryTeaser(advanceOffset = true)
-        }
         if (state.value.isDiscoveryRefreshing) return
-        // Ручной рефреш делит общий cooldown с feed-экраном (5 мин от нажатия).
+
         val now = System.currentTimeMillis()
-        val lastManual = discoveryPreferences.manualRefreshAt().get().takeIf { it > 0L }
-        if (eu.kanade.tachiyomi.ui.discovery.remainingCooldownSeconds(lastManual, now) > 0L) return
+        if (now - lastRefreshClickTime < 500L) return
+        lastRefreshClickTime = now
+
+        val mediaType = tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME
+        val lastManual = discoveryPreferences.homeManualRefreshAt(mediaType).get().takeIf { it > 0L }
+        val cooldown = eu.kanade.tachiyomi.ui.discovery.remainingCooldownSeconds(
+            lastManual,
+            now,
+            cooldownMs = eu.kanade.tachiyomi.ui.discovery.HOME_DISCOVERY_COOLDOWN_MS,
+        )
+        if (cooldown > 0L) {
+            screenModelScope.launchIO {
+                updateDiscoveryTeaser(advanceOffset = true, forceUpdate = true, notifyIfLimited = true)
+            }
+            return
+        }
+
+        discoveryPreferences.homeManualRefreshAt(mediaType).set(now)
         discoveryPreferences.manualRefreshAt().set(now)
         mutableState.update { it.copy(isDiscoveryRefreshing = true) }
         screenModelScope.launchIO {
             try {
                 Injekt.get<eu.kanade.tachiyomi.data.discovery.DiscoveryRunner>().run(
-                    listOf(tachiyomi.domain.discovery.model.DiscoveryMediaType.ANIME),
+                    listOf(mediaType),
                     isManualRefresh = true,
                 )
             } finally {
                 mutableState.update { it.copy(isDiscoveryRefreshing = false) }
+                updateDiscoveryTeaser(advanceOffset = false, forceUpdate = true, notifyIfLimited = true)
             }
         }
     }

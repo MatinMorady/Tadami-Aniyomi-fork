@@ -95,9 +95,8 @@ class AnimeScreenAuroraSelectionModeTest {
     }
 
     @Test
-    fun `bookmark status badge hides text label while filler and seen keep it`() {
+    fun `bookmark status badge hides text label while filler keeps it`() {
         shouldShowAuroraEpisodeStatusLabel(AuroraEpisodeStatus.Bookmark) shouldBe false
         shouldShowAuroraEpisodeStatusLabel(AuroraEpisodeStatus.Fillermark) shouldBe true
-        shouldShowAuroraEpisodeStatusLabel(AuroraEpisodeStatus.Seen) shouldBe true
     }
 }

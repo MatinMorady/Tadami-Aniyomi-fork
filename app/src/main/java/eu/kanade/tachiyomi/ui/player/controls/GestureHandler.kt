@@ -91,6 +91,8 @@ fun GestureHandler(
 
     val panelShown by viewModel.panelShown.collectAsStateWithLifecycle()
     val allowGesturesInPanels by playerPreferences.allowGestures().collectAsStateWithLifecycle()
+    val speedGestureResetOnRelease by gesturePreferences.speedGestureResetOnRelease()
+        .collectAsStateWithLifecycle()
     val duration by viewModel.duration.collectAsStateWithLifecycle()
     val position by viewModel.pos.collectAsStateWithLifecycle()
     val controlsShown by viewModel.controlsShown.collectAsStateWithLifecycle()
@@ -124,7 +126,7 @@ fun GestureHandler(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeGestures)
-            .pointerInput(longPressAction) {
+            .pointerInput(longPressAction, speedGestureResetOnRelease) {
                 if (areControlsLocked || longPressAction != LongPressGesture.PlaybackSpeed) return@pointerInput
                 awaitPointerEventScope {
                     var startingX = 0f
@@ -181,10 +183,12 @@ fun GestureHandler(
                                 viewModel.isDynamicSpeedActive.update { false }
                                 isLongPressing = false
                                 viewModel.playerUpdate.update { PlayerUpdates.None }
-                                if (hasDragged) {
-                                    // User slid to a chosen speed - KEEP IT!
+                                if (hasDragged && !speedGestureResetOnRelease) {
+                                    // Slide-to-set mode: user slid to a chosen speed - KEEP IT!
                                 } else {
-                                    // User just released without sliding - restore original speed!
+                                    // Hold-to-speed (default): any release - with or without a
+                                    // slide - restores the speed the player had before the
+                                    // gesture, so a temporary boost never persists by accident.
                                     MPVLib.setPropertyDouble(
                                         "speed",
                                         viewModel.preGesturePlaybackSpeed.value.toDouble(),

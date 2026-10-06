@@ -7,15 +7,21 @@ import tachiyomi.domain.category.novel.model.NovelCategoryUpdate
 import tachiyomi.domain.category.novel.repository.NovelCategoryRepository
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.domain.series.novel.repository.NovelSeriesRepository
 
 class DeleteNovelCategory(
     private val repository: NovelCategoryRepository,
     private val libraryPreferences: LibraryPreferences,
     private val downloadPreferences: DownloadPreferences,
+    private val seriesRepository: NovelSeriesRepository,
 ) {
     suspend fun await(categoryId: Long) = withNonCancellableContext {
         try {
             repository.deleteCategory(categoryId)
+            // novel_series.category_id has no FK: without this reset the series of the deleted
+            // category keep a dangling id and disappear from every library page (their volumes
+            // are suppressed as series members) with no UI path to recover them.
+            seriesRepository.moveSeriesFromCategoryToDefault(categoryId)
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e)
             return@withNonCancellableContext Result.InternalError(e)

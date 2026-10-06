@@ -1127,11 +1127,13 @@ internal fun NovelReaderContentHost(
                     bookBottomInsetPx = bookBottomInsetPx,
                 )
             } else {
-                topPaddingPx +
-                    bottomPaddingPx +
-                    bookBottomInsetPx +
-                    pageFitSafetyPx +
-                    navigationBarHeight
+                resolveNovelPageReaderVerticalPaddingPx(
+                    topPaddingPx = topPaddingPx,
+                    bottomPaddingPx = bottomPaddingPx,
+                    bookBottomInsetPx = bookBottomInsetPx,
+                    pageFitSafetyPx = pageFitSafetyPx,
+                    navigationBarHeightPx = navigationBarHeight,
+                )
             }
             // Spread columns keep the same horizontal margin the single-page reader applies, so a
             // column's text width is the half-slot width minus both margins. It must match exactly
@@ -1219,11 +1221,13 @@ internal fun NovelReaderContentHost(
                     bookBottomInsetPx = bookBottomInsetPx,
                 )
             } else {
-                topPaddingPx +
-                    bottomPaddingPx +
-                    bookBottomInsetPx +
-                    pageFitSafetyPx +
-                    navigationBarHeight
+                resolveNovelPageReaderVerticalPaddingPx(
+                    topPaddingPx = topPaddingPx,
+                    bottomPaddingPx = bottomPaddingPx,
+                    bookBottomInsetPx = bookBottomInsetPx,
+                    pageFitSafetyPx = pageFitSafetyPx,
+                    navigationBarHeightPx = navigationBarHeight,
+                )
             }
             val spreadColumnWidthPx = resolveNovelSpreadColumnTextWidth(
                 screenWidthPx = screenWidthPx,

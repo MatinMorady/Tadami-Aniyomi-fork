@@ -33,6 +33,13 @@ class GesturePreferences(
 
     fun longPressGesture() = preferenceStore.getEnum("pref_long_press_gesture", LongPressGesture.Screenshot)
 
+    /**
+     * Hold-to-speed mode for the long-press speed gesture: releasing restores the speed the
+     * player had before the gesture, even after sliding to a preset. Off keeps the slid-to
+     * speed (slide-to-set).
+     */
+    fun speedGestureResetOnRelease() = preferenceStore.getBoolean("pref_speed_gesture_reset_on_release", true)
+
     // Media controls
 
     fun mediaPreviousGesture() = preferenceStore.getEnum("pref_media_previous", SingleActionGesture.Switch)

@@ -9,16 +9,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.paging.PagingSource
+import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
@@ -94,42 +92,47 @@ internal class TitleCarouselScreen(
         // list reset to initialTitleIds while rememberPagerState restored currentPage: the
         // restore effect then loaded page 1, every id was already known, appended=false set
         // endReached and the carousel stayed permanently truncated after a rotation.
-        val titleIds = rememberSaveable(
-            saver = listSaver(
-                save = { it.toList() },
-                restore = { it.toMutableStateList() },
-            ),
-        ) {
-            mutableStateListOf<Long>().apply { addAll(initialTitleIds) }
-        }
-        val pagerState = rememberPagerState(
-            initialPage = initialIndex.coerceIn(0, titleIds.size.coerceAtLeast(1) - 1),
-        ) { titleIds.size.coerceAtLeast(1) }
-        var savedNextPageKey by rememberSaveable { mutableStateOf(1L) }
-        var savedExhausted by rememberSaveable { mutableStateOf(false) }
-        val loader = remember(type, sourceId, listingQuery, filtersJson) {
-            TitleCarouselListingLoader(type, sourceId, listingQuery, filtersJson).apply {
-                nextPageKey = savedNextPageKey
-                exhausted = savedExhausted
+        // The state lives in a ScreenModel, NOT in the saved instance state: the id list grows
+        // with every listing page fetched, and parceling it into the activity bundle exceeded
+        // the binder transaction limit (TransactionTooLargeException) on long sessions.
+        val state = rememberScreenModel {
+            TitleCarouselState().apply {
+                titleIds.addAll(initialTitleIds)
+                currentPage = initialIndex
             }
         }
-        var endReached by rememberSaveable { mutableStateOf(false) }
+        val titleIds = state.titleIds
+        val pagerState = rememberPagerState(
+            initialPage = state.currentPage.coerceIn(0, titleIds.size.coerceAtLeast(1) - 1),
+        ) { titleIds.size.coerceAtLeast(1) }
+        val loader = remember(type, sourceId, listingQuery, filtersJson) {
+            TitleCarouselListingLoader(type, sourceId, listingQuery, filtersJson).apply {
+                nextPageKey = state.nextPageKey
+                exhausted = state.exhausted
+            }
+        }
         var loadInFlight by remember { mutableStateOf(false) }
+
+        // Keep the retained page index in sync so a recreated composition resumes the swipe
+        // position instead of jumping back to the browser snapshot index.
+        LaunchedEffect(pagerState.currentPage) {
+            state.currentPage = pagerState.currentPage
+        }
 
         // Fetch the next listing page when the reader approaches the end of the loaded window.
         // BFEED-16: keyed on loadInFlight/size too - a swipe DURING a load early-returned and
         // the effect never re-ran afterwards (key unchanged), stalling pagination until the
         // next page change; BRN-18: loadInFlight reset in finally (an exception left it true).
         LaunchedEffect(pagerState.currentPage, loadInFlight, titleIds.size) {
-            if (endReached || loadInFlight) return@LaunchedEffect
+            if (state.endReached || loadInFlight) return@LaunchedEffect
             if (pagerState.currentPage >= titleIds.size - 3) {
                 loadInFlight = true
                 try {
                     val appended = loader.loadNextPage(titleIds)
-                    savedNextPageKey = loader.nextPageKey
-                    savedExhausted = loader.exhausted
+                    state.nextPageKey = loader.nextPageKey
+                    state.exhausted = loader.exhausted
                     if (!appended) {
-                        endReached = true
+                        state.endReached = true
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     }
                 } finally {
@@ -139,9 +142,9 @@ internal class TitleCarouselScreen(
         }
 
         // Boundary feedback: reaching the first title, or the last one of a finished listing.
-        LaunchedEffect(pagerState.currentPage, endReached) {
+        LaunchedEffect(pagerState.currentPage, state.endReached) {
             val atStart = pagerState.currentPage == 0
-            val atEnd = endReached && pagerState.currentPage == titleIds.size - 1
+            val atEnd = state.endReached && pagerState.currentPage == titleIds.size - 1
             if (atStart || atEnd) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
@@ -209,6 +212,19 @@ internal class TitleCarouselScreen(
 }
 
 /**
+ * Carousel state that survives configuration changes without touching the saved instance
+ * state (see [TitleCarouselScreen.Content]): the id list is unbounded while the listing pages,
+ * which is exactly what must never be parceled into the activity bundle.
+ */
+private class TitleCarouselState : ScreenModel {
+    val titleIds = mutableStateListOf<Long>()
+    var nextPageKey: Long = 1L
+    var exhausted = false
+    var endReached = false
+    var currentPage = 0
+}
+
+/**
  * Page-by-page loader over the same source listing the browser showed.
  *
  * Reuses the paging sources of the browse screen models ([GetRemoteNovel]/[GetRemoteManga]/
@@ -221,7 +237,7 @@ private class TitleCarouselListingLoader(
     private val listingQuery: String?,
     private val filtersJson: String?,
 ) {
-    // BFEED-15: restored from / synced back to rememberSaveable state across config changes.
+    // BFEED-15: restored from / synced back to the retained carousel state across config changes.
     var nextPageKey: Long = 1L
     var exhausted = false
 

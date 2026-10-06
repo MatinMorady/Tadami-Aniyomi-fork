@@ -59,6 +59,25 @@ private val supportedGoogleTranslationLanguageFamilies by lazy {
     googleTranslationLanguageFamilies.mapTo(linkedSetOf()) { it.code }
 }
 
+/**
+ * Resolves a free-text language entry (canonical name, code or alias, any case) to the code the
+ * Google endpoint expects.
+ *
+ * The settings field is free text and [eu.kanade.tachiyomi.extension.novel.normalizeNovelLang]
+ * resolves names through the DEVICE locale table, which is trimmed on some firmware: a name it
+ * cannot map reaches Google verbatim ("tl=Portuguese"), every request 400s and the reader sits at
+ * 100% with no translation. The catalog is device independent, so it answers first.
+ */
+fun googleTranslationLanguageCodeFor(input: String): String? {
+    val token = input.trim().lowercase(Locale.ROOT)
+    if (token.isEmpty()) return null
+    return googleTranslationLanguageEntries.firstOrNull { entry ->
+        entry.canonicalName.lowercase(Locale.ROOT) == token ||
+            entry.code.lowercase(Locale.ROOT) == token ||
+            entry.aliases.any { it.lowercase(Locale.ROOT) == token }
+    }?.code
+}
+
 fun googleTranslationLanguageSuggestions(input: String): List<GoogleTranslationLanguageSuggestion> {
     val normalizedInput = input.trim().lowercase(Locale.ROOT)
     if (normalizedInput.isBlank()) return emptyList()

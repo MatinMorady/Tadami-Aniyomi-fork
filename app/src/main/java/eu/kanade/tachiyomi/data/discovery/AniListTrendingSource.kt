@@ -327,10 +327,12 @@ open class AniListTrendingSource(
                 DiscoveryMediaType.NOVEL -> "MANGA"
             }
             val formatArg = if (mediaType == DiscoveryMediaType.NOVEL) ", format: NOVEL" else ""
+            // Независимый NSFW-фильтр действует и в meta-поиске: прежний пропуск
+            // мог показать 18+ описание в шторке предпросмотра (null = без ограничения).
             val query = """
-                query (${'$'}search: String!, ${'$'}type: MediaType!) {
+                query (${'$'}search: String!, ${'$'}type: MediaType!, ${'$'}isAdult: Boolean) {
                   Page(page: 1, perPage: 5) {
-                    media(search: ${'$'}search, type: ${'$'}type$formatArg) {
+                    media(search: ${'$'}search, type: ${'$'}type$formatArg, isAdult: ${'$'}isAdult) {
                       description(asHtml: false)
                       genres
                       coverImage { large }
@@ -346,6 +348,7 @@ open class AniListTrendingSource(
                     buildJsonObject {
                         put("search", title)
                         put("type", type)
+                        put("isAdult", adultVariableValue())
                     },
                 )
             }

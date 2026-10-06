@@ -339,13 +339,19 @@ class BackupRestorer(
                 reelsFollowsRestorer.restoreReelsFollows(backup.backupReelsFollows)
             }
 
-            // Restore discovery «Для тебя» (hidden titles + tag blacklist), idempotent merge
-            if (options.discoveryData &&
-                (backup.backupDiscoveryHidden.isNotEmpty() || backup.backupDiscoveryBlacklistTags.isNotEmpty())
+            // Restore discovery «Для тебя» (hidden titles + tag blacklist + taste signals), idempotent merge
+            if (
+                options.discoveryData &&
+                (
+                    backup.backupDiscoveryHidden.isNotEmpty() ||
+                        backup.backupDiscoveryBlacklistTags.isNotEmpty() ||
+                        backup.backupDiscoverySignals.isNotEmpty()
+                    )
             ) {
                 discoveryRestorer.restoreDiscovery(
                     backup.backupDiscoveryHidden,
                     backup.backupDiscoveryBlacklistTags,
+                    backup.backupDiscoverySignals,
                 )
             }
 

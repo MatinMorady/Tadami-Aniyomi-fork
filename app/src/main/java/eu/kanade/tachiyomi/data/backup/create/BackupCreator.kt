@@ -45,8 +45,6 @@ import eu.kanade.tachiyomi.data.backup.models.BackupNovel
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
-import eu.kanade.tachiyomi.data.backup.models.MihonBackup
-import eu.kanade.tachiyomi.data.backup.models.toMihonBackup
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -132,6 +130,7 @@ class BackupCreator(
                 if (isAutoBackup) {
                     // Get dir of file and create
                     val dir = UniFile.fromUri(context, uri)
+                    purgeEmptyAutoBackups(dir)
                     // Older backups are pruned only after the new one is written and verified,
                     // so a failure here can never leave the user with fewer backups than before.
                     dir?.createFile(getFilename())?.also { createdFile = it }
@@ -220,13 +219,17 @@ class BackupCreator(
                     emptyList()
                 }
             }
-            // Discovery «Для тебя»: скрытые тайтлы + теговый блэклист (Tadami-only, не для sister-экспорта).
+            // Discovery «Для тебя»: скрытые тайтлы + теговый блэклист + сигнал-лог
+            // вкусов (Tadami-only, не для sister-экспорта).
             val backupDiscovery = BackupDiagnosticLog.measure(context, "collect_discovery") {
                 if (options.discoveryData && !options.sisterAppCompatible) {
                     discoveryBackupCreator()
                 } else {
-                    emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden>() to
-                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag>()
+                    Triple(
+                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden>(),
+                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag>(),
+                        emptyList<eu.kanade.tachiyomi.data.backup.models.BackupDiscoverySignal>(),
+                    )
                 }
             }
 
@@ -255,16 +258,15 @@ class BackupCreator(
                 ),
 
                 isLegacy = false,
-                backupAnime = if (options.sisterAppCompatible) emptyList() else backupAnime,
-                backupAnimeCategories = if (options.sisterAppCompatible) {
-                    emptyList()
-                } else {
-                    backupAnimeCategories(
-                        options,
-                        includeAnimeCategories,
-                    )
-                },
-                backupAnimeSources = if (options.sisterAppCompatible) emptyList() else backupAnimeSources(backupAnime),
+                // Anime keeps its own section in every format: the sister export carries it at
+                // the Aniyomi field numbers inside the Mihon shape, so anime-capable readers
+                // (Aniyomi, Animetail) no longer restore an empty anime library.
+                backupAnime = backupAnime,
+                backupAnimeCategories = backupAnimeCategories(
+                    options,
+                    includeAnimeCategories,
+                ),
+                backupAnimeSources = backupAnimeSources(backupAnime),
                 backupNovel = if (options.sisterAppCompatible) emptyList() else backupNovel,
                 backupNovelCategories = if (options.sisterAppCompatible) {
                     emptyList()
@@ -303,39 +305,36 @@ class BackupCreator(
                 backupReelsFollows = if (options.sisterAppCompatible) emptyList() else backupReelsFollows,
                 backupDiscoveryHidden = if (options.sisterAppCompatible) emptyList() else backupDiscovery.first,
                 backupDiscoveryBlacklistTags = if (options.sisterAppCompatible) emptyList() else backupDiscovery.second,
+                backupDiscoverySignals = if (options.sisterAppCompatible) emptyList() else backupDiscovery.third,
             )
 
-            val byteArray = BackupDiagnosticLog.measure(context, "serialize") {
-                if (options.sisterAppCompatible) {
-                    parser.encodeToByteArray(MihonBackup.serializer(), backup.toMihonBackup())
-                } else {
-                    parser.encodeToByteArray(Backup.serializer(), backup)
-                }
-            }
-            if (byteArray.isEmpty()) {
-                throw IllegalStateException(context.stringResource(MR.strings.empty_backup_error))
-            }
-            BackupDiagnosticLog.log(context, "serialize_size", "bytes=${byteArray.size}")
+            // The object above already mirrors the wire: sister mode flattens novels into the
+            // manga section and carries anime at the native numbers, so its in-memory counts are
+            // exactly the counts the staged file will report. Computed before serialization so
+            // nothing re-reads the source graph after the encode starts.
+            val expectedSummary = backup.contentSummary()
 
             val expectedOrigin = if (options.sisterAppCompatible) {
                 BackupOrigin.TADAMI_SISTER
             } else {
                 BackupOrigin.TADAMI
             }
-            // In sister mode novels travel inside the shared manga section, so the expected split
-            // is the one the file itself declares, not the one we started from.
-            val expectedSummary = backup.contentSummary().let {
-                if (options.sisterAppCompatible) it.copy(novelCount = 0, animeCount = 0) else it
+            // Fields are encoded one entry at a time straight into the staged gzip stream: the
+            // uncompressed payload never exists as a single array in RAM, which is what pushed
+            // small-heap devices into OutOfMemoryError on large libraries.
+            BackupDiagnosticLog.measure(context, "serialize") {
+                BackupWriter(context).writeStreamed(
+                    destination = file,
+                    expected = expectedSummary,
+                    expectedOrigin = expectedOrigin,
+                ) { out ->
+                    if (options.sisterAppCompatible) {
+                        BackupPayloadEmitter.emitSister(backup, parser, out)
+                    } else {
+                        BackupPayloadEmitter.emitNative(backup, parser, out)
+                    }
+                }
             }
-
-            // Writes to a staging file, verifies it decodes back to exactly this content, and only
-            // then replaces the destination.
-            BackupWriter(context).write(
-                destination = file,
-                payload = byteArray,
-                expected = expectedSummary,
-                expectedOrigin = expectedOrigin,
-            )
             val fileUri = file.uri
 
             if (isAutoBackup) {
@@ -355,7 +354,10 @@ class BackupCreator(
             BackupDiagnosticLog.log(context, "creator_cancelled")
             createdFile?.delete()
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // OutOfMemoryError is an Error, not an Exception: catching only Exception left the
+            // file this run created behind as a 0-byte husk whenever the process survived an OOM
+            // mid-serialize, and the auto backup folder slowly filled up with those husks.
             logcat(LogPriority.ERROR, e)
             BackupDiagnosticLog.logError(context, "creator_failed", e)
             createdFile?.delete()
@@ -378,6 +380,19 @@ class BackupCreator(
             .filter { it.uri != keep?.uri }
             .sortedByDescending { it.name }
             .drop(limit - 1)
+            .forEach { it.delete() }
+    }
+
+    /**
+     * Remove 0-byte leftovers of auto backup runs that died mid-write (e.g. the process killed
+     * by an OOM): they hold retention slots and read as backups to the user while carrying
+     * nothing. Only our own auto backup filename pattern is touched.
+     */
+    private fun purgeEmptyAutoBackups(dir: UniFile?) {
+        dir ?: return
+        dir.listFiles { _, filename -> FILENAME_REGEX.matches(filename) }
+            .orEmpty()
+            .filter { it.length() == 0L }
             .forEach { it.delete() }
     }
 

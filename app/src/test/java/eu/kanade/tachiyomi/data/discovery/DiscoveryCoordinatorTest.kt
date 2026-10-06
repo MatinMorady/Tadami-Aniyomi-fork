@@ -86,6 +86,35 @@ class DiscoveryCoordinatorTest {
     }
 
     @Test
+    fun `manual refresh stale backfill excludes current feed titles`() = runTest {
+        // Ручной рефреш: B — тайтл ТЕКУЩЕЙ ленты (и «показанный»), C — показан раньше,
+        // но из ленты уже выпал. Добор обязан вернуть C и НЕ вернуть B —
+        // наполнение ряда реально сменяется, а не «новые + всё старое».
+        val like = builder(
+            DiscoveryRowType.LIKE,
+            listOf(item("Fresh A"), item("Current B"), item("Fallen C")),
+        )
+        val feed = DiscoveryCoordinator(listOf(like), rowLimit = 10).buildFeed(
+            baseContext.copy(
+                recentCleanTitles = setOf("current b", "fallen c"),
+                shownCutoffMap = mapOf("current b" to 2_000L, "fallen c" to 1_000L),
+                currentFeedCleanTitles = setOf("current b"),
+            ),
+        )
+        feed.rows[DiscoveryRowType.LIKE]?.map { it.title } shouldBe listOf("Fresh A", "Fallen C")
+
+        // Фон (currentFeed пуст): прежнее поведение — добор возвращает обоих.
+        val backgroundFeed = DiscoveryCoordinator(listOf(like), rowLimit = 10).buildFeed(
+            baseContext.copy(
+                recentCleanTitles = setOf("current b", "fallen c"),
+                shownCutoffMap = mapOf("current b" to 2_000L, "fallen c" to 1_000L),
+            ),
+        )
+        backgroundFeed.rows[DiscoveryRowType.LIKE]?.map { it.title } shouldBe
+            listOf("Fresh A", "Fallen C", "Current B")
+    }
+
+    @Test
     fun `failing builder yields empty row and failedRows marker, others survive`() = runTest {
         val like = builder(DiscoveryRowType.LIKE, emptyList(), fail = true)
         val trend = builder(DiscoveryRowType.TREND, listOf(item("Ok")))

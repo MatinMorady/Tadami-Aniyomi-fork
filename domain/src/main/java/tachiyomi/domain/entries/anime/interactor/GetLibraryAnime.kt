@@ -21,8 +21,12 @@ class GetLibraryAnime(
 
     fun subscribe(): Flow<List<LibraryAnime>> {
         return animeRepository.getLibraryAnimeAsFlow()
-            .retry {
-                if (it is NullPointerException) {
+            .retry(MAX_NPE_RETRIES) { cause ->
+                // Cursor-mapper NPEs (library view) are retried a few times for transient races,
+                // but never forever: the unbounded loop re-queried the whole library every 0.5s
+                // indefinitely on persistent row states and the section silently never loaded
+                // (manga/novel parity, see GetLibraryManga). A persistent failure falls to catch.
+                if (cause is NullPointerException) {
                     delay(0.5.seconds)
                     true
                 } else {
@@ -35,8 +39,12 @@ class GetLibraryAnime(
 
     fun subscribeRecent(limit: Long): Flow<List<LibraryAnime>> {
         return animeRepository.getRecentLibraryAnime(limit)
-            .retry {
-                if (it is NullPointerException) {
+            .retry(MAX_NPE_RETRIES) { cause ->
+                // Cursor-mapper NPEs (library view) are retried a few times for transient races,
+                // but never forever: the unbounded loop re-queried the whole library every 0.5s
+                // indefinitely on persistent row states and the section silently never loaded
+                // (manga/novel parity, see GetLibraryManga). A persistent failure falls to catch.
+                if (cause is NullPointerException) {
                     delay(0.5.seconds)
                     true
                 } else {
@@ -49,8 +57,12 @@ class GetLibraryAnime(
 
     fun subscribeRecentFavorites(limit: Long): Flow<List<Anime>> {
         return animeRepository.getRecentFavorites(limit)
-            .retry {
-                if (it is NullPointerException) {
+            .retry(MAX_NPE_RETRIES) { cause ->
+                // Cursor-mapper NPEs (library view) are retried a few times for transient races,
+                // but never forever: the unbounded loop re-queried the whole library every 0.5s
+                // indefinitely on persistent row states and the section silently never loaded
+                // (manga/novel parity, see GetLibraryManga). A persistent failure falls to catch.
+                if (cause is NullPointerException) {
                     delay(0.5.seconds)
                     true
                 } else {
@@ -59,5 +71,9 @@ class GetLibraryAnime(
             }.catch {
                 this@GetLibraryAnime.logcat(LogPriority.ERROR, it)
             }
+    }
+
+    private companion object {
+        const val MAX_NPE_RETRIES = 3L
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -31,7 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeState
 import eu.kanade.presentation.components.relativeDateTimeText
+import eu.kanade.presentation.entries.components.aurora.AURORA_ENTRY_READ_DIM_ALPHA
 import eu.kanade.presentation.entries.components.aurora.AuroraCompactEntryRowCard
+import eu.kanade.presentation.entries.components.aurora.AuroraEntryStateSlot
+import eu.kanade.presentation.entries.components.aurora.AuroraReadDoneMark
+import eu.kanade.presentation.entries.components.aurora.PassiveDownloadStatus
 import eu.kanade.presentation.entries.novel.components.NovelChapterActionButton
 import eu.kanade.presentation.entries.novel.novelChapterDateText
 import eu.kanade.presentation.entries.novel.novelSwipeAction
@@ -102,7 +107,6 @@ object NovelChapterCardCompactUi {
                 hazeState = hazeState,
                 selected = selected,
                 highlighted = isNew && !chapter.read,
-                dimmed = chapter.read,
                 cornerRadius = 20.dp,
                 outerVerticalPadding = 5.dp,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -114,23 +118,46 @@ object NovelChapterCardCompactUi {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(colors.accent.copy(alpha = 0.24f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = formatChapterNumber(chapterDisplayNumber),
-                            color = colors.textPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                        )
-                    }
+                    AuroraEntryStateSlot(
+                        selectionMode = selectionMode,
+                        selected = selected,
+                        read = chapter.read,
+                        modifier = Modifier.size(34.dp),
+                        unreadContent = {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accent),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = formatChapterNumber(chapterDisplayNumber),
+                                    color = colors.textOnAccent,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                )
+                            }
+                        },
+                        readContent = {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.accent.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                AuroraReadDoneMark()
+                            }
+                        },
+                    )
 
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .alpha(if (chapter.read) AURORA_ENTRY_READ_DIM_ALPHA else 1f),
+                    ) {
                         Text(
                             text = title,
                             color = colors.textPrimary,
@@ -175,7 +202,12 @@ object NovelChapterCardCompactUi {
                         }
                     }
 
-                    if (!selectionMode) {
+                    if (selectionMode) {
+                        PassiveDownloadStatus(
+                            downloaded = downloaded,
+                            downloading = downloading,
+                        )
+                    } else {
                         Column(
                             horizontalAlignment = Alignment.End,
                             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -313,7 +345,7 @@ object NovelChapterCardCompactUi {
         read: Boolean,
         lastPageRead: Long,
     ): Float? {
-        if (read) return 1f
+        if (read) return null
 
         decodePageReaderProgress(lastPageRead)?.let { progress ->
             return ((progress.index + 1).toFloat() / progress.totalItems.toFloat())

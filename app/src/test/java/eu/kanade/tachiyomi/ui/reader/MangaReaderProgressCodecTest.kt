@@ -120,6 +120,27 @@ class MangaReaderProgressCodecTest {
     }
 
     @Test
+    fun `ratio progress resolves to same relative position across orientation height changes`() {
+        // Rotation restore contract: a page viewed at 30% in portrait (height 3000) must restore
+        // to 30% in landscape (height 6600 with fit-width scaling) and back to 30% in portrait.
+        // This only holds while the ratio survives the restore write-back - a px-only seed is
+        // bound to the geometry it was captured in.
+        val savedProgress = encodeWebtoonScrollProgress(
+            index = 2,
+            offsetPx = 900,
+            pageHeightPx = 3000,
+            totalPages = 10,
+        )
+        val decoded = decodeStoredChapterProgress(savedProgress, restoreOffset = true)
+
+        val landscapeOffset = resolveWebtoonRestoreOffsetPx(decoded, currentPageHeightPx = 6600)
+        landscapeOffset shouldBe 1980
+
+        val backToPortraitOffset = resolveWebtoonRestoreOffsetPx(decoded, currentPageHeightPx = 3000)
+        backToPortraitOffset shouldBe 900
+    }
+
+    @Test
     fun `pending restore does not clear before strong ready signal`() {
         val settle = evaluateWebtoonRestoreSettle(
             currentOffsetPx = 340,

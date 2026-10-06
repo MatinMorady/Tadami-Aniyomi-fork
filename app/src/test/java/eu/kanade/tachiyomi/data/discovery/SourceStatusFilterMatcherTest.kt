@@ -144,4 +144,51 @@ class SourceStatusFilterMatcherTest {
         SourceStatusFilterMatcher.entryPasses(0, emptySet()) shouldBe true
         SourceStatusFilterMatcher.entryPasses(2, emptySet()) shouldBe true
     }
+
+    // ═══════════ Сырые статусы провайдеров (LIKE-ряд) ═══════════
+
+    @Test
+    fun `сырые статусы провайдеров распознаются с нормализацией`() {
+        // AniList GraphQL (верхний регистр, подчёркивания)…
+        SourceStatusFilterMatcher.statusOfRaw("RELEASING") shouldBe DiscoveryReleaseStatus.ONGOING
+        SourceStatusFilterMatcher.statusOfRaw("FINISHED") shouldBe DiscoveryReleaseStatus.FINISHED
+        SourceStatusFilterMatcher.statusOfRaw("NOT_YET_RELEASED") shouldBe DiscoveryReleaseStatus.ANONS
+        SourceStatusFilterMatcher.statusOfRaw("HIATUS") shouldBe DiscoveryReleaseStatus.PAUSED
+        SourceStatusFilterMatcher.statusOfRaw("CANCELLED") shouldBe DiscoveryReleaseStatus.PAUSED
+        // Shikimori… MAL/Jikan-формы…
+        SourceStatusFilterMatcher.statusOfRaw("released") shouldBe DiscoveryReleaseStatus.FINISHED
+        SourceStatusFilterMatcher.statusOfRaw("ongoing") shouldBe DiscoveryReleaseStatus.ONGOING
+        SourceStatusFilterMatcher.statusOfRaw("Currently Airing") shouldBe DiscoveryReleaseStatus.ONGOING
+        SourceStatusFilterMatcher.statusOfRaw("Finished Airing") shouldBe DiscoveryReleaseStatus.FINISHED
+        SourceStatusFilterMatcher.statusOfRaw(null) shouldBe null
+        SourceStatusFilterMatcher.statusOfRaw("") shouldBe null
+        SourceStatusFilterMatcher.statusOfRaw("??") shouldBe null
+    }
+
+    @Test
+    fun `строгий проход без статуса не проходит при активном фильтре`() {
+        val finishedOnly = setOf(DiscoveryReleaseStatus.FINISHED)
+        // Фильтр выключен — всё проходит, включая без статуса.
+        SourceStatusFilterMatcher.rawStatusPasses(null, emptySet()) shouldBe true
+        SourceStatusFilterMatcher.rawStatusPasses("RELEASING", emptySet()) shouldBe true
+        // Фильтр активен: соответствие проходит, несовпадение и «нет статуса» — нет
+        // (MAL/MU/NU similar не несут статус → не просачиваются в ряд «Похоже»).
+        SourceStatusFilterMatcher.rawStatusPasses("FINISHED", finishedOnly) shouldBe true
+        SourceStatusFilterMatcher.rawStatusPasses("released", finishedOnly) shouldBe true
+        SourceStatusFilterMatcher.rawStatusPasses("RELEASING", finishedOnly) shouldBe false
+        SourceStatusFilterMatcher.rawStatusPasses(null, finishedOnly) shouldBe false
+        SourceStatusFilterMatcher.rawStatusPasses("garbage", finishedOnly) shouldBe false
+    }
+
+    @Test
+    fun `filterByRawStatus режет список рекомендаций`() {
+        val items = listOf("finished-rec" to "FINISHED", "ongoing-rec" to "RELEASING", "no-status" to null)
+        val kept = SourceStatusFilterMatcher.filterByRawStatus(items, setOf(DiscoveryReleaseStatus.FINISHED)) {
+            it.second
+        }
+        kept.map { it.first } shouldBe listOf("finished-rec")
+        // Без фильтра — всё.
+        val all = SourceStatusFilterMatcher.filterByRawStatus(items, emptySet()) { it.second }
+        all.size shouldBe 3
+    }
 }

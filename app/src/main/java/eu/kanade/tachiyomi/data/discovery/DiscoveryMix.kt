@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.data.discovery
 
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.normalizeDiscoveryTitle
 
 data class DiscoveryMixQuotas(
     val similar: Int = 10,
@@ -383,3 +384,75 @@ internal fun isBlacklisted(
     val reason = item.reason ?: return false
     return reason.splitToSequence(",").any { tag -> matchesAnyGenre(listOf(tag), expandedBlacklist) }
 }
+
+/**
+ * Извлекает ключ серии / франшизы для предотвращения засилья однотипных тайтлов.
+ * Выделяет общую основу для тайтлов с сезонами, частями, римскими цифрами,
+ * оговорками (OVA, Movie) и подзаголовками через двоеточие.
+ */
+internal fun extractSeriesKey(rawTitle: String, cleanTitle: String): String {
+    // 1. Проверяем префикс до двоеточия (если есть подзаголовок, например "Solo Leveling: Ragnarok" или "Naruto: Shippuden")
+    if (rawTitle.contains(": ")) {
+        val prefix = rawTitle.substringBefore(": ").trim()
+        val cleanPrefix = normalizeDiscoveryTitle(prefix)
+        if (cleanPrefix.length >= 3) {
+            return cleanPrefix
+        }
+    }
+
+    var s = cleanTitle.lowercase().trim()
+    // 2. Срезаем типичные суффиксы сезонов, куров, частей и т.д. на английском и русском
+    s = s.replace(Regex("\\b(the\\s+)?final\\s+season\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b(season|cour|part|act|vol|volume|s)\\s*\\d+\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b\\d+(st|nd|rd|th)\\s+season\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b(сезон|часть|фильм|том)\\s*\\d+\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b\\d+\\s*(сезон|сезона|сезоны|часть|фильм|том)\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b(финал|фильм|ова|спешл)\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b(ova|oad|movie|specials?)\\b.*", RegexOption.IGNORE_CASE), "")
+    s = s.replace(Regex("\\b(ii|iii|iv|v|vi|vii|viii|ix|x)\\s*$", RegexOption.IGNORE_CASE), "")
+    s = s.trim()
+
+    return if (s.length >= 3) s else cleanTitle
+}
+
+/**
+ * Обобщённая функция ограничения кластеризации серии/франшизы:
+ * пропускает не более [maxPerSeries] карточек одной серии в начало, а остальные
+ * сдвигает в конец (overflow), предотвращая переполнение подборки однотипными сиквелами.
+ */
+internal fun <T> filterFranchiseClusteringGeneric(
+    items: List<T>,
+    titleExtractor: (T) -> String,
+    cleanTitleExtractor: (T) -> String,
+    maxPerSeries: Int = 1,
+): List<T> {
+    if (items.size <= 1) return items
+    val result = mutableListOf<T>()
+    val overflow = mutableListOf<T>()
+    val seriesCount = mutableMapOf<String, Int>()
+
+    for (item in items) {
+        val key = extractSeriesKey(titleExtractor(item), cleanTitleExtractor(item))
+        val count = seriesCount.getOrDefault(key, 0)
+        if (count < maxPerSeries) {
+            result.add(item)
+            seriesCount[key] = count + 1
+        } else {
+            overflow.add(item)
+        }
+    }
+    return result + overflow
+}
+
+/**
+ * Ограничивает кластеризацию одной франшизы/серии для элементов рядов [DiscoveryRowItem].
+ */
+internal fun filterFranchiseClustering(
+    items: List<DiscoveryRowItem>,
+    maxPerSeries: Int = 1,
+): List<DiscoveryRowItem> = filterFranchiseClusteringGeneric(
+    items = items,
+    titleExtractor = { it.title },
+    cleanTitleExtractor = { it.cleanTitle },
+    maxPerSeries = maxPerSeries,
+)

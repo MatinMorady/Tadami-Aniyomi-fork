@@ -10,6 +10,8 @@ import org.junit.Test
 import tachiyomi.core.common.preference.InMemoryPreferenceStore
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignal
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
 import java.io.IOException
@@ -63,6 +65,13 @@ class DiscoveryRunnerTest {
             mediaType: DiscoveryMediaType,
             windowMillis: Long,
         ): Map<String, Long> = emptyMap()
+
+        // Подменяемое окно показов со счётчиком (для неявного негатива).
+        var shownWithCount: List<Triple<String, Long, Int>> = emptyList()
+        override suspend fun getShownWithCount(
+            mediaType: DiscoveryMediaType,
+            windowMillis: Long,
+        ): List<Triple<String, Long, Int>> = shownWithCount
         override suspend fun markShown(
             mediaType: DiscoveryMediaType,
             cleanTitles: Collection<String>,
@@ -74,6 +83,28 @@ class DiscoveryRunnerTest {
             markedShown.clear()
         }
         override suspend fun hasUnboundSourceRows(): Boolean = false
+
+        val recordedSignals = mutableListOf<Triple<DiscoveryMediaType, String, DiscoverySignalType>>()
+        var signals: List<DiscoverySignal> = emptyList()
+        override suspend fun getSignals(mediaType: DiscoveryMediaType): List<DiscoverySignal> = signals
+        override fun subscribeConsumed(mediaType: DiscoveryMediaType): kotlinx.coroutines.flow.Flow<Set<String>> =
+            kotlinx.coroutines.flow.MutableStateFlow(emptySet())
+        override suspend fun recordSignal(
+            mediaType: DiscoveryMediaType,
+            cleanTitle: String,
+            title: String,
+            signalType: DiscoverySignalType,
+            genres: List<String>,
+            provider: String?,
+            sourceKey: String?,
+            timestamp: Long,
+        ) {
+            recordedSignals += Triple(mediaType, cleanTitle, signalType)
+        }
+        override suspend fun removeSignal(mediaType: DiscoveryMediaType, cleanTitle: String) {}
+        override suspend fun clearSignals(mediaType: DiscoveryMediaType) {}
+        override suspend fun clearAllSignals() {}
+        override suspend fun restoreSignals(signals: List<DiscoverySignal>) {}
     }
 
     private class FakeSeedSources : DiscoverySeedSources {
@@ -132,6 +163,96 @@ class DiscoveryRunnerTest {
         row shouldBe DiscoveryRowType.LIKE
         items.map { it.title } shouldBe listOf("Fresh Pick")
         items.single().seedTitle shouldBe "Seed One"
+    }
+
+    @Test
+    fun `learned signals merge into builder taste profile`() = runTest {
+        val repo = FakeRepository()
+        // 30 свежих ADD-сигналов по «romance» — выученный профиль обязан попасть
+        // в контекст строителя поверх библиотечного (FakeSeedSources: Drama).
+        repo.signals = (1..30).map {
+            DiscoverySignal(
+                mediaType = DiscoveryMediaType.NOVEL,
+                cleanTitle = "liked $it",
+                title = "Liked $it",
+                signalType = DiscoverySignalType.ADD,
+                genres = listOf("romance"),
+                provider = null,
+                sourceKey = null,
+                createdAt = System.currentTimeMillis(),
+            )
+        }
+        val seenProfiles = mutableListOf<List<Pair<String, Double>>>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = DiscoveryPreferences(InMemoryPreferenceStore()),
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = {
+                DiscoveryCoordinator(
+                    listOf(
+                        object : DiscoveryRowBuilder {
+                            override val rowType = DiscoveryRowType.LIKE
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+                                seenProfiles += context.tasteProfile
+                                return emptyList()
+                            }
+                        },
+                    ),
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        val profile = seenProfiles.single()
+        // Выученный жанр (romance, 30 ADD-сигналов) обязан попасть в профиль строителя.
+        // Библиотечный вклад FakeSeedSources пуст (lastInteraction=1 вне 90-дневного окна)
+        // — это и есть деградированный кейс, где taste держится только на сигналах.
+        profile.map { it.first }.contains("romance") shouldBe true
+        profile.filter { it.first == "romance" }.single().second shouldBe 3.0
+    }
+
+    @Test
+    fun `consumed signal excludes title from generation without touching taste`() = runTest {
+        val repo = FakeRepository()
+        repo.signals = listOf(
+            DiscoverySignal(
+                mediaType = DiscoveryMediaType.NOVEL,
+                cleanTitle = "fresh pick",
+                title = "Fresh Pick",
+                signalType = DiscoverySignalType.CONSUMED,
+                genres = listOf("romance"),
+                provider = null,
+                sourceKey = "com.example.plugin",
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        val seenHidden = mutableListOf<Set<String>>()
+        val seenProfiles = mutableListOf<List<Pair<String, Double>>>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = DiscoveryPreferences(InMemoryPreferenceStore()),
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = {
+                DiscoveryCoordinator(
+                    listOf(
+                        object : DiscoveryRowBuilder {
+                            override val rowType = DiscoveryRowType.LIKE
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+                                seenHidden += context.hiddenCleanTitles
+                                seenProfiles += context.tasteProfile
+                                return emptyList()
+                            }
+                        },
+                    ),
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // «Просмотрено»: тайтл попал в excluded-сет (как hidden), но профиль вкуса
+        // остался пустым — consumed не должен влиять на вкус.
+        seenHidden.single().contains("fresh pick") shouldBe true
+        seenProfiles.single() shouldBe emptyList()
     }
 
     @Test
@@ -278,6 +399,130 @@ class DiscoveryRunnerTest {
             DiscoveryRowType.TREND,
             DiscoveryRowType.SOURCE,
         )
+    }
+
+    @Test
+    fun `background page offset cycles one to ten without duplicates`() {
+        backgroundPageOffset(1) shouldBe 1
+        backgroundPageOffset(2) shouldBe 2
+        backgroundPageOffset(10) shouldBe 10
+        backgroundPageOffset(11) shouldBe 1
+        backgroundPageOffset(20) shouldBe 10
+    }
+
+    @Test
+    fun `external providers off skips like and trend builders and clears their cache`() = runTest {
+        val repo = FakeRepository()
+        val prefs = DiscoveryPreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    InMemoryPreferenceStore.InMemoryPreference("discovery_external_providers", false, true),
+                ),
+            ),
+        )
+        val seenBuilderTypes = mutableListOf<DiscoveryRowType>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = prefs,
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = { builders ->
+                seenBuilderTypes += builders.map { it.rowType }
+                DiscoveryCoordinator(emptyList())
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // Чисто внешние ряды (LIKE/TREND) не строятся — билдеры не создаются.
+        seenBuilderTypes.filter { it == DiscoveryRowType.LIKE || it == DiscoveryRowType.TREND } shouldBe emptyList()
+        // Их кэш-ряды очищены (как при выключенных рядах), TASTE тоже: пустая генерация
+        // без внешних жанровых провайдеров не должна оставлять старые внешние тайтлы.
+        // (LIKE/TREND чистятся до сборки, TASTE — после: порядок вызовов не значим.)
+        repo.replaced.map { it.second }.toSet() shouldBe setOf(
+            DiscoveryRowType.LIKE,
+            DiscoveryRowType.TASTE,
+            DiscoveryRowType.TREND,
+        )
+        repo.replaced.all { it.third.isEmpty() } shouldBe true
+    }
+
+    @Test
+    fun `status filter active wipes empty row caches instead of keeping stale statuses`() = runTest {
+        val repo = FakeRepository()
+        // Фильтр «только Завершённый»; билдер честно возвращает пусто (нет завершённых).
+        // «Пустой ряд не затирает кэш» обязан отступить: старые ряды с НЕзавершёнными
+        // статусами — ровно та жалоба, из-за которой фильтр «не работал».
+        val prefs = DiscoveryPreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    InMemoryPreferenceStore.InMemoryPreference("discovery_release_status_filter", "finished", ""),
+                ),
+            ),
+        )
+        val seenStatuses = mutableListOf<Set<tachiyomi.domain.discovery.model.DiscoveryReleaseStatus>>()
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = prefs,
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = { builders ->
+                DiscoveryCoordinator(
+                    builders.map { b ->
+                        object : DiscoveryRowBuilder {
+                            override val rowType = b.rowType
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> {
+                                seenStatuses += context.releaseStatuses
+                                return emptyList()
+                            }
+                        }
+                    },
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // Контекст донёс фильтр до билдеров, пустые ряды вычищены из кэша.
+        seenStatuses.all { it == setOf(tachiyomi.domain.discovery.model.DiscoveryReleaseStatus.FINISHED) } shouldBe true
+        repo.replaced.map { it.second }.toSet() shouldBe setOf(
+            DiscoveryRowType.LIKE,
+            DiscoveryRowType.TASTE,
+            DiscoveryRowType.TREND,
+            DiscoveryRowType.SOURCE,
+        )
+        repo.replaced.all { it.third.isEmpty() } shouldBe true
+    }
+
+    @Test
+    fun `status filter wipe does not touch failed rows`() = runTest {
+        val repo = FakeRepository()
+        // Активный фильтр + ряд LIKE упал (сеть/провайдер): кэш LIKE обязан выжить —
+        // «пустой ряд не перезаписывает» старше явного вайпа, иначе при отвале сети
+        // с включённым фильтром лента пропадала бы целиком.
+        val prefs = DiscoveryPreferences(
+            InMemoryPreferenceStore(
+                sequenceOf(
+                    InMemoryPreferenceStore.InMemoryPreference("discovery_release_status_filter", "finished", ""),
+                ),
+            ),
+        )
+        val runner = DiscoveryRunner(
+            repository = repo,
+            preferences = prefs,
+            seedSources = FakeSeedSources(),
+            coordinatorFactory = {
+                DiscoveryCoordinator(
+                    listOf(
+                        object : DiscoveryRowBuilder {
+                            override val rowType = DiscoveryRowType.LIKE
+                            override suspend fun build(context: DiscoveryBuildContext): List<DiscoveryRowItem> =
+                                throw IOException("network boom")
+                        },
+                    ),
+                )
+            },
+            sourcePreferencesProvider = ::testSourcePrefs,
+        )
+        runner.run(listOf(DiscoveryMediaType.NOVEL))
+        // LIKE упал → кэш не тронут (вайп только по честно-пустым рядам).
+        repo.replaced.none { it.second == DiscoveryRowType.LIKE } shouldBe true
     }
 
     // ── Source participation (Task 2) ────────────────────────────────────────────

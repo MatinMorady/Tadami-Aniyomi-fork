@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.data.discovery.DiscoveryRowItem
 import eu.kanade.tachiyomi.data.discovery.DiscoveryTrendingSource
 import eu.kanade.tachiyomi.data.discovery.DiscoveryUpdateJob
 import eu.kanade.tachiyomi.data.discovery.META_PREFETCH_COUNT
+import eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder
 import eu.kanade.tachiyomi.data.discovery.dedupeCrossRow
 import eu.kanade.tachiyomi.data.discovery.expandGenreSet
 import eu.kanade.tachiyomi.data.discovery.interleaveMix
@@ -20,6 +21,7 @@ import eu.kanade.tachiyomi.data.suggestions.SuggestionItem
 import eu.kanade.tachiyomi.data.suggestions.SuggestionReason
 import eu.kanade.tachiyomi.data.suggestions.sources.SuggestionMediaType
 import eu.kanade.tachiyomi.util.system.isRunningFlow
+import eu.kanade.tachiyomi.util.system.toast
 import eu.kanade.tachiyomi.util.system.workManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -31,15 +33,18 @@ import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.discovery.model.DiscoveryMediaType
 import tachiyomi.domain.discovery.model.DiscoveryRowType
+import tachiyomi.domain.discovery.model.DiscoverySignalType
 import tachiyomi.domain.discovery.model.DiscoverySuggestion
 import tachiyomi.domain.discovery.repository.DiscoveryRepository
 import tachiyomi.domain.entries.anime.interactor.NetworkToLocalAnime
 import tachiyomi.domain.entries.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.entries.novel.interactor.NetworkToLocalNovel
+import tachiyomi.i18n.aniyomi.AYMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import tachiyomi.core.common.i18n.stringResource as contextStringResource
 
-data class DiscoveryFeedUiState(
+internal data class DiscoveryFeedUiState(
     val mediaType: DiscoveryMediaType = DiscoveryMediaType.ANIME,
     val rows: Map<DiscoveryRowType, List<DiscoverySuggestion>> = emptyMap(),
     val mix: List<DiscoverySuggestion> = emptyList(),
@@ -62,6 +67,8 @@ data class DiscoveryFeedUiState(
     val tagSnackbar: Pair<String, Int>? = null,
     // Lazy cover recovery: инкремент на каждое восстановленное покрытие — ключ рекомпозиции обложек.
     val coverRecoveryTick: Int = 0,
+    // Табы, видимые при текущих настройках рядов/провайдеров (выключенный ряд = мёртвый таб).
+    val visibleTabs: Set<FeedSignalTab> = FeedSignalTab.entries.toSet(),
 )
 
 /** CSV ключей упавших рядов из prefs → набор [DiscoveryRowType]. */
@@ -97,6 +104,7 @@ internal fun providerOptions(state: DiscoveryFeedUiState): List<String> =
     state.rows.values.flatten().map { it.provider }.distinct().sorted()
 
 internal const val DISCOVERY_REFRESH_COOLDOWN_MS = 5 * 60_000L
+internal const val HOME_DISCOVERY_COOLDOWN_MS = 10_000L
 
 internal fun remainingCooldownSeconds(
     lastRefreshAt: Long?,
@@ -181,7 +189,7 @@ internal suspend fun prefetchDiscoveryMeta(
  * библиотеку точным поиском в источнике рекомендации (для внешних провайдеров
  * и при промахе открывает поиск); лонг-пресс скрывает с Undo.
  */
-class DiscoveryFeedScreenModel(
+internal class DiscoveryFeedScreenModel(
     initialMedia: DiscoveryMediaType,
     private val context: Context,
     private val repository: DiscoveryRepository = Injekt.get(),
@@ -200,6 +208,30 @@ class DiscoveryFeedScreenModel(
 
     fun start() {
         observeMedia(state.value.mediaType)
+        observeVisibleTabs()
+    }
+
+    /** Табы по настройкам рядов/провайдеров: выключенный ряд — мёртвый таб, скрываем. */
+    private fun observeVisibleTabs() {
+        screenModelScope.launchIO {
+            combine(
+                preferences.rowLikeEnabled().changes(),
+                preferences.rowTrendEnabled().changes(),
+                preferences.rowTasteEnabled().changes(),
+                preferences.rowSourceEnabled().changes(),
+                preferences.externalProvidersEnabled().changes(),
+            ) { like, trend, taste, source, external ->
+                buildSet {
+                    add(FeedSignalTab.MIX)
+                    if (like && external) add(FeedSignalTab.SIMILAR)
+                    if (taste) add(FeedSignalTab.TASTE)
+                    if (trend && external) add(FeedSignalTab.FRESH)
+                    if (source) add(FeedSignalTab.SOURCE)
+                }
+            }.collectLatest { tabs ->
+                mutableState.update { it.copy(visibleTabs = tabs) }
+            }
+        }
     }
 
     private fun observeMedia(mediaType: DiscoveryMediaType) {
@@ -208,18 +240,25 @@ class DiscoveryFeedScreenModel(
             combine(
                 repository.subscribe(mediaType),
                 refreshingFlow(),
-                repository.subscribeHidden(mediaType),
+                // «Просмотрено/прочитано»: мгновенно уходит из ленты (в т.ч. инкогнито).
+                combine(
+                    repository.subscribeHidden(mediaType),
+                    repository.subscribeConsumed(mediaType),
+                ) { hidden, consumed -> hidden to consumed },
                 preferences.lastFailedRows(mediaType).changes(),
                 repository.subscribeBlacklist(mediaType),
-            ) { all, refreshing, hidden, failedCsv, blacklist ->
-                FeedSources(all, refreshing, hidden, failedCsv, blacklist)
+            ) { all, refreshing, hiddenAndConsumed, failedCsv, blacklist ->
+                FeedSources(all, refreshing, hiddenAndConsumed.first, failedCsv, blacklist, hiddenAndConsumed.second)
             }
-                .collectLatest { (all, refreshing, hidden, failedCsv, blacklist) ->
+                .collectLatest { (all, refreshing, hidden, failedCsv, blacklist, consumed) ->
                     // Кросс-рядовой дедуп: упавший ряд живёт старым кэшем и может
                     // содержать тайтлы свежих рядов — приоритет у rowType.ordinal.
                     val expandedBlacklist = expandGenreSet(blacklist.toList())
                     val visible = dedupeCrossRow(
-                        all.filterNot { it.cleanTitle in hidden || isBlacklisted(it, expandedBlacklist) },
+                        all.filterNot {
+                            it.cleanTitle in hidden || it.cleanTitle in consumed ||
+                                isBlacklisted(it, expandedBlacklist)
+                        },
                     )
                     val rows = groupFeedRows(visible)
                     val rowItems = rows.mapValues { (_, items) -> items.map { it.toRowItem() } }
@@ -259,6 +298,7 @@ class DiscoveryFeedScreenModel(
         val hidden: Set<String>,
         val failedCsv: String,
         val blacklist: Set<String>,
+        val consumed: Set<String>,
     )
 
     private fun DiscoverySuggestion.toRowItem() = DiscoveryRowItem(
@@ -292,6 +332,8 @@ class DiscoveryFeedScreenModel(
         lastHidden = item
         mutableState.update { it.copy(hiddenSnackbarTitle = item.title) }
         screenModelScope.launchIO {
+            // Taste Engine: скрытие = сильный негативный сигнал (undo удаляет строку лога).
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.HIDE)
             repository.hide(state.value.mediaType, item.cleanTitle)
         }
     }
@@ -301,6 +343,8 @@ class DiscoveryFeedScreenModel(
         mutableState.update { it.copy(hiddenSnackbarTitle = null) }
         screenModelScope.launchIO {
             repository.unhide(state.value.mediaType, item.cleanTitle)
+            // Taste Engine: undo отменяет и сигнал (профиль возвращается к «до скрытия»).
+            repository.removeSignal(state.value.mediaType, item.cleanTitle)
         }
     }
 
@@ -335,6 +379,10 @@ class DiscoveryFeedScreenModel(
             } finally {
                 mutableState.update { it.copy(addingTitles = it.addingTitles - item.title) }
             }
+            if (ok) {
+                // Taste Engine: добавление в библиотеку = сильнейший позитивный сигнал.
+                TasteSignalRecorder.record(repository, item, DiscoverySignalType.ADD)
+            }
             mutableState.update {
                 if (ok) {
                     it.copy(addedSnackbarTitle = item.title, searchFallbackItem = null)
@@ -343,6 +391,33 @@ class DiscoveryFeedScreenModel(
                 }
             }
         }
+    }
+
+    /** Taste Engine: клик по карточке — слабый позитивный сигнал (guard повторного тапа уже есть). */
+    fun recordClick(item: DiscoverySuggestion) {
+        screenModelScope.launchIO {
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.CLICK)
+        }
+    }
+
+    /** Taste Engine: «Больше такого» — сильный позитивный сигнал + тост-подтверждение. */
+    fun recordLike(item: DiscoverySuggestion) {
+        screenModelScope.launchIO {
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.LIKE)
+        }
+        context.toast(
+            context.contextStringResource(AYMR.strings.for_you_more_like_this_toast),
+        )
+    }
+
+    /** Taste Engine: «Просмотрено» — нейтральное исключение (вкус не трогает) + тост. */
+    fun recordConsumed(item: DiscoverySuggestion) {
+        screenModelScope.launchIO {
+            TasteSignalRecorder.record(repository, item, DiscoverySignalType.CONSUMED)
+        }
+        context.toast(
+            context.contextStringResource(AYMR.strings.for_you_mark_consumed_toast),
+        )
     }
 
     fun dismissSearchFallback() = mutableState.update { it.copy(searchFallbackItem = null) }

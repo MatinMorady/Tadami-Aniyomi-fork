@@ -34,6 +34,33 @@ class DiscoveryPreferences(private val preferenceStore: PreferenceStore) {
     /** Момент последнего РУЧНОГО обновления (общий cooldown home/feed, 5 мин от нажатия). */
     fun manualRefreshAt(): Preference<Long> = preferenceStore.getLong("discovery_manual_refresh_at", 0L)
 
+    /** Момент последнего РУЧНОГО обновления ленты на главном экране (10 сек cooldown per-media). */
+    fun homeManualRefreshAt(mediaType: DiscoveryMediaType): Preference<Long> =
+        preferenceStore.getLong("discovery_home_manual_refresh_at_" + mediaType.key, 0L)
+
+    /** Число ручных обновлений per-media для динамической ротации сидов и страниц источников. */
+    fun manualRefreshCount(mediaType: DiscoveryMediaType): Preference<Int> =
+        preferenceStore.getInt("discovery_manual_refresh_count_" + mediaType.key, 0)
+
+    /** Число фоновых циклов обновления per-media — ротация страниц провайдеров для авто-обновлений. */
+    fun backgroundCycleCount(mediaType: DiscoveryMediaType): Preference<Int> =
+        preferenceStore.getInt("discovery_background_cycle_count_" + mediaType.key, 0)
+
+    /**
+     * Внешние сервисы рекомендаций (AniList, Shikimori, MAL, Jikan, MangaDex, MU/NU):
+     * false — подборки строятся только из каталогов установленных плагинов;
+     * ряды «Похоже» и «Тренды» (чисто внешние) не генерируются и чистятся из кэша.
+     */
+    fun externalProvidersEnabled(): Preference<Boolean> =
+        preferenceStore.getBoolean("discovery_external_providers", true)
+
+    /**
+     * Момент последней попытки bootstrap-генерации ленты медиатипа (анти-шторм:
+     * при стойких неудачах генерации вход на вкладку не должен перезапускать её).
+     */
+    fun bootstrapAttemptAt(mediaType: DiscoveryMediaType): Preference<Long> =
+        preferenceStore.getLong("discovery_bootstrap_attempt_at_" + mediaType.key, 0L)
+
     /**
      * Независимый фильтр контента 18+ во внешних провайдерах подборок.
      * Игнорирует общесистемную NSFW-настройку приложения: включён — фильтрует всегда.

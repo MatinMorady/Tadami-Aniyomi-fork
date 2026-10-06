@@ -112,6 +112,8 @@ data class Backup(
     // Discovery «Для тебя»: скрытые тайтлы и теговый блэклист (кэш подборок не бэкапится)
     @ProtoNumber(624) var backupDiscoveryHidden: List<BackupDiscoveryHidden> = emptyList(),
     @ProtoNumber(625) var backupDiscoveryBlacklistTags: List<BackupDiscoveryTag> = emptyList(),
+    // Taste Learning Engine: сигнал-лог вкусов (переживает переустановку вместе с остальным discovery).
+    @ProtoNumber(627) var backupDiscoverySignals: List<BackupDiscoverySignal> = emptyList(),
 )
 
 /**

@@ -139,7 +139,24 @@ class ReaderViewModel @JvmOverloads constructor(
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     private val eventBus: AchievementEventBus = Injekt.get(),
     private val activityDataRepository: ActivityDataRepository = Injekt.get(),
+    private val discoveryRepository: tachiyomi.domain.discovery.repository.DiscoveryRepository = Injekt.get(),
 ) : ViewModel() {
+
+    /**
+     * Taste Engine: «просмотрено» — открытие читалки помечает тайтл consumed
+     * (нейтральный вес 0: вкус не трогает, тайтл уходит из ленты «Для вас»).
+     * Хук на открытие, не на запись истории — работает и в инкогнито.
+     */
+    private fun markDiscoveryConsumed(title: String, sourceId: Long) {
+        viewModelScope.launchIO {
+            eu.kanade.tachiyomi.data.discovery.TasteSignalRecorder.recordConsumed(
+                repository = discoveryRepository,
+                mediaType = tachiyomi.domain.discovery.model.DiscoveryMediaType.MANGA,
+                title = title,
+                sourceId = sourceId,
+            )
+        }
+    }
 
     private val mutableState = MutableStateFlow(
         State(
@@ -450,6 +467,12 @@ class ReaderViewModel @JvmOverloads constructor(
         currentChapter.requestedPageOffsetRatioPpm = decodedProgress.offsetRatioPpm
         chapterPageIndex = pageIndex
 
+        // Incognito pauses PERSISTENCE, not live position tracking: the in-memory seed above is
+        // what a viewer recreation (rotation) restores from, and applySavedProgress already
+        // relies on scroll tracking to keep the live position when history is paused. With the
+        // early return at the top of this function every rotation landed at the page top.
+        if (shouldPauseHistory()) return
+
         currentChapter.chapter.last_page_read = encodedProgress
 
         pendingWebtoonProgress = PendingWebtoonProgress(
@@ -565,6 +588,9 @@ class ReaderViewModel @JvmOverloads constructor(
                     sourceManager.isInitialized.first { it }
                     mutableState.update { it.copy(manga = manga) }
                     observeForegroundIncognito(manga.source)
+                    // Taste Engine: «просмотрено» — нейтральное исключение из ленты
+                    // «Для тебя»; хук на открытие читалки работает и в инкогнито.
+                    markDiscoveryConsumed(manga.title, manga.source)
                     if (chapterId == -1L) chapterId = initialChapterId
 
                     val context = Injekt.get<Application>()
@@ -892,9 +918,15 @@ class ReaderViewModel @JvmOverloads constructor(
                 estimatedMinutesLeft = estimatedMinutes,
             )
         }
+        // Reset the intra-page offset only on an actual page turn. On a viewer recreation
+        // (rotation) onPageSelected fires for the page being restored, and this runs on IO via
+        // launchNonCancellable - zeroing raced the main-thread restore settle and could wipe the
+        // seed after the settle wrote it back, landing the next restore at the page top.
+        if (readerChapter.requestedPage != pageIndex) {
+            readerChapter.requestedPageOffset = 0
+            readerChapter.requestedPageOffsetRatioPpm = null
+        }
         readerChapter.requestedPage = pageIndex
-        readerChapter.requestedPageOffset = 0
-        readerChapter.requestedPageOffsetRatioPpm = null
         chapterPageIndex = pageIndex
 
         if (!shouldPauseHistory() && page.status != Page.State.ERROR) {
@@ -1671,12 +1703,12 @@ class ReaderViewModel @JvmOverloads constructor(
     }
 
     private fun shouldHandleLongPageProgress(): Boolean {
+        if (shouldPauseHistory()) return false
         if (!readerPreferences.saveLongPagePosition().get()) return false
         return shouldTrackWebtoonChapterProgress()
     }
 
     private fun shouldTrackWebtoonChapterProgress(): Boolean {
-        if (shouldPauseHistory()) return false
         return when (ReadingMode.fromPreference(getMangaReadingMode())) {
             ReadingMode.WEBTOON,
             ReadingMode.CONTINUOUS_VERTICAL,

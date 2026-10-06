@@ -22,16 +22,14 @@ class MapTrackStatusToLibraryTest {
 
     private val trackerManager = mockk<TrackerManager>()
 
+    // The mappers read the status lists straight off the tracker (it IS the media service), so
+    // the configured service mock is registered as the tracker itself.
     private fun givenMangaTracker(service: Any) {
-        val tracker = mockk<BaseTracker>()
-        every { tracker.mangaService } returns service as eu.kanade.tachiyomi.data.track.MangaTracker
-        every { trackerManager.get(1L) } returns tracker
+        every { trackerManager.get(1L) } returns service as BaseTracker
     }
 
     private fun givenAnimeTracker(service: Any) {
-        val tracker = mockk<BaseTracker>()
-        every { tracker.animeService } returns service as eu.kanade.tachiyomi.data.track.AnimeTracker
-        every { trackerManager.get(1L) } returns tracker
+        every { trackerManager.get(1L) } returns service as BaseTracker
     }
 
     private fun anilistManga(): Anilist {
@@ -87,6 +85,20 @@ class MapTrackStatusToLibraryTest {
         mapper.map(1L, Kitsu.ON_HOLD) shouldBe LibraryTrackStatus.ON_HOLD
         mapper.map(1L, Kitsu.DROPPED) shouldBe LibraryTrackStatus.DROPPED
         mapper.map(1L, Kitsu.PLAN_TO_WATCH) shouldBe LibraryTrackStatus.PLAN_TO_READ
+    }
+
+    @Test
+    fun `track of a media type the service does not support maps to OTHER instead of crashing`() {
+        // Regression: a MangaUpdates (manga-only) track row on an anime entry made the anime
+        // mapper cast it to AnimeTracker and die with ClassCastException, crashing the discovery
+        // sources screen on load.
+        val mangaOnly = mockk<eu.kanade.tachiyomi.data.track.mangaupdates.MangaUpdates>()
+        every { trackerManager.get(2L) } returns mangaOnly
+        MapAnimeTrackStatusToLibrary(trackerManager).map(2L, 1L) shouldBe LibraryTrackStatus.OTHER
+
+        val animeOnly = mockk<eu.kanade.tachiyomi.data.track.simkl.Simkl>()
+        every { trackerManager.get(3L) } returns animeOnly
+        MapMangaTrackStatusToLibrary(trackerManager).map(3L, 1L) shouldBe LibraryTrackStatus.OTHER
     }
 
     @Test

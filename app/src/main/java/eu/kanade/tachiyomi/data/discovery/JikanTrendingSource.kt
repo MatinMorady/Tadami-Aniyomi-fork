@@ -148,7 +148,9 @@ open class JikanTrendingSource(
             val response = clientProvider().newCall(GET(url))
                 .awaitSuccess()
                 .parseAs<JsonObject>(jsonProvider())
-            parseJikanAnimePage(response, null)
+            // NSFW-фильтр применяется и на genre-пути (прежний пропуск
+            // просачивал Rx-тайтлы в TASTE-кандидатов).
+            parseJikanAnimePage(response, null, dropRx = nsfwFilterProvider())
                 .let { filterByJikanStatus(it, releaseStatuses) }
         } catch (e: CancellationException) {
             throw e
