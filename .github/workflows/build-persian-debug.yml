@@ -54,13 +54,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find app/build/outputs/apk/debug -type f -name '*.apk' -print
-          test -n "$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
+          find app/build/outputs/apk/debug -type f -name '*arm64-v8a*.apk' -print
+          test -n "$(find app/build/outputs/apk/debug -type f -name '*arm64-v8a*.apk' -print -quit)"
 
       - name: Upload APK files
         uses: actions/upload-artifact@v7
         with:
           name: tadami-persian-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*arm64-v8a*.apk
           if-no-files-found: error
           retention-days: 7
